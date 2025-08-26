@@ -1,5 +1,5 @@
+import { isAbsolute, relative, resolve, join } from 'node:path'
 import { readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
 
 import type { GitHubAction } from '../types/github-action'
 import type { ScanResult } from '../types/scan-result'
@@ -37,17 +37,39 @@ export async function scanGitHubActions(
     actions: [],
   }
 
-  let githubPath = join(rootPath, GITHUB_DIRECTORY)
+  let normalizedRoot = resolve(rootPath)
 
-  /* Check if .github exists. */
-  try {
-    await stat(githubPath)
-  } catch {
-    return result
+  function isWithin(root: string, candidate: string): boolean {
+    let relativePath = relative(root, candidate)
+    return (
+      relativePath !== '' &&
+      !relativePath.startsWith('..') &&
+      !isAbsolute(relativePath)
+    )
+  }
+
+  let githubPath = join(normalizedRoot, GITHUB_DIRECTORY)
+
+  if (!isWithin(normalizedRoot, githubPath)) {
+    throw new Error('Invalid path: detected path traversal attempt')
+  }
+
+  /* Helper function to validate names for path traversal. */
+  function isValidName(name: string): boolean {
+    if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+      console.warn(`Skipping invalid name: ${name}`)
+      return false
+    }
+    return true
   }
 
   /* Scan workflows. */
   let workflowsPath = join(githubPath, WORKFLOWS_DIRECTORY)
+
+  if (!isWithin(normalizedRoot, workflowsPath)) {
+    return result
+  }
+
   try {
     let workflowsStat = await stat(workflowsPath)
 
@@ -55,9 +77,24 @@ export async function scanGitHubActions(
       let files = await readdir(workflowsPath)
 
       let workflowPromises = files
-        .filter(file => isYamlFile(file))
+        .filter(file => {
+          /** Validate filename to prevent traversal. */
+          if (!isValidName(file)) {
+            return false
+          }
+          return isYamlFile(file)
+        })
         .map(async file => {
           let filePath = join(workflowsPath, file)
+
+          if (!isWithin(workflowsPath, filePath)) {
+            console.warn(`Skipping file outside workflows directory: ${file}`)
+            return {
+              success: false,
+              actions: [],
+              path: '',
+            }
+          }
 
           try {
             let actions = await scanWorkflowFile(filePath)
@@ -79,7 +116,7 @@ export async function scanGitHubActions(
 
       /* Only add successfully scanned workflows to results. */
       for (let workflow of workflowResults) {
-        if (workflow.success) {
+        if (workflow.success && workflow.path) {
           if (workflow.actions.length > 0) {
             result.workflows.set(workflow.path, workflow.actions)
             result.actions.push(...workflow.actions)
@@ -95,7 +132,12 @@ export async function scanGitHubActions(
   }
 
   /* Scan composite actions. */
-  let actionsPath = join(githubPath, 'actions')
+  let actionsPath = join(githubPath, ACTIONS_DIRECTORY)
+
+  if (!isWithin(normalizedRoot, actionsPath)) {
+    return result
+  }
+
   try {
     let actionsStat = await stat(actionsPath)
 
@@ -103,7 +145,18 @@ export async function scanGitHubActions(
       let subdirectories = await readdir(actionsPath)
 
       let actionPromises = subdirectories.map(async subdir => {
+        /** Validate subdirectory name to prevent traversal. */
+        if (!isValidName(subdir)) {
+          return null
+        }
+
         let subdirPath = join(actionsPath, subdir)
+
+        /** Ensure subdirectory path is within the actions directory. */
+        if (!isWithin(actionsPath, subdirPath)) {
+          console.warn(`Skipping subdirectory outside actions path: ${subdir}`)
+          return null
+        }
 
         try {
           let subdirectoryStat = await stat(subdirPath)
@@ -113,6 +166,12 @@ export async function scanGitHubActions(
           }
 
           let actionFilePath = join(subdirPath, 'action.yml')
+
+          /** Validate action file path. */
+          if (!isWithin(subdirPath, actionFilePath)) {
+            return null
+          }
+
           let actions: GitHubAction[] = []
 
           try {
@@ -120,6 +179,12 @@ export async function scanGitHubActions(
           } catch {
             try {
               actionFilePath = join(subdirPath, 'action.yaml')
+
+              /** Validate action file path for yaml variant. */
+              if (!isWithin(subdirPath, actionFilePath)) {
+                return null
+              }
+
               actions = await scanActionFile(actionFilePath)
             } catch {
               return null
