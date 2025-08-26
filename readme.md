@@ -41,30 +41,30 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
   <img
     src="https://raw.githubusercontent.com/azat-io/actions-up/main/assets/example-light.webp"
     alt="Token Limit CLI Example"
-    width="600"
+    width="820"
   />
 </picture>
 
-## Installation
+## GitHub Token Required
 
-```bash
-npm install -g actions-up
-```
+> **Important**: GitHub API has strict rate limits (60 requests/hour without token vs 5000 with token).
+> A GitHub token is **practically required** for using Actions Up.
 
-Or use directly with npx:
+### Quick Token Setup
 
-```bash
-npx actions-up
-```
+[Create a GitHub Personal Access Token](https://github.com/settings/tokens/new?scopes=public_repo&description=actions-up).
+
+- For public repositories: Select `public_repo` scope
+- For private repositories: Select `repo` scope
 
 ## Usage
 
 ### Interactive Mode (Default)
 
-Run in your repository root:
+Run in your repository root with GitHub token:
 
 ```bash
-actions-up
+GITHUB_TOKEN=ghp_xxxx npx actions-up
 ```
 
 This will:
@@ -79,17 +79,30 @@ This will:
 Skip all prompts and update everything:
 
 ```bash
-actions-up --yes
+GITHUB_TOKEN=ghp_xxxx npx actions-up --yes
 # or
-actions-up -y
+GITHUB_TOKEN=ghp_xxxx npx actions-up -y
 ```
 
-### With GitHub Token
+## Convenient Setup
 
-To avoid rate limits [create a GitHub personal access token](https://github.com/settings/tokens/new?scopes=public_repo&description=actions-up) and set it as an environment variable:
+### Shell Aliases
+
+Add to your `.zshrc`, `.bashrc` or `.config/fish/config.fish`:
 
 ```bash
-GITHUB_TOKEN=ghp_xxxx actions-up
+# Basic alias with token from environment
+export GITHUB_TOKEN=ghp_xxxx  # Add this once to your shell config
+alias actions-up='GITHUB_TOKEN=$GITHUB_TOKEN npx actions-up'
+
+# With token from file
+alias actions-up='GITHUB_TOKEN=$(cat ~/.github-token) npx actions-up'
+
+# With 1Password CLI
+alias actions-up='GITHUB_TOKEN=$(op read "op://Personal/GitHub/token") npx actions-up'
+
+# With macOS Keychain
+alias actions-up='GITHUB_TOKEN=$(security find-generic-password -w -s "github-token") npx actions-up'
 ```
 
 ## Example
@@ -103,12 +116,6 @@ GITHUB_TOKEN=ghp_xxxx actions-up
 - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
 ```
-
-## Configuration
-
-### Environment Variables
-
-- `GITHUB_TOKEN` - GitHub personal access token for API requests (optional but recommended)
 
 ## Security
 
