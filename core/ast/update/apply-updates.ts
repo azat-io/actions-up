@@ -32,18 +32,35 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
           continue
         }
 
-        let escapedName = update.action.name.replaceAll(
-          /[$()*+.?[\\\]^{|}]/gu,
-          String.raw`\$&`,
-        )
+        function escapeRegExp(string_: string): string {
+          return string_.replaceAll(/[$()*+\-./?[\\\]^{|}]/gu, String.raw`\$&`)
+        }
 
-        let escapedVersion = update.currentVersion?.replaceAll(
-          /[$()*+.?[\\\]^{|}]/gu,
-          String.raw`\$&`,
-        )
+        let escapedName = escapeRegExp(update.action.name)
+        let escapedVersion = update.currentVersion
+          ? escapeRegExp(update.currentVersion)
+          : ''
+
+        if (escapedName.includes('\n') || escapedName.includes('\r')) {
+          console.error(`Invalid action name: ${update.action.name}`)
+          continue
+        }
+
+        if (
+          escapedVersion &&
+          (escapedVersion.includes('\n') || escapedVersion.includes('\r'))
+        ) {
+          console.error(`Invalid version: ${update.currentVersion}`)
+          continue
+        }
+
+        if (!/^[\da-f]{40}$/iu.test(update.latestSha)) {
+          console.error(`Invalid SHA format: ${update.latestSha}`)
+          continue
+        }
 
         let pattern = new RegExp(
-          String.raw`(^\s*-?\s*uses:\s*)(['"]?)(${escapedName})@${escapedVersion}\2(\s*#[^\n]*)?`,
+          `(^\\s*-?\\s*uses:\\s*)(['"]?)(${escapedName})@${escapedVersion}\\2(\\s*#[^\\n]*)?`,
           'gm',
         )
 

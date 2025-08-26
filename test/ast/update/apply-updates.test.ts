@@ -240,4 +240,81 @@ describe('applyUpdates', () => {
     assertString(content)
     expect(content).toBe(original)
   })
+
+  it('handles missing currentVersion by matching bare @ and replacing, leaving original suffix', async () => {
+    let filePath = '/repo/.github/workflows/missing-version.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        typeof path === 'string' && path === filePath ? original : '',
+      ),
+    )
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: null, // Simulate unknown parsed version
+        },
+        latestSha: '1234567890abcdef1234567890abcdef12345678',
+        latestVersion: 'v3.1.5',
+        currentVersion: null,
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toContain(
+      '  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5v3',
+    )
+  })
+
+  it('skips update when action name contains newline and logs error', async () => {
+    let filePath = '/repo/.github/workflows/invalid-name.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        typeof path === 'string' && path === filePath ? original : '',
+      ),
+    )
+
+    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache\nmalformed',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestSha: '1234567890abcdef1234567890abcdef12345678',
+        latestVersion: 'v3.1.5',
+        currentVersion: 'v3',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toBe(original)
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Invalid action name: actions/cache\nmalformed',
+    )
+  })
 })
