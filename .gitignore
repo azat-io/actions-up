@@ -1,0 +1,28 @@
+# AI
+
+.claude/
+.serena/
+
+# Build
+
+dist/
+
+# Editor
+
+.vscode/
+.vim/
+.idea/
+
+# Node.js
+
+.pnpm_store/
+node_modules/
+.nvmrc
+
+# Test
+
+coverage/
+
+# Misc
+
+.DS_Store

@@ -1,0 +1,8 @@
+name: Build Package
+
+runs:
+  using: composite
+  steps:
+    - name: Build Package
+      run: pnpm run build
+      shell: bash
