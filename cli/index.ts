@@ -11,6 +11,9 @@ import { version } from '../package.json'
 
 /** CLI Options. */
 interface CLIOptions {
+  /** Preview changes without applying them. */
+  dryRun: boolean
+
   /** Skip all confirmations. */
   yes: boolean
 }
@@ -23,6 +26,7 @@ export function run(): void {
     .help()
     .version(version)
     .option('--yes, -y', 'Skip all confirmations')
+    .option('--dry-run', 'Preview changes without applying them')
     .command('', 'Update GitHub Actions')
     .action(async (options: CLIOptions) => {
       console.info(pc.cyan('\n🚀 Actions Up!\n'))
@@ -75,6 +79,24 @@ export function run(): void {
             breaking.length > 0 ? ` (${pc.red(breaking.length)} breaking)` : ''
           }`,
         )
+
+        if (options.dryRun) {
+          console.info(pc.yellow('\n📋 Dry Run - No changes will be made\n'))
+
+          for (let update of outdated) {
+            console.info(
+              `${pc.cyan(update.action.file ?? 'unknown')}:\n` +
+                `${update.action.name}: ${pc.red(update.currentVersion)} → ${pc.green(
+                  update.latestVersion,
+                )} ${update.latestSha ? pc.gray(`(${update.latestSha.slice(0, 7)})`) : ''}\n`,
+            )
+          }
+
+          console.info(
+            pc.gray(`\n${outdated.length} actions would be updated\n`),
+          )
+          return
+        }
 
         if (options.yes) {
           /* Auto-update all actions with SHA */
