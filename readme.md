@@ -66,18 +66,6 @@ Actions Up transforms a painful manual process into a delightful experience:
 | Risk using vulnerable versions | SHA pinning for maximum security |
 | 30+ minutes per repository     | Under 1 minute total             |
 
-## GitHub Token Required
-
-> **Important**: GitHub API has strict rate limits (60 requests/hour without token vs 5000 with token).
-> A GitHub token is **practically required** for using Actions Up.
-
-### Quick Token Setup
-
-[Create a GitHub Personal Access Token](https://github.com/settings/tokens/new?scopes=public_repo&description=actions-up).
-
-- For public repositories: Select `public_repo` scope
-- For private repositories: Select `repo` scope
-
 ## Installation
 
 Quick use (no installation)
@@ -102,10 +90,10 @@ npm install --save-dev actions-up
 
 ### Interactive Mode (Default)
 
-Run in your repository root with GitHub token:
+Run in your repository root:
 
 ```bash
-GITHUB_TOKEN=ghp_xxxx npx actions-up
+npx actions-up
 ```
 
 This will:
@@ -120,30 +108,9 @@ This will:
 Skip all prompts and update everything:
 
 ```bash
-GITHUB_TOKEN=ghp_xxxx npx actions-up --yes
+npx actions-up --yes
 # or
-GITHUB_TOKEN=ghp_xxxx npx actions-up -y
-```
-
-## Pro Tips
-
-### Shell Aliases
-
-Add to your `.zshrc`, `.bashrc` or `.config/fish/config.fish`:
-
-```bash
-# Basic alias with token from environment
-export GITHUB_TOKEN=ghp_xxxx  # Add this once to your shell config
-alias actions-up='GITHUB_TOKEN=$GITHUB_TOKEN npx actions-up'
-
-# With token from file
-alias actions-up='GITHUB_TOKEN=$(cat ~/.github-token) npx actions-up'
-
-# With 1Password CLI
-alias actions-up='GITHUB_TOKEN=$(op read "op://Personal/GitHub/token") npx actions-up'
-
-# With macOS Keychain
-alias actions-up='GITHUB_TOKEN=$(security find-generic-password -w -s "github-token") npx actions-up'
+npx actions-up -y
 ```
 
 ## Example
@@ -157,6 +124,17 @@ alias actions-up='GITHUB_TOKEN=$(security find-generic-password -w -s "github-to
 - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
 ```
+
+## Advanced Usage
+
+### Using GitHub Token for Higher Rate Limits
+
+While Actions Up works without authentication, providing a GitHub token increases API rate limits from 60 to 5000 requests per hour, useful for large projects:
+
+[Create a GitHub Personal Access Token](https://github.com/settings/tokens/new?scopes=public_repo&description=actions-up).
+
+- For public repositories: Select `public_repo` scope
+- For private repositories: Select `repo` scope
 
 ## Security
 

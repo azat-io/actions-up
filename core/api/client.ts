@@ -1,63 +1,4 @@
-import type {
-  RateLimit,
-  Release,
-  Commit,
-  Maybe,
-  Tag,
-} from '@octokit/graphql-schema'
-
-import { GraphqlResponseError, graphql } from '@octokit/graphql'
-
-/** GraphQL response shape for fetching all releases. */
-interface AllReleasesResponse {
-  /** Repository data containing releases. */
-  repository: Maybe<{
-    /** Releases connection with nodes. */
-    releases: Maybe<{
-      /** Array of release nodes. */
-      nodes: (Pick<
-        Release,
-        | 'isPrerelease'
-        | 'description'
-        | 'publishedAt'
-        | 'tagName'
-        | 'name'
-        | 'url'
-      > & {
-        /** Commit associated with the release tag. */
-        tagCommit?: Maybe<Pick<Commit, 'oid'>>
-      })[]
-    }>
-  }>
-
-  /** Current rate limit information. */
-  rateLimit: RateLimit
-}
-
-/** GraphQL response shape for fetching the latest release. */
-interface LatestReleaseResponse {
-  /** Repository data containing release information. */
-  repository: Maybe<{
-    /** Latest release information for the repository. */
-    latestRelease: Maybe<
-      Pick<
-        Release,
-        | 'isPrerelease'
-        | 'description'
-        | 'publishedAt'
-        | 'tagName'
-        | 'name'
-        | 'url'
-      > & {
-        /** Commit associated with the release tag. */
-        tagCommit?: Maybe<Pick<Commit, 'oid'>>
-      }
-    >
-  }>
-
-  /** Current rate limit information. */
-  rateLimit: RateLimit
-}
+import { Octokit } from '@octokit/rest'
 
 /** Processed release information with normalized types. */
 interface ReleaseInfo {
@@ -81,21 +22,6 @@ interface ReleaseInfo {
 
   /** GitHub URL for this release. */
   url: string
-}
-
-/** GraphQL response shape for fetching tag information. */
-interface TagInfoResponse {
-  /** Repository data containing tag reference. */
-  repository: Maybe<{
-    /** Reference to the tag. */
-    ref: Maybe<{
-      /** Target object - either a Commit or Tag. */
-      target: Commit | Tag
-    }>
-  }>
-
-  /** Current rate limit information. */
-  rateLimit: RateLimit
 }
 
 /** Processed tag information with normalized types. */
@@ -127,11 +53,11 @@ class GitHubRateLimitError extends Error {
   }
 }
 
-/** GitHub GraphQL client with optional authentication. */
+/** GitHub REST API client with optional authentication. */
 export class Client {
-  private readonly graphqlWithAuth: typeof graphql
-  private rateLimitRemaining: number = 5000
   private rateLimitReset: Date = new Date()
+  private rateLimitRemaining: number = 60
+  private readonly octokit: Octokit
 
   /**
    * Creates a new GitHub API client.
@@ -141,30 +67,32 @@ export class Client {
   public constructor(token?: string) {
     let authToken = token ?? process.env['GITHUB_TOKEN']
 
-    this.graphqlWithAuth = graphql.defaults({
-      headers: authToken
-        ? {
-            authorization: `token ${authToken}`,
-          }
-        : {},
+    this.octokit = new Octokit({
+      auth: authToken ?? undefined,
     })
 
     if (!authToken) {
       console.warn('No GitHub token found. API rate limits will be restricted.')
     }
+
+    this.rateLimitRemaining = authToken ? 5000 : 60
   }
 
   private static isRateLimitError(error: unknown): boolean {
-    if (error instanceof GraphqlResponseError) {
-      return error.errors!.some(
-        graphQLError =>
-          graphQLError.type === 'RATE_LIMITED' ||
-          (typeof graphQLError.message === 'string' &&
-            /rate limit/iu.test(graphQLError.message)),
+    if (error && typeof error === 'object') {
+      let maybeAny = error as { message?: unknown; status?: unknown }
+      let message =
+        typeof maybeAny.message === 'string'
+          ? maybeAny.message.toLowerCase()
+          : ''
+      let status =
+        typeof maybeAny.status === 'number' ? maybeAny.status : undefined
+
+      return (
+        message.includes('rate limit') ||
+        message.includes('api rate limit') ||
+        status === 403
       )
-    }
-    if (error instanceof Error) {
-      return /rate limit/iu.test(error.message)
     }
     return false
   }
@@ -183,70 +111,107 @@ export class Client {
     tag: string,
   ): Promise<TagInfo | null> {
     try {
-      let qualifiedTag = tag.startsWith('refs/tags/') ? tag : `refs/tags/${tag}`
       let displayTag = tag.replace(/^refs\/tags\//u, '')
-      let query = /* GraphQL */ `
-        query getTagInfo($owner: String!, $repo: String!, $tag: String!) {
-          repository(owner: $owner, name: $repo) {
-            ref(qualifiedName: $tag) {
-              target {
-                oid
-                ... on Commit {
-                  committedDate
-                  message
-                }
-                ... on Tag {
-                  tagger {
-                    date
-                  }
-                  message
-                  target {
-                    oid
-                  }
-                }
-              }
-            }
-          }
-          rateLimit {
-            remaining
-            resetAt
+
+      try {
+        let { headers: releaseHeaders, data: releaseData } =
+          await this.octokit.repos.getReleaseByTag({
+            tag: displayTag,
+            owner,
+            repo,
+          })
+
+        this.updateRateLimitInfo(releaseHeaders)
+
+        let sha: string | null = null
+        if (releaseData.target_commitish) {
+          try {
+            let { data: commitData } = await this.octokit.repos.getCommit({
+              ref: releaseData.target_commitish,
+              owner,
+              repo,
+            })
+            ;({ sha } = commitData)
+          } catch {
+            sha = releaseData.target_commitish
           }
         }
-      `
 
-      let response = await this.graphqlWithAuth<TagInfoResponse>(query, {
-        tag: qualifiedTag,
-        owner,
-        repo,
-      })
-
-      this.rateLimitRemaining = response.rateLimit.remaining
-      this.rateLimitReset = new Date(response.rateLimit.resetAt as string)
-
-      if (!response.repository?.ref?.target) {
-        return null
-      }
-
-      let { target } = response.repository.ref
-
-      if ('committedDate' in target) {
         return {
-          date: target.committedDate
-            ? new Date(target.committedDate as string)
+          date: releaseData.published_at
+            ? new Date(releaseData.published_at)
             : null,
-          message: target.message || null,
-          sha: target.oid as string,
+          sha: sha ?? releaseData.target_commitish,
+          message: releaseData.body ?? null,
           tag: displayTag,
         }
-      }
-      let tagObject = target.target as { oid: string } | undefined | null
-      return {
-        date: target.tagger?.date
-          ? new Date(target.tagger.date as string)
-          : null,
-        sha: tagObject?.oid ?? (target.oid as string),
-        message: target.message ?? null,
-        tag: displayTag,
+      } catch (releaseError) {
+        if (
+          releaseError instanceof Error &&
+          'status' in releaseError &&
+          releaseError.status === 404
+        ) {
+          try {
+            let { headers: referenceHeaders, data: referenceData } =
+              await this.octokit.git.getRef({
+                ref: `tags/${displayTag}`,
+                owner,
+                repo,
+              })
+
+            this.updateRateLimitInfo(referenceHeaders)
+
+            let { sha } = referenceData.object
+            let message: string | null = null
+            let date: Date | null = null
+
+            if (referenceData.object.type === 'tag') {
+              try {
+                let { data: tagData } = await this.octokit.git.getTag({
+                  // eslint-disable-next-line camelcase
+                  tag_sha: sha,
+                  owner,
+                  repo,
+                })
+                ;({ sha } = tagData.object)
+                message = tagData.message || null
+                date = tagData.tagger.date
+                  ? new Date(tagData.tagger.date)
+                  : null
+              } catch {}
+            } else if (referenceData.object.type === 'commit') {
+              try {
+                let { data: commitData } = await this.octokit.git.getCommit({
+                  // eslint-disable-next-line camelcase
+                  commit_sha: sha,
+                  owner,
+                  repo,
+                })
+                ;({ message } = commitData)
+                date = commitData.author.date
+                  ? new Date(commitData.author.date)
+                  : null
+              } catch {}
+            }
+
+            return {
+              tag: displayTag,
+              message,
+              date,
+              sha,
+            }
+          } catch (tagError) {
+            if (
+              tagError instanceof Error &&
+              'status' in tagError &&
+              tagError.status === 404
+            ) {
+              return null
+            }
+            throw tagError
+          }
+        }
+        throw releaseError
       }
     } catch (error) {
       if (Client.isRateLimitError(error)) {
@@ -270,55 +235,45 @@ export class Client {
     limit: number = 10,
   ): Promise<ReleaseInfo[]> {
     try {
-      let query = /* GraphQL */ `
-        query getAllReleases($owner: String!, $repo: String!, $limit: Int!) {
-          repository(owner: $owner, name: $repo) {
-            releases(
-              first: $limit
-              orderBy: { field: CREATED_AT, direction: DESC }
-            ) {
-              nodes {
-                tagName
-                tagCommit {
-                  oid
-                }
-                name
-                description
-                isPrerelease
-                publishedAt
-                url
-              }
-            }
-          }
-          rateLimit {
-            remaining
-            resetAt
-          }
-        }
-      `
-
-      let response = await this.graphqlWithAuth<AllReleasesResponse>(query, {
+      let { data: releases, headers } = await this.octokit.repos.listReleases({
+        // eslint-disable-next-line camelcase
+        per_page: limit,
         owner,
-        limit,
         repo,
       })
 
-      this.rateLimitRemaining = response.rateLimit.remaining
-      this.rateLimitReset = new Date(response.rateLimit.resetAt as string)
+      this.updateRateLimitInfo(headers)
 
-      if (!response.repository?.releases?.nodes) {
-        return []
-      }
+      let releaseInfos: ReleaseInfo[] = []
 
-      return response.repository.releases.nodes.map(release => ({
-        sha: (release.tagCommit?.oid as undefined | string) ?? null,
-        publishedAt: new Date(release.publishedAt as string),
-        description: release.description ?? null,
-        name: release.name ?? release.tagName,
-        isPrerelease: release.isPrerelease,
-        url: release.url as string,
-        version: release.tagName,
-      }))
+      await Promise.all(
+        releases.map(async release => {
+          let sha: string | null = null
+
+          if (release.tag_name) {
+            try {
+              let tagInfo = await this.getTagInfo(owner, repo, release.tag_name)
+              if (tagInfo) {
+                ;({ sha } = tagInfo)
+              }
+            } catch {
+              sha = release.target_commitish || null
+            }
+          }
+
+          releaseInfos.push({
+            publishedAt: new Date(release.published_at!),
+            name: release.name ?? release.tag_name,
+            description: release.body ?? null,
+            isPrerelease: release.prerelease,
+            version: release.tag_name,
+            url: release.html_url,
+            sha,
+          })
+        }),
+      )
+
+      return releaseInfos
     } catch (error) {
       if (Client.isRateLimitError(error)) {
         throw new GitHubRateLimitError(this.rateLimitReset)
@@ -339,51 +294,40 @@ export class Client {
     repo: string,
   ): Promise<ReleaseInfo | null> {
     try {
-      let query = /* GraphQL */ `
-        query getLatestRelease($owner: String!, $repo: String!) {
-          repository(owner: $owner, name: $repo) {
-            latestRelease {
-              tagName
-              tagCommit {
-                oid
-              }
-              name
-              description
-              isPrerelease
-              publishedAt
-              url
-            }
+      let { data: release, headers } =
+        await this.octokit.repos.getLatestRelease({
+          owner,
+          repo,
+        })
+
+      this.updateRateLimitInfo(headers)
+
+      let sha: string | null = null
+
+      if (release.tag_name) {
+        try {
+          let tagInfo = await this.getTagInfo(owner, repo, release.tag_name)
+          if (tagInfo) {
+            ;({ sha } = tagInfo)
           }
-          rateLimit {
-            remaining
-            resetAt
-          }
+        } catch {
+          sha = release.target_commitish || null
         }
-      `
-
-      let response = await this.graphqlWithAuth<LatestReleaseResponse>(query, {
-        owner,
-        repo,
-      })
-
-      this.rateLimitRemaining = response.rateLimit.remaining
-      this.rateLimitReset = new Date(response.rateLimit.resetAt as string)
-
-      if (!response.repository?.latestRelease) {
-        return null
       }
 
-      let release = response.repository.latestRelease
       return {
-        sha: (release.tagCommit?.oid as undefined | string) ?? null,
-        publishedAt: new Date(release.publishedAt as string),
-        description: release.description ?? null,
-        name: release.name ?? release.tagName,
-        isPrerelease: release.isPrerelease,
-        url: release.url as string,
-        version: release.tagName,
+        publishedAt: new Date(release.published_at!),
+        name: release.name ?? release.tag_name,
+        description: release.body ?? null,
+        isPrerelease: release.prerelease,
+        version: release.tag_name,
+        url: release.html_url,
+        sha,
       }
     } catch (error) {
+      if (error instanceof Error && 'status' in error && error.status === 404) {
+        return null
+      }
       if (Client.isRateLimitError(error)) {
         throw new GitHubRateLimitError(this.rateLimitReset)
       }
@@ -406,5 +350,23 @@ export class Client {
    */
   public shouldWaitForRateLimit(threshold: number = 100): boolean {
     return this.rateLimitRemaining < threshold
+  }
+
+  private updateRateLimitInfo(
+    headers: Record<string, undefined | string | number>,
+  ): void {
+    let remaining = headers['x-ratelimit-remaining']
+    if (remaining !== undefined) {
+      this.rateLimitRemaining =
+        typeof remaining === 'string'
+          ? Number.parseInt(remaining, 10)
+          : remaining
+    }
+    let reset = headers['x-ratelimit-reset']
+    if (reset !== undefined) {
+      let resetTime =
+        typeof reset === 'string' ? Number.parseInt(reset, 10) : reset
+      this.rateLimitReset = new Date(resetTime * 1000)
+    }
   }
 }

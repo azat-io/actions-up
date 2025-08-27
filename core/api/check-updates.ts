@@ -85,14 +85,14 @@ export async function checkUpdates(
 
           return [...results, { version: null, actionName, sha: null }]
         } catch (error) {
-          /* Handle rate limit errors specially */
+          /* Handle rate limit errors specially. */
           if (error instanceof Error && error.name === 'GitHubRateLimitError') {
             sharedState.rateLimitHit = true
             sharedState.rateLimitError = error
-            /* Don't log individual rate limit errors */
+            /* Don't log individual rate limit errors. */
             return [...results, { version: null, actionName, sha: null }]
           }
-          /* Log other failures per action */
+          /* Log other failures per action. */
           console.warn(`Failed to check ${actionName}:`, error)
           return [...results, { version: null, actionName, sha: null }]
         }
@@ -106,12 +106,12 @@ export async function checkUpdates(
     ),
   )
 
-  /* If rate limit was hit, throw a user-friendly error */
+  /* If rate limit was hit, throw a user-friendly error. */
   if (sharedState.rateLimitError) {
     let error = new Error(
       'GitHub API rate limit exceeded. Please set GITHUB_TOKEN environment ' +
         'variable to increase the limit.\n' +
-        'See: https://github.com/azat-io/actions-up?tab=readme-ov-file#with-github-token',
+        'See: https://github.com/azat-io/actions-up?tab=readme-ov-file#using-github-token-for-higher-rate-limits',
     )
     error.name = 'GitHubRateLimitError'
     throw error
