@@ -18,12 +18,12 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 
 ## Features
 
-- **Auto-discovery** - Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml`)
-- **SHA Pinning** - Updates actions to use commit SHA instead of tags for better security
-- **Batch Updates** - Update multiple actions at once
-- **Interactive Selection** - Choose which actions to update
-- **Breaking Changes Detection** - Warns about major version updates
-- **Fast & Efficient** - Parallel processing with optimized API calls
+- **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml`)
+- **SHA Pinning**: Updates actions to use commit SHA instead of tags for better security
+- **Batch Updates**: Update multiple actions at once
+- **Interactive Selection**: Choose which actions to update
+- **Breaking Changes Detection**: Warns about major version updates
+- **Fast & Efficient**: Parallel processing with optimized API calls
 
 ###
 
@@ -40,10 +40,31 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
   />
   <img
     src="https://raw.githubusercontent.com/azat-io/actions-up/main/assets/example-light.webp"
-    alt="Token Limit CLI Example"
+    alt="Actions Up interactive example"
     width="820"
   />
 </picture>
+
+## Why
+
+### The Problem
+
+Keeping GitHub Actions updated is a critical but tedious task:
+
+- **Security Risk**: Using outdated actions with known vulnerabilities
+- **Manual Hell**: Checking dozens of actions across multiple workflows by hand
+- **Version Tags Are Mutable**: v1 or v2 tags can change without notice, breaking reproducibility
+- **Time Sink**: Hours spent on maintenance that could be used for actual development
+
+### The Solution
+
+Actions Up transforms a painful manual process into a delightful experience:
+
+| Without Actions Up             | With Actions Up                  |
+| :----------------------------- | :------------------------------- |
+| Check each action manually     | Scan all workflows in seconds    |
+| Risk using vulnerable versions | SHA pinning for maximum security |
+| 30+ minutes per repository     | Under 1 minute total             |
 
 ## GitHub Token Required
 
@@ -56,6 +77,26 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 
 - For public repositories: Select `public_repo` scope
 - For private repositories: Select `repo` scope
+
+## Installation
+
+Quick use (no installation)
+
+```bash
+npx actions-up
+```
+
+Global installation
+
+```bash
+npm install -g actions-up
+```
+
+Per-project
+
+```bash
+npm install --save-dev actions-up
+```
 
 ## Usage
 
@@ -84,7 +125,7 @@ GITHUB_TOKEN=ghp_xxxx npx actions-up --yes
 GITHUB_TOKEN=ghp_xxxx npx actions-up -y
 ```
 
-## Convenient Setup
+## Pro Tips
 
 ### Shell Aliases
 
