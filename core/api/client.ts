@@ -1,6 +1,5 @@
-import { Octokit } from '@octokit/rest'
+import type { components } from '@octokit/openapi-types'
 
-/** Processed release information with normalized types. */
 interface ReleaseInfo {
   /** Release description or null if not provided. */
   description: string | null
@@ -29,14 +28,14 @@ interface TagInfo {
   /** Tag or commit message, null if not provided. */
   message: string | null
 
+  /** Git commit SHA that this tag points to. */
+  sha: string | null
+
   /** Date when the tag was created or committed. */
   date: Date | null
 
   /** Tag name (e.g., 'v1.2.3'). */
   tag: string
-
-  /** Git commit SHA that this tag points to. */
-  sha: string
 }
 
 /** Custom error for rate limit issues. */
@@ -55,9 +54,10 @@ class GitHubRateLimitError extends Error {
 
 /** GitHub REST API client with optional authentication. */
 export class Client {
+  private readonly baseUrl = 'https://api.github.com'
+  private readonly token: undefined | string
   private rateLimitReset: Date = new Date()
   private rateLimitRemaining: number = 60
-  private readonly octokit: Octokit
 
   /**
    * Creates a new GitHub API client.
@@ -65,17 +65,13 @@ export class Client {
    * @param token - Optional GitHub token for authentication.
    */
   public constructor(token?: string) {
-    let authToken = token ?? process.env['GITHUB_TOKEN']
+    this.token = token ?? process.env['GITHUB_TOKEN']
 
-    this.octokit = new Octokit({
-      auth: authToken ?? undefined,
-    })
-
-    if (!authToken) {
+    if (!this.token) {
       console.warn('No GitHub token found. API rate limits will be restricted.')
     }
 
-    this.rateLimitRemaining = authToken ? 5000 : 60
+    this.rateLimitRemaining = this.token ? 5000 : 60
   }
 
   private static isRateLimitError(error: unknown): boolean {
@@ -114,23 +110,18 @@ export class Client {
       let displayTag = tag.replace(/^refs\/tags\//u, '')
 
       try {
-        let { headers: releaseHeaders, data: releaseData } =
-          await this.octokit.repos.getReleaseByTag({
-            tag: displayTag,
-            owner,
-            repo,
-          })
-
-        this.updateRateLimitInfo(releaseHeaders)
+        let releaseResp = await this.makeRequest(
+          `/repos/${owner}/${repo}/releases/tags/${displayTag}`,
+        )
+        let releaseData = releaseResp.data as components['schemas']['release']
 
         let sha: string | null = null
         if (releaseData.target_commitish) {
           try {
-            let { data: commitData } = await this.octokit.repos.getCommit({
-              ref: releaseData.target_commitish,
-              owner,
-              repo,
-            })
+            let commitResp = await this.makeRequest(
+              `/repos/${owner}/${repo}/commits/${releaseData.target_commitish}`,
+            )
+            let commitData = commitResp.data as components['schemas']['commit']
             ;({ sha } = commitData)
           } catch {
             sha = releaseData.target_commitish
@@ -145,21 +136,19 @@ export class Client {
           message: releaseData.body ?? null,
           tag: displayTag,
         }
-      } catch (releaseError) {
+      } catch (releaseError: unknown) {
         if (
-          releaseError instanceof Error &&
+          releaseError &&
+          typeof releaseError === 'object' &&
           'status' in releaseError &&
           releaseError.status === 404
         ) {
           try {
-            let { headers: referenceHeaders, data: referenceData } =
-              await this.octokit.git.getRef({
-                ref: `tags/${displayTag}`,
-                owner,
-                repo,
-              })
-
-            this.updateRateLimitInfo(referenceHeaders)
+            let referenceResp = await this.makeRequest(
+              `/repos/${owner}/${repo}/git/refs/tags/${displayTag}`,
+            )
+            let referenceData =
+              referenceResp.data as components['schemas']['git-ref']
 
             let { sha } = referenceData.object
             let message: string | null = null
@@ -167,31 +156,32 @@ export class Client {
 
             if (referenceData.object.type === 'tag') {
               try {
-                let { data: tagData } = await this.octokit.git.getTag({
-                  // eslint-disable-next-line camelcase
-                  tag_sha: sha,
-                  owner,
-                  repo,
-                })
+                let tagResp = await this.makeRequest(
+                  `/repos/${owner}/${repo}/git/tags/${sha}`,
+                )
+                let tagData = tagResp.data as components['schemas']['git-tag']
                 ;({ sha } = tagData.object)
-                message = tagData.message || null
+                ;({ message } = tagData)
                 date = tagData.tagger.date
                   ? new Date(tagData.tagger.date)
                   : null
-              } catch {}
-            } else if (referenceData.object.type === 'commit') {
+              } catch {
+                /** Fall back to ref sha if tag details can't be fetched. */
+              }
+            } else {
               try {
-                let { data: commitData } = await this.octokit.git.getCommit({
-                  // eslint-disable-next-line camelcase
-                  commit_sha: sha,
-                  owner,
-                  repo,
-                })
+                let commitResp = await this.makeRequest(
+                  `/repos/${owner}/${repo}/git/commits/${sha}`,
+                )
+                let commitData =
+                  commitResp.data as components['schemas']['git-commit']
                 ;({ message } = commitData)
                 date = commitData.author.date
                   ? new Date(commitData.author.date)
                   : null
-              } catch {}
+              } catch {
+                /** Keep null values if commit details can't be fetched. */
+              }
             }
 
             return {
@@ -200,9 +190,10 @@ export class Client {
               date,
               sha,
             }
-          } catch (tagError) {
+          } catch (tagError: unknown) {
             if (
-              tagError instanceof Error &&
+              tagError &&
+              typeof tagError === 'object' &&
               'status' in tagError &&
               tagError.status === 404
             ) {
@@ -235,14 +226,10 @@ export class Client {
     limit: number = 10,
   ): Promise<ReleaseInfo[]> {
     try {
-      let { data: releases, headers } = await this.octokit.repos.listReleases({
-        // eslint-disable-next-line camelcase
-        per_page: limit,
-        owner,
-        repo,
-      })
-
-      this.updateRateLimitInfo(headers)
+      let releasesResp = await this.makeRequest(
+        `/repos/${owner}/${repo}/releases?per_page=${limit}`,
+      )
+      let releases = releasesResp.data as components['schemas']['release'][]
 
       let releaseInfos: ReleaseInfo[] = []
 
@@ -257,7 +244,7 @@ export class Client {
                 ;({ sha } = tagInfo)
               }
             } catch {
-              sha = release.target_commitish || null
+              sha = release.target_commitish
             }
           }
 
@@ -294,13 +281,10 @@ export class Client {
     repo: string,
   ): Promise<ReleaseInfo | null> {
     try {
-      let { data: release, headers } =
-        await this.octokit.repos.getLatestRelease({
-          owner,
-          repo,
-        })
-
-      this.updateRateLimitInfo(headers)
+      let releaseResp = await this.makeRequest(
+        `/repos/${owner}/${repo}/releases/latest`,
+      )
+      let release = releaseResp.data as components['schemas']['release']
 
       let sha: string | null = null
 
@@ -311,7 +295,7 @@ export class Client {
             ;({ sha } = tagInfo)
           }
         } catch {
-          sha = release.target_commitish || null
+          sha = release.target_commitish
         }
       }
 
@@ -324,8 +308,13 @@ export class Client {
         url: release.html_url,
         sha,
       }
-    } catch (error) {
-      if (error instanceof Error && 'status' in error && error.status === 404) {
+    } catch (error: unknown) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'status' in error &&
+        error.status === 404
+      ) {
         return null
       }
       if (Client.isRateLimitError(error)) {
@@ -352,17 +341,75 @@ export class Client {
     return this.rateLimitRemaining < threshold
   }
 
+  private async makeRequest(
+    path: string,
+    options: RequestInit = {},
+  ): Promise<{ headers: Record<string, string>; data: unknown }> {
+    let headers: Record<string, string> = {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'actions-up',
+      ...(options.headers as Record<string, string>),
+    }
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+
+    interface FetchResponseLike {
+      headers: { entries(): IterableIterator<[string, string]> }
+      json(): Promise<unknown>
+      text(): Promise<string>
+      statusText: string
+      status: number
+      ok: boolean
+    }
+
+    let response = (await fetch(`${this.baseUrl}${path}`, {
+      ...options,
+      headers,
+    })) as unknown as FetchResponseLike
+
+    let responseHeaders: Record<string, string> = {}
+    for (let [key, value] of response.headers.entries()) {
+      responseHeaders[key] = value
+    }
+
+    this.updateRateLimitInfo(responseHeaders)
+
+    if (!response.ok) {
+      let error = new Error(
+        `GitHub API error: ${response.status} ${response.statusText}`,
+      ) as { status?: number } & Error
+      error.status = response.status
+
+      if (response.status === 403) {
+        let text = await response.text()
+        if (text.includes('rate limit') || text.includes('API rate limit')) {
+          error.message = 'API rate limit exceeded'
+        }
+      }
+
+      throw error
+    }
+
+    let data = await response.json()
+    return { headers: responseHeaders, data }
+  }
+
   private updateRateLimitInfo(
     headers: Record<string, undefined | string | number>,
   ): void {
     let remaining = headers['x-ratelimit-remaining']
+
     if (remaining !== undefined) {
       this.rateLimitRemaining =
         typeof remaining === 'string'
           ? Number.parseInt(remaining, 10)
           : remaining
     }
+
     let reset = headers['x-ratelimit-reset']
+
     if (reset !== undefined) {
       let resetTime =
         typeof reset === 'string' ? Number.parseInt(reset, 10) : reset

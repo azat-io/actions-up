@@ -5,48 +5,11 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { Client } from '../../core/api/client'
 
 interface ClientWithPrivate {
-  octokit: {
-    repos: {
-      getLatestRelease: ReturnType<typeof vi.fn>
-      getReleaseByTag: ReturnType<typeof vi.fn>
-      listReleases: ReturnType<typeof vi.fn>
-      getCommit: ReturnType<typeof vi.fn>
-    }
-    git: {
-      getCommit: ReturnType<typeof vi.fn>
-      getRef: ReturnType<typeof vi.fn>
-      getTag: ReturnType<typeof vi.fn>
-    }
-    auth?: string
-  }
+  makeRequest: ReturnType<typeof vi.fn>
+  token: undefined | string
 }
 
-function createMockError(message: string, status: number): Error {
-  let error = new Error(message) as { status: number } & Error
-  error.status = status
-  return error
-}
-
-vi.mock('@octokit/rest', () => {
-  class MockOctokit {
-    public repos = {
-      getLatestRelease: vi.fn(),
-      getReleaseByTag: vi.fn(),
-      listReleases: vi.fn(),
-      getCommit: vi.fn(),
-    }
-    public git = {
-      getCommit: vi.fn(),
-      getRef: vi.fn(),
-      getTag: vi.fn(),
-    }
-    public auth?: string
-    public constructor(options?: { auth?: string }) {
-      this.auth = options?.auth
-    }
-  }
-  return { Octokit: MockOctokit }
-})
+vi.spyOn(globalThis, 'fetch').mockResolvedValue({} as Response)
 
 describe('client', () => {
   let consoleWarnSpy: ReturnType<typeof vi.spyOn>
@@ -69,7 +32,7 @@ describe('client', () => {
       let client = new Client(token)
 
       expect(client).toBeInstanceOf(Client)
-      expect((client as unknown as ClientWithPrivate).octokit.auth).toBe(token)
+      expect((client as unknown as ClientWithPrivate).token).toBe(token)
       expect(consoleWarnSpy).not.toHaveBeenCalled()
     })
 
@@ -79,7 +42,7 @@ describe('client', () => {
 
       let client = new Client()
       expect(client).toBeInstanceOf(Client)
-      expect((client as unknown as ClientWithPrivate).octokit.auth).toBe(
+      expect((client as unknown as ClientWithPrivate).token).toBe(
         environmentToken,
       )
       expect(consoleWarnSpy).not.toHaveBeenCalled()
@@ -90,9 +53,7 @@ describe('client', () => {
 
       let client = new Client()
       expect(client).toBeInstanceOf(Client)
-      expect(
-        (client as unknown as ClientWithPrivate).octokit.auth,
-      ).toBeUndefined()
+      expect((client as unknown as ClientWithPrivate).token).toBeUndefined()
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         'No GitHub token found. API rate limits will be restricted.',
       )
@@ -112,21 +73,29 @@ describe('client', () => {
         prerelease: false,
       }
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValue({
-        headers: {
-          'x-ratelimit-reset': '1234567890',
-          'x-ratelimit-remaining': '4999',
-        },
-        data: mockRelease,
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockResolvedValue({
-        data: mockRelease,
-        headers: {},
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if (url === 'https://api.github.com/repos/owner/repo/releases/latest') {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockRelease), {
+              headers: {
+                'x-ratelimit-reset': '1234567890',
+                'x-ratelimit-remaining': '4999',
+              },
+              status: 200,
+            }),
+          )
+        }
+        if (
+          url === 'https://api.github.com/repos/owner/repo/releases/tags/v1.0.0'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockRelease), {
+              status: 200,
+              headers: {},
+            }),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getLatestRelease('owner', 'repo')
@@ -145,9 +114,12 @@ describe('client', () => {
     it('should return null when no release found', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValue(createMockError('Not Found', 404))
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('Not Found', {
+          statusText: 'Not Found',
+          status: 404,
+        }),
+      )
 
       let result = await client.getLatestRelease('owner', 'repo')
       expect(result).toBeNull()
@@ -165,12 +137,12 @@ describe('client', () => {
         body: null,
       }
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValue({
-        data: mockRelease,
-        headers: {},
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(JSON.stringify(mockRelease), {
+          status: 200,
+          headers: {},
+        }),
+      )
 
       let result = await client.getLatestRelease('owner', 'repo')
 
@@ -188,9 +160,12 @@ describe('client', () => {
     it('should throw GitHubRateLimitError when rate limit exceeded', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValue(createMockError('API rate limit exceeded', 403))
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('API rate limit exceeded', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(client.getLatestRelease('owner', 'repo')).rejects.toThrow(
         'GitHub API rate limit exceeded',
@@ -207,20 +182,23 @@ describe('client', () => {
         )
         .mockResolvedValue(null)
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo/releases/v2.3.4',
-          published_at: '2023-02-01T00:00:00Z',
-          target_commitish: null,
-          tag_name: 'v2.3.4',
-          prerelease: false,
-          body: 'desc',
-          name: null,
-        },
-        headers: {},
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo/releases/v2.3.4',
+            published_at: '2023-02-01T00:00:00Z',
+            target_commitish: null,
+            tag_name: 'v2.3.4',
+            prerelease: false,
+            body: 'desc',
+            name: null,
+          }),
+          {
+            status: 200,
+            headers: {},
+          },
+        ),
+      )
 
       let result = await client.getLatestRelease('owner', 'repo')
       expect(result).toMatchObject({ name: 'v2.3.4' })
@@ -253,31 +231,44 @@ describe('client', () => {
         },
       ]
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockResolvedValue({
-        data: mockReleases,
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockImplementation(({ tag }: { tag: string }) => {
-        let release = mockReleases.find(
-          currentRelease => currentRelease.tag_name === tag,
-        )
-        return Promise.resolve({ data: release, headers: {} })
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if (
+          url === 'https://api.github.com/repos/owner/repo/releases?per_page=5'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockReleases), {
+              status: 200,
+              headers: {},
+            }),
+          )
+        }
+        if ((url as string).includes('/releases/tags/')) {
+          let [, tag] = (url as string).split('/releases/tags/')
+          let release = mockReleases.find(
+            currentRelease => currentRelease.tag_name === tag,
+          )
+          return Promise.resolve(
+            new Response(JSON.stringify(release), {
+              status: 200,
+              headers: {},
+            }),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getAllReleases('owner', 'repo', 5)
 
-      expect(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).toHaveBeenCalledWith({
-        owner: 'owner',
-        repo: 'repo',
-        per_page: 5,
-      })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'https://api.github.com/repos/owner/repo/releases?per_page=5',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Accept: 'application/vnd.github.v3+json',
+            Authorization: 'Bearer test-token',
+            'User-Agent': 'actions-up',
+          }) as unknown,
+        }),
+      )
 
       expect(result).toHaveLength(2)
       expect(result[0]).toEqual({
@@ -294,12 +285,12 @@ describe('client', () => {
     it('should return empty array when no releases found', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockResolvedValue({
-        headers: {},
-        data: [],
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('[]', {
+          status: 200,
+          headers: {},
+        }),
+      )
 
       let result = await client.getAllReleases('owner', 'repo')
       expect(result).toEqual([])
@@ -308,30 +299,30 @@ describe('client', () => {
     it('should use default limit of 10', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockResolvedValue({
-        headers: {},
-        data: [],
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('[]', {
+          status: 200,
+          headers: {},
+        }),
+      )
 
       await client.getAllReleases('owner', 'repo')
 
-      expect(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).toHaveBeenCalledWith({
-        owner: 'owner',
-        repo: 'repo',
-        per_page: 10,
-      })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        'https://api.github.com/repos/owner/repo/releases?per_page=10',
+        expect.any(Object),
+      )
     })
 
     it('should throw GitHubRateLimitError when rate limit exceeded', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockRejectedValue(createMockError('API rate limit exceeded', 403))
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('API rate limit exceeded', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(client.getAllReleases('owner', 'repo')).rejects.toThrow(
         'GitHub API rate limit exceeded',
@@ -341,9 +332,9 @@ describe('client', () => {
     it('should propagate non-rate-limit errors', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockRejectedValue(new Error('Network failure'))
+      vi.mocked(globalThis.fetch).mockRejectedValue(
+        new Error('Network failure'),
+      )
 
       await expect(client.getAllReleases('owner', 'repo')).rejects.toThrow(
         'Network failure',
@@ -362,12 +353,12 @@ describe('client', () => {
         prerelease: false,
       }
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockResolvedValue({
-        data: [mockRelease],
-        headers: {},
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(JSON.stringify([mockRelease]), {
+          status: 200,
+          headers: {},
+        }),
+      )
 
       let result = await client.getAllReleases('owner', 'repo')
 
@@ -388,11 +379,24 @@ describe('client', () => {
         body: null,
       }
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockResolvedValue({
-        data: [mockRelease],
-        headers: {},
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases?')) {
+          return Promise.resolve(
+            new Response(JSON.stringify([mockRelease]), {
+              status: 200,
+              headers: {},
+            }),
+          )
+        }
+        if ((url as string).includes('/releases/tags/')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockRelease), {
+              status: 200,
+              headers: {},
+            }),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getAllReleases('owner', 'repo')
@@ -414,11 +418,24 @@ describe('client', () => {
         name: null,
       }
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.listReleases,
-      ).mockResolvedValue({
-        data: [mockRelease],
-        headers: {},
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases?')) {
+          return Promise.resolve(
+            new Response(JSON.stringify([mockRelease]), {
+              status: 200,
+              headers: {},
+            }),
+          )
+        }
+        if ((url as string).includes('/releases/tags/')) {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockRelease), {
+              status: 200,
+              headers: {},
+            }),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getAllReleases('owner', 'repo')
@@ -433,25 +450,31 @@ describe('client', () => {
     it('should return tag info when fetched directly by release tag (with published_at)', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo/releases/v1.2.3',
-          published_at: '2024-01-20T10:00:00Z',
-          target_commitish: 'commitish-123',
-          body: 'Release body',
-          tag_name: 'v1.2.3',
-          prerelease: false,
-          name: 'Rel',
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getCommit,
-      ).mockResolvedValue({
-        data: { sha: 'commit-sha-xyz' },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.2.3')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v1.2.3',
+                published_at: '2024-01-20T10:00:00Z',
+                target_commitish: 'commitish-123',
+                body: 'Release body',
+                tag_name: 'v1.2.3',
+                prerelease: false,
+                name: 'Rel',
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/commits/commitish-123')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ sha: 'commit-sha-xyz' }), {
+              status: 200,
+            }),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.2.3')
@@ -467,24 +490,20 @@ describe('client', () => {
     it('should handle release-by-tag with null published_at (date null)', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo/releases/v0.0.1',
-          target_commitish: 'main',
-          published_at: null,
-          tag_name: 'v0.0.1',
-          prerelease: false,
-          body: null,
-          name: null,
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getCommit,
-      ).mockRejectedValue(new Error('not needed'))
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo/releases/v0.0.1',
+            target_commitish: 'main',
+            published_at: null,
+            tag_name: 'v0.0.1',
+            prerelease: false,
+            body: null,
+            name: null,
+          }),
+          { status: 200, headers: {} },
+        ),
+      )
 
       let result = await client.getTagInfo('owner', 'repo', 'v0.0.1')
 
@@ -495,33 +514,45 @@ describe('client', () => {
         date: null,
       })
     })
+
     it('should fetch tag information for annotated tag', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'tag-sha-123',
-            type: 'tag',
-          },
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getTag,
-      ).mockResolvedValue({
-        data: {
-          tagger: { date: '2023-01-15T10:00:00Z' },
-          object: { sha: 'commit-sha-456' },
-          message: 'Tag message',
-        },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.0')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.0')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'tag-sha-123',
+                  type: 'tag',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/tag-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                tagger: { date: '2023-01-15T10:00:00Z' },
+                object: { sha: 'commit-sha-456' },
+                message: 'Tag message',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.0')
@@ -537,29 +568,40 @@ describe('client', () => {
     it('should fetch tag information for lightweight tag (commit)', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'commit-sha-123',
-            type: 'commit',
-          },
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getCommit,
-      ).mockResolvedValue({
-        data: {
-          author: { date: '2023-01-10T10:00:00Z' },
-          message: 'Commit message',
-        },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.1')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.1')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'commit-sha-123',
+                  type: 'commit',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/commits/commit-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                author: { date: '2023-01-10T10:00:00Z' },
+                message: 'Commit message',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.1')
@@ -575,43 +617,59 @@ describe('client', () => {
     it('should handle refs/tags/ prefix', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'commit-sha-123',
-            type: 'commit',
-          },
-        },
-        headers: {},
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.0')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.0')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'commit-sha-123',
+                  type: 'commit',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/commits/commit-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                author: { date: null },
+                message: 'Message',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }))
       })
 
       await client.getTagInfo('owner', 'repo', 'refs/tags/v1.0.0')
 
-      expect(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).toHaveBeenCalledWith({
-        owner: 'owner',
-        tag: 'v1.0.0',
-        repo: 'repo',
-      })
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/releases/tags/v1.0.0'),
+        expect.any(Object),
+      )
     })
 
     it('should return null when tag not found', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockRejectedValue(createMockError('Not Found', 404))
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('Not Found', {
+          statusText: 'Not Found',
+          status: 404,
+        }),
+      )
 
       let result = await client.getTagInfo('owner', 'repo', 'nonexistent')
       expect(result).toBeNull()
@@ -620,29 +678,40 @@ describe('client', () => {
     it('should handle commit without message', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'commit-sha-123',
-            type: 'commit',
-          },
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getCommit,
-      ).mockResolvedValue({
-        data: {
-          author: { date: '2023-01-10T10:00:00Z' },
-          message: null,
-        },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.3')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.3')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'commit-sha-123',
+                  type: 'commit',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/commits/commit-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                author: { date: '2023-01-10T10:00:00Z' },
+                message: null,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.3')
@@ -655,30 +724,41 @@ describe('client', () => {
     it('should handle annotated tag without target', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'tag-sha-123',
-            type: 'tag',
-          },
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getTag,
-      ).mockResolvedValue({
-        data: {
-          tagger: { date: '2023-01-15T10:00:00Z' },
-          message: 'Tag message',
-          object: { sha: null },
-        },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.2')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.2')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'tag-sha-123',
+                  type: 'tag',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/tag-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                tagger: { date: '2023-01-15T10:00:00Z' },
+                message: 'Tag message',
+                object: { sha: null },
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.2')
@@ -691,29 +771,40 @@ describe('client', () => {
     it('should handle commit with null committedDate', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'commit-sha-123',
-            type: 'commit',
-          },
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getCommit,
-      ).mockResolvedValue({
-        data: {
-          message: 'Commit message',
-          author: { date: null },
-        },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.3')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.3')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'commit-sha-123',
+                  type: 'commit',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/commits/commit-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                message: 'Commit message',
+                author: { date: null },
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.3')
@@ -726,30 +817,41 @@ describe('client', () => {
     it('should handle tag with null tagger date', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'tag-sha-123',
-            type: 'tag',
-          },
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getTag,
-      ).mockResolvedValue({
-        data: {
-          object: { sha: 'commit-sha-456' },
-          message: 'Tag message',
-          tagger: { date: null },
-        },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.4')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.4')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'tag-sha-123',
+                  type: 'tag',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/tag-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: { sha: 'commit-sha-456' },
+                message: 'Tag message',
+                tagger: { date: null },
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.4')
@@ -762,30 +864,41 @@ describe('client', () => {
     it('should handle tag with null message', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: {
-          object: {
-            sha: 'tag-sha-123',
-            type: 'tag',
-          },
-        },
-        headers: {},
-      })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getTag,
-      ).mockResolvedValue({
-        data: {
-          tagger: { date: '2023-01-15T10:00:00Z' },
-          object: { sha: 'commit-sha-456' },
-          message: null,
-        },
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.5')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.5')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'tag-sha-123',
+                  type: 'tag',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/tag-sha-123')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                tagger: { date: '2023-01-15T10:00:00Z' },
+                object: { sha: 'commit-sha-456' },
+                message: null,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.5')
@@ -795,12 +908,56 @@ describe('client', () => {
       })
     })
 
+    it('should tolerate commit details fetch failure and keep nulls', async () => {
+      let client = new Client('test-token')
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.6')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.6')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: {
+                  sha: 'commit-sha-fail',
+                  type: 'commit',
+                },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/commits/commit-sha-fail')) {
+          return Promise.reject(new Error('commit fetch failed'))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let result = await client.getTagInfo('owner', 'repo', 'v1.0.6')
+
+      expect(result).toEqual({
+        sha: 'commit-sha-fail',
+        tag: 'v1.0.6',
+        message: null,
+        date: null,
+      })
+    })
+
     it('should throw GitHubRateLimitError when rate limit exceeded', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('API rate limit exceeded', 403))
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('API rate limit exceeded', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(
         client.getTagInfo('owner', 'repo', 'v1.0.0'),
@@ -810,9 +967,9 @@ describe('client', () => {
     it('should propagate non-rate-limit errors', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(new Error('Some other error'))
+      vi.mocked(globalThis.fetch).mockRejectedValue(
+        new Error('Some other error'),
+      )
 
       await expect(
         client.getTagInfo('owner', 'repo', 'v1.0.0'),
@@ -822,20 +979,30 @@ describe('client', () => {
     it('should tolerate failure to fetch annotated tag details and fall back to ref sha', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockRejectedValue(createMockError('Not Found', 404))
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getRef,
-      ).mockResolvedValue({
-        data: { object: { sha: 'tag-sha-fallback', type: 'tag' } },
-        headers: {},
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.2.0')) {
+          return Promise.resolve(
+            new Response('Not Found', {
+              statusText: 'Not Found',
+              status: 404,
+            }),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.2.0')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                object: { sha: 'tag-sha-fallback', type: 'tag' },
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/tag-sha-fallback')) {
+          return Promise.reject(new Error('temporary failure'))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
       })
-
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.git.getTag,
-      ).mockRejectedValue(new Error('temporary failure'))
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.2.0')
 
@@ -850,20 +1017,20 @@ describe('client', () => {
     it('should handle release-by-tag with null target_commitish and set sha to null', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo/releases/v9.9.9',
-          published_at: '2024-02-02T10:00:00Z',
-          target_commitish: null,
-          tag_name: 'v9.9.9',
-          prerelease: false,
-          body: null,
-          name: null,
-        },
-        headers: {},
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo/releases/v9.9.9',
+            published_at: '2024-02-02T10:00:00Z',
+            target_commitish: null,
+            tag_name: 'v9.9.9',
+            prerelease: false,
+            body: null,
+            name: null,
+          }),
+          { status: 200, headers: {} },
+        ),
+      )
 
       let result = await client.getTagInfo('owner', 'repo', 'v9.9.9')
       expect(result).toEqual({
@@ -889,23 +1056,26 @@ describe('client', () => {
     it('should update rate limit after API call', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo',
-          published_at: '2023-01-15T10:00:00Z',
-          target_commitish: null,
-          tag_name: 'v1.0.0',
-          prerelease: false,
-          name: 'Release',
-          body: null,
-        },
-        headers: {
-          'x-ratelimit-reset': '1700000000',
-          'x-ratelimit-remaining': '4950',
-        },
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo',
+            published_at: '2023-01-15T10:00:00Z',
+            target_commitish: null,
+            tag_name: 'v1.0.0',
+            prerelease: false,
+            name: 'Release',
+            body: null,
+          }),
+          {
+            headers: {
+              'x-ratelimit-reset': '1700000000',
+              'x-ratelimit-remaining': '4950',
+            },
+            status: 200,
+          },
+        ),
+      )
 
       await client.getLatestRelease('owner', 'repo')
 
@@ -917,23 +1087,26 @@ describe('client', () => {
     it('should parse numeric rate limit headers correctly', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo',
-          published_at: '2023-01-15T10:00:00Z',
-          target_commitish: null,
-          tag_name: 'v1.0.0',
-          prerelease: false,
-          name: 'Release',
-          body: null,
-        },
-        headers: {
-          'x-ratelimit-reset': 1700000002,
-          'x-ratelimit-remaining': 1234,
-        },
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo',
+            published_at: '2023-01-15T10:00:00Z',
+            target_commitish: null,
+            tag_name: 'v1.0.0',
+            prerelease: false,
+            name: 'Release',
+            body: null,
+          }),
+          {
+            headers: {
+              'x-ratelimit-reset': '1700000002',
+              'x-ratelimit-remaining': '1234',
+            },
+            status: 200,
+          },
+        ),
+      )
 
       await client.getLatestRelease('owner', 'repo')
 
@@ -941,29 +1114,51 @@ describe('client', () => {
       expect(status.remaining).toBe(1234)
       expect(status.resetAt).toEqual(new Date(1700000002 * 1000))
     })
+
+    it('should update from numeric header values directly', () => {
+      let client = new Client('test-token')
+
+      ;(
+        client as unknown as {
+          updateRateLimitInfo(
+            headers: Record<string, undefined | string | number>,
+          ): void
+        }
+      ).updateRateLimitInfo({
+        'x-ratelimit-reset': 1700000003,
+        'x-ratelimit-remaining': 42,
+      })
+
+      let status = client.getRateLimitStatus()
+      expect(status.remaining).toBe(42)
+      expect(status.resetAt).toEqual(new Date(1700000003 * 1000))
+    })
   })
 
   describe('shouldWaitForRateLimit', () => {
     it('should return true when below threshold', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo',
-          published_at: '2023-01-15T10:00:00Z',
-          target_commitish: null,
-          tag_name: 'v1.0.0',
-          prerelease: false,
-          name: 'Release',
-          body: null,
-        },
-        headers: {
-          'x-ratelimit-reset': '1700000000',
-          'x-ratelimit-remaining': '50',
-        },
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo',
+            published_at: '2023-01-15T10:00:00Z',
+            target_commitish: null,
+            tag_name: 'v1.0.0',
+            prerelease: false,
+            name: 'Release',
+            body: null,
+          }),
+          {
+            headers: {
+              'x-ratelimit-reset': '1700000000',
+              'x-ratelimit-remaining': '50',
+            },
+            status: 200,
+          },
+        ),
+      )
 
       await client.getLatestRelease('owner', 'repo')
 
@@ -974,23 +1169,26 @@ describe('client', () => {
     it('should use default threshold of 100', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValue({
-        data: {
-          html_url: 'https://github.com/owner/repo',
-          published_at: '2023-01-15T10:00:00Z',
-          target_commitish: null,
-          tag_name: 'v1.0.0',
-          prerelease: false,
-          name: 'Release',
-          body: null,
-        },
-        headers: {
-          'x-ratelimit-reset': '1700000000',
-          'x-ratelimit-remaining': '50',
-        },
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo',
+            published_at: '2023-01-15T10:00:00Z',
+            target_commitish: null,
+            tag_name: 'v1.0.0',
+            prerelease: false,
+            name: 'Release',
+            body: null,
+          }),
+          {
+            headers: {
+              'x-ratelimit-reset': '1700000000',
+              'x-ratelimit-remaining': '50',
+            },
+            status: 200,
+          },
+        ),
+      )
 
       await client.getLatestRelease('owner', 'repo')
 
@@ -1003,9 +1201,7 @@ describe('client', () => {
       let client = new Client('test-token')
       let error = new Error('Network error')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValue(error)
+      vi.mocked(globalThis.fetch).mockRejectedValue(error)
 
       await expect(client.getLatestRelease('owner', 'repo')).rejects.toThrow(
         'Network error',
@@ -1014,14 +1210,13 @@ describe('client', () => {
 
     it('should handle rate limit errors consistently across methods', async () => {
       let client = new Client('test-token')
-      let rateLimitError = {
-        message: 'rate limit',
-        status: 403,
-      }
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValue(rateLimitError)
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('rate limit', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(client.getLatestRelease('owner', 'repo')).rejects.toThrow(
         'GitHub API rate limit exceeded',
@@ -1033,9 +1228,12 @@ describe('client', () => {
     it('should detect error with rate limit message', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValue(new Error('API rate limit exceeded'))
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('API rate limit exceeded', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(client.getLatestRelease('owner', 'repo')).rejects.toThrow(
         'GitHub API rate limit exceeded',
@@ -1045,12 +1243,12 @@ describe('client', () => {
     it('should detect error with status 403', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValue({
-        message: 'Forbidden',
-        status: 403,
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('Forbidden', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(client.getLatestRelease('owner', 'repo')).rejects.toThrow(
         'GitHub API rate limit exceeded',
@@ -1060,15 +1258,26 @@ describe('client', () => {
     it('should handle non-string error.message with status 403', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValue({
-        message: 12345,
-        status: 403,
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response('12345', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(client.getLatestRelease('owner', 'repo')).rejects.toThrow(
         'GitHub API rate limit exceeded',
+      )
+    })
+
+    it('should handle non-string error.message without 403 safely', async () => {
+      let client = new Client('test-token')
+
+      let thrown = { message: 12345, status: 400 } as unknown
+      vi.mocked(globalThis.fetch).mockRejectedValue(thrown)
+
+      await expect(client.getLatestRelease('owner', 'repo')).rejects.toBe(
+        thrown,
       )
     })
 
@@ -1087,20 +1296,20 @@ describe('client', () => {
       delete process.env['GITHUB_TOKEN']
       let client = new Client()
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getReleaseByTag,
-      ).mockResolvedValue({
-        data: {
-          published_at: '2023-01-15T10:00:00Z',
-          html_url: 'https://github.com',
-          target_commitish: 'main',
-          tag_name: 'v1.0.0',
-          prerelease: false,
-          name: 'Release',
-          body: 'Body',
-        },
-        headers: {},
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            published_at: '2023-01-15T10:00:00Z',
+            html_url: 'https://github.com',
+            target_commitish: 'main',
+            tag_name: 'v1.0.0',
+            prerelease: false,
+            name: 'Release',
+            body: 'Body',
+          }),
+          { status: 200, headers: {} },
+        ),
+      )
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.0')
 
@@ -1118,29 +1327,35 @@ describe('client', () => {
         new Date('2024-01-01T12:00:00Z').getTime() / 1000,
       )
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockResolvedValueOnce({
-        data: {
-          html_url: 'https://github.com/owner/repo',
-          published_at: '2023-01-15T10:00:00Z',
-          target_commitish: null,
-          tag_name: 'v1.0.0',
-          prerelease: false,
-          name: 'Release',
-          body: null,
-        },
-        headers: {
-          'x-ratelimit-reset': String(resetEpoch),
-          'x-ratelimit-remaining': '4950',
-        },
-      })
+      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            html_url: 'https://github.com/owner/repo',
+            published_at: '2023-01-15T10:00:00Z',
+            target_commitish: null,
+            tag_name: 'v1.0.0',
+            prerelease: false,
+            name: 'Release',
+            body: null,
+          }),
+          {
+            headers: {
+              'x-ratelimit-reset': String(resetEpoch),
+              'x-ratelimit-remaining': '4950',
+            },
+            status: 200,
+          },
+        ),
+      )
 
       await client.getLatestRelease('owner', 'repo')
 
-      vi.mocked(
-        (client as unknown as ClientWithPrivate).octokit.repos.getLatestRelease,
-      ).mockRejectedValueOnce({ message: 'rate limit', status: 403 })
+      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+        new Response('rate limit', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
 
       await expect(client.getLatestRelease('owner', 'repo')).rejects.toThrow(
         'GitHub API rate limit exceeded',
