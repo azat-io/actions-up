@@ -49,13 +49,33 @@ export async function checkUpdates(
           return [...results, { version: null, actionName, sha: null }]
         }
 
-        let [owner, repo] = actionName.split('/')
+        /* Parse owner/repo from actionName, which may include path. */
+        let segments = actionName.split('/')
+        if (segments.length < 2) {
+          return [...results, { version: null, actionName, sha: null }]
+        }
+        let [owner, repo] = segments
 
         if (!owner || !repo) {
           return [...results, { version: null, actionName, sha: null }]
         }
 
         try {
+          /* First check if current versions are branches - if so, skip update check. */
+          let currentVersions = uniqueActions.get(actionName)!
+          let firstVersion = currentVersions[0]?.version
+          if (firstVersion) {
+            let referenceType = await client.getRefType(
+              owner,
+              repo,
+              firstVersion,
+            )
+            if (referenceType === 'branch') {
+              /* Skip update check for branch references. */
+              return [...results, { version: null, actionName, sha: null }]
+            }
+          }
+
           /* Get latest release. */
           let release = await client.getLatestRelease(owner, repo)
 
@@ -66,6 +86,28 @@ export async function checkUpdates(
               currentRelease => !currentRelease.isPrerelease,
             )
             release = stableRelease ?? allReleases[0] ?? null
+          }
+
+          /* If no releases found, try tags. */
+          if (!release) {
+            let tags = await client.getAllTags(owner, repo, 30)
+            if (tags.length > 0) {
+              /* Find the latest semver-like tag (non-capturing groups). */
+              let semverTag = tags.find(tag =>
+                /^v?\d+(?:\.\d+){0,2}/u.test(tag.tag),
+              )
+              let latestTag = semverTag ?? tags[0]
+              if (latestTag) {
+                return [
+                  ...results,
+                  {
+                    version: latestTag.tag,
+                    sha: latestTag.sha,
+                    actionName,
+                  },
+                ]
+              }
+            }
           }
 
           if (release) {
@@ -84,7 +126,7 @@ export async function checkUpdates(
           }
 
           return [...results, { version: null, actionName, sha: null }]
-        } catch (error) {
+        } catch (error: unknown) {
           /* Handle rate limit errors specially. */
           if (error instanceof Error && error.name === 'GitHubRateLimitError') {
             sharedState.rateLimitHit = true
@@ -257,10 +299,6 @@ function normalizeVersion(version: string): string | null {
  * @returns True if the string is a SHA hash.
  */
 function isSha(value: string): boolean {
-  if (!value) {
-    return false
-  }
-
   /* Remove 'v' prefix if present. */
   let normalized = value.replace(/^v/u, '')
 

@@ -324,6 +324,59 @@ export class Client {
     }
   }
 
+  public async getAllTags(
+    owner: string,
+    repo: string,
+    limit: number = 30,
+  ): Promise<TagInfo[]> {
+    try {
+      let tagsResp = await this.makeRequest(
+        `/repos/${owner}/${repo}/tags?per_page=${limit}`,
+      )
+      let tags = tagsResp.data as {
+        commit: { sha: string; url: string }
+        zipball_url: string
+        tarball_url: string
+        node_id: string
+        name: string
+      }[]
+
+      return tags.map(tag => ({
+        sha: tag.commit.sha,
+        tag: tag.name,
+        message: null,
+        date: null,
+      }))
+    } catch (error) {
+      if (Client.isRateLimitError(error)) {
+        throw new GitHubRateLimitError(this.rateLimitReset)
+      }
+      throw error
+    }
+  }
+
+  public async getRefType(
+    owner: string,
+    repo: string,
+    reference: string,
+  ): Promise<'branch' | 'tag' | null> {
+    try {
+      await this.makeRequest(
+        `/repos/${owner}/${repo}/git/refs/tags/${reference}`,
+      )
+      return 'tag'
+    } catch {
+      try {
+        await this.makeRequest(
+          `/repos/${owner}/${repo}/git/refs/heads/${reference}`,
+        )
+        return 'branch'
+      } catch {
+        return null
+      }
+    }
+  }
+
   public getRateLimitStatus(): { remaining: number; resetAt: Date } {
     return {
       remaining: this.rateLimitRemaining,
