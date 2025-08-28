@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.1.0...v1.1.1)
+
+### 🏎 Performance Improvements
+
+- Migrate from octokit sdk to native fetch ([9be76fe](https://github.com/azat-io/actions-up/commit/9be76fe))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.1.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.0.0...v1.1.0)
