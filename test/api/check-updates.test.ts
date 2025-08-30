@@ -901,6 +901,221 @@ describe('checkUpdates', () => {
     })
   })
 
+  it('pins unpinned exact tag to SHA when latest SHA is available', async () => {
+    let mockClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        url: 'https://github.com/pnpm/action-setup/releases/tag/v4.1.0',
+        sha: 'abc123def4567890abc123def4567890abc123de',
+        publishedAt: new Date('2024-01-01'),
+        description: 'Latest',
+        isPrerelease: false,
+        version: 'v4.1.0',
+        name: 'v4.1.0',
+      }),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+
+    vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'pnpm/action-setup@v4.1.0',
+        ref: 'pnpm/action-setup@v4.1.0',
+        name: 'pnpm/action-setup',
+        version: 'v4.1.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]!).toEqual({
+      latestSha: 'abc123def4567890abc123def4567890abc123de',
+      currentVersion: 'v4.1.0',
+      latestVersion: 'v4.1.0',
+      action: actions[0],
+      isBreaking: false,
+      hasUpdate: true,
+    })
+  })
+
+  it('does not suggest pinning when latest SHA is unavailable', async () => {
+    let mockClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        url: 'https://github.com/pnpm/action-setup/releases/tag/v4.1.0',
+        publishedAt: new Date('2024-01-01'),
+        description: 'Latest',
+        isPrerelease: false,
+        version: 'v4.1.0',
+        name: 'v4.1.0',
+        sha: null,
+      }),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagInfo: vi.fn().mockResolvedValue(null),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+    }
+
+    vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'pnpm/action-setup@v4.1.0',
+        ref: 'pnpm/action-setup@v4.1.0',
+        name: 'pnpm/action-setup',
+        version: 'v4.1.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]!).toEqual({
+      currentVersion: 'v4.1.0',
+      latestVersion: 'v4.1.0',
+      action: actions[0],
+      isBreaking: false,
+      hasUpdate: false,
+      latestSha: null,
+    })
+  })
+
+  it('does not update when already pinned to the same SHA for the latest tag', async () => {
+    let mockClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        url: 'https://github.com/pnpm/action-setup/releases/tag/v4.1.0',
+        sha: 'abc123def4567890abc123def4567890abc123de',
+        publishedAt: new Date('2024-01-01'),
+        description: 'Latest',
+        isPrerelease: false,
+        version: 'v4.1.0',
+        name: 'v4.1.0',
+      }),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+
+    vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'pnpm/action-setup@abc123def4567890abc123def4567890abc123de',
+        ref: 'pnpm/action-setup@abc123def4567890abc123def4567890abc123de',
+        version: 'abc123def4567890abc123def4567890abc123de',
+        name: 'pnpm/action-setup',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]!).toEqual({
+      currentVersion: 'abc123def4567890abc123def4567890abc123de',
+      latestSha: 'abc123def4567890abc123def4567890abc123de',
+      latestVersion: 'v4.1.0',
+      action: actions[0],
+      isBreaking: false,
+      hasUpdate: false,
+    })
+  })
+
+  it('detects update when pinned SHA differs from latest SHA for the same tag', async () => {
+    let mockClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        url: 'https://github.com/pnpm/action-setup/releases/tag/v4.1.0',
+        sha: '2222222abcdef0123456789abcdef0123456789',
+        publishedAt: new Date('2024-01-01'),
+        description: 'Latest',
+        isPrerelease: false,
+        version: 'v4.1.0',
+        name: 'v4.1.0',
+      }),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+
+    vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'pnpm/action-setup@1111111abcdef0123456789abcdef0123456789',
+        ref: 'pnpm/action-setup@1111111abcdef0123456789abcdef0123456789',
+        version: '1111111abcdef0123456789abcdef0123456789',
+        name: 'pnpm/action-setup',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]!).toEqual({
+      currentVersion: '1111111abcdef0123456789abcdef0123456789',
+      latestSha: '2222222abcdef0123456789abcdef0123456789',
+      latestVersion: 'v4.1.0',
+      action: actions[0],
+      isBreaking: false,
+      hasUpdate: true,
+    })
+  })
+
+  it('pins when tag matches after normalization (v/no v)', async () => {
+    let mockClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        url: 'https://github.com/pnpm/action-setup/releases/tag/v4.1.0',
+        sha: 'zzz123def4567890abc123def4567890abc123de',
+        publishedAt: new Date('2024-01-01'),
+        description: 'Latest',
+        isPrerelease: false,
+        version: 'v4.1.0',
+        name: 'v4.1.0',
+      }),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+
+    vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'pnpm/action-setup@4.1.0',
+        ref: 'pnpm/action-setup@4.1.0',
+        name: 'pnpm/action-setup',
+        version: '4.1.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]!).toEqual({
+      latestSha: 'zzz123def4567890abc123def4567890abc123de',
+      currentVersion: '4.1.0',
+      latestVersion: 'v4.1.0',
+      action: actions[0],
+      isBreaking: false,
+      hasUpdate: true,
+    })
+  })
+
   it('falls back to first tag when no semver-like tag exists', async () => {
     let mockClient = {
       getAllTags: vi.fn().mockResolvedValue([

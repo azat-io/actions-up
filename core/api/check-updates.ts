@@ -220,6 +220,19 @@ function createUpdate(
         let latestMajor = semver.major(latest)
         isBreaking = latestMajor > currentMajor
       }
+      /**
+       * If versions are equal but current ref is an unpinned tag and latest SHA
+       * is known, suggest pinning to SHA.
+       */
+      if (
+        !hasUpdate &&
+        semver.eq(current, latest) &&
+        !isSha(action.version) &&
+        latestSha
+      ) {
+        hasUpdate = true
+        isBreaking = false
+      }
     } else if (currentVersion !== normalized) {
       hasUpdate = true
     }
@@ -298,7 +311,11 @@ function normalizeVersion(version: string): string | null {
  * @param value - String to check.
  * @returns True if the string is a SHA hash.
  */
-function isSha(value: string): boolean {
+function isSha(value: undefined | string | null): boolean {
+  if (!value) {
+    return false
+  }
+
   /* Remove 'v' prefix if present. */
   let normalized = value.replace(/^v/u, '')
 
