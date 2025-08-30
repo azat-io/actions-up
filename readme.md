@@ -14,7 +14,7 @@
 
 Actions Up scans your workflows and composite actions to discover every referenced GitHub Action, then checks for newer releases.
 
-Interactively upgrade and pin actions to exact commit SHAs for secure, reproducible CI and low‑friction maintenance.
+Interactively upgrade and pin actions to exact commit SHAs for secure, reproducible CI and low-friction maintenance.
 
 ## Features
 
@@ -128,9 +128,10 @@ npx actions-up --dry-run
 
 You can integrate Actions Up into your CI/CD pipeline to automatically check for outdated actions on every pull request. This helps maintain security and ensures your team stays aware of available updates.
 
-Create `.github/workflows/check-actions-updates.yml`:
+<details>
+<summary>Create <code>.github/workflows/check-actions-updates.yml</code>.</summary>
 
-```yaml
+````yaml
 name: Check for outdated GitHub Actions
 on:
   pull_request:
@@ -182,7 +183,7 @@ jobs:
 
           # Create formatted output
           if [ "$HAS_UPDATES" = true ]; then
-            echo "⚠️ Found $UPDATE_COUNT GitHub Actions with available updates" >> $GITHUB_STEP_SUMMARY
+            echo "Found $UPDATE_COUNT GitHub Actions with available updates" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "<details>" >> $GITHUB_STEP_SUMMARY
             echo "<summary>Click to see details</summary>" >> $GITHUB_STEP_SUMMARY
@@ -194,7 +195,7 @@ jobs:
 
             # Create detailed markdown report with better formatting
             {
-              echo "## 🔄 GitHub Actions Update Report"
+              echo "## GitHub Actions Update Report"
               echo ""
 
               # Extract summary information
@@ -205,11 +206,11 @@ jobs:
               echo "- **Total actions scanned:** $TOTAL_ACTIONS"
               echo "- **Updates available:** $UPDATE_COUNT"
               if [ "$BREAKING_UPDATES" != "0" ]; then
-                echo "- **⚠️ Breaking changes:** $BREAKING_UPDATES"
+                echo "- **Breaking changes:** $BREAKING_UPDATES"
               fi
               echo ""
 
-              echo "### 📋 Available Updates"
+              echo "### Available Updates"
               echo ""
 
               # Format the updates in a table
@@ -235,7 +236,7 @@ jobs:
                   NEW_MAJOR=$(echo "$NEW" | grep -oP 'v\K[0-9]+' || echo "0")
 
                   if [ "$CURRENT_MAJOR" != "$NEW_MAJOR" ]; then
-                    TYPE="⚠️ Breaking"
+                    TYPE="Breaking"
                     # Generate release URL
                     # Handle both owner/repo and just repo formats
                     if echo "$ACTION" | grep -q "/"; then
@@ -245,9 +246,9 @@ jobs:
                       REPO_PATH="actions/$ACTION"
                     fi
                     RELEASE_URL="https://github.com/${REPO_PATH}/releases/tag/${NEW}"
-                    RELEASE_LINK="[📄 Release](${RELEASE_URL})"
+                    RELEASE_LINK="[Release](${RELEASE_URL})"
                   else
-                    TYPE="✅ Minor"
+                    TYPE="Minor"
                     RELEASE_LINK="-"
                   fi
 
@@ -258,7 +259,7 @@ jobs:
               done
 
               echo ""
-              echo "### 📝 How to Update"
+              echo "### How to Update"
               echo ""
               echo "You have several options to update these actions:"
               echo ""
@@ -270,7 +271,7 @@ jobs:
               echo ""
               echo "#### Option 2: Manual Update"
               echo "1. Review each update in the table above"
-              echo "2. For ⚠️ breaking changes, click the Release Notes link to review changes"
+              echo "2. For breaking changes, click the Release Notes link to review changes"
               echo "3. Edit the workflow files and update the version numbers"
               echo "4. Test the changes in your CI/CD pipeline"
               echo ""
@@ -282,7 +283,7 @@ jobs:
               echo ""
 
               if [ "$BREAKING_UPDATES" != "0" ]; then
-                echo "### ⚠️ Breaking Changes Warning"
+                echo "### Breaking Changes Warning"
                 echo ""
                 echo "This update includes **$BREAKING_UPDATES breaking change(s)**. Please review the release notes before updating:"
                 echo ""
@@ -313,7 +314,7 @@ jobs:
               echo "---"
               echo ""
               echo "<details>"
-              echo "<summary>📄 Raw actions-up output</summary>"
+              echo "<summary>Raw actions-up output</summary>"
               echo ""
               echo '```'
               cat actions-up-raw.txt
@@ -324,10 +325,10 @@ jobs:
             echo "has-updates=true" >> $GITHUB_OUTPUT
             echo "update-count=$UPDATE_COUNT" >> $GITHUB_OUTPUT
           else
-            echo "✅ All GitHub Actions are up to date!" >> $GITHUB_STEP_SUMMARY
+            echo "All GitHub Actions are up to date!" >> $GITHUB_STEP_SUMMARY
 
             {
-              echo "## ✅ GitHub Actions Update Report"
+              echo "## GitHub Actions Update Report"
               echo ""
               echo "### All GitHub Actions in this repository are up to date!"
               echo ""
@@ -363,7 +364,7 @@ jobs:
             const commentBody = `${report}
 
             ---
-            *🤖 Generated by [actions-up](https://github.com/azat-io/actions-up) | Last check: ${new Date().toISOString()}*`;
+            *Generated by [actions-up](https://github.com/azat-io/actions-up) | Last check: ${new Date().toISOString()}*`;
 
             // Only comment if there are updates or if we previously commented
             if (hasUpdates || botComment) {
@@ -430,22 +431,25 @@ jobs:
       - name: Fail if outdated actions found
         if: steps.actions-check.outputs.has-updates == 'true'
         run: |
-          echo "::error:: :rotating_light: Found ${{ steps.actions-check.outputs.update-count }} outdated GitHub Actions. Please update them before merging. :rotating_light:"
+          echo "::error:: Found ${{ steps.actions-check.outputs.update-count }} outdated GitHub Actions. Please update them before merging."
           echo ""
           echo "You can update them by running: npx actions-up"
           echo "Or manually update the versions in your workflow files."
           exit 1
-```
+````
+
+</details>
 
 ### Advanced PR Integration with Comments
 
 For a more sophisticated integration that comments directly on PRs with detailed update information, check out our [example workflow with PR comments](https://github.com/azat-io/actions-up/blob/main/examples/workflows/check-with-comments.yml).
 
 This advanced workflow:
-- 📝 Comments on PRs with a formatted table of available updates
-- 🏷️ Adds labels to PRs with outdated actions
-- 🔗 Includes links to release notes for breaking changes
-- ⚡ Updates existing comments instead of creating duplicates
+
+- Comments on PRs with a formatted table of available updates
+- Adds labels to PRs with outdated actions
+- Includes links to release notes for breaking changes
+- Updates existing comments instead of creating duplicates
 
 ### Scheduled Checks
 
@@ -456,8 +460,8 @@ name: Weekly Actions Update Check
 
 on:
   schedule:
-    - cron: '0 9 * * 1'  # Every Monday at 9 AM
-  workflow_dispatch:  # Allow manual triggers
+    - cron: '0 9 * * 1' # Every Monday at 9 AM
+  workflow_dispatch: # Allow manual triggers
 
 jobs:
   check-updates:
