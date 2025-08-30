@@ -23,8 +23,8 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 - **Batch Updates**: Update multiple actions at once
 - **Interactive Selection**: Choose which actions to update
 - **Breaking Changes Detection**: Warns about major version updates
-- **Fast & Efficient**: Parallel processing with optimized API calls
-- **CI/CD Integration**: Can be used as a GitHub Action for automated PR checks
+- **Fast & Efficient**: Optimized API usage with deduped lookups
+- **CI/CD Integration**: Use in GitHub Actions workflows for automated PR checks
 
 ###
 
@@ -167,15 +167,8 @@ jobs:
           echo "Running actions-up to check for updates..."
           actions-up --dry-run > actions-up-raw.txt 2>&1 || true
 
-          # Strip ANSI color codes from the output
-          sed -i 's/\x1b\[[0-9;]*m//g' actions-up-raw.txt
-
-          # Also remove any other control characters
-          sed -i 's/\x1b\[[0-9;]*[a-zA-Z]//g' actions-up-raw.txt
-
           # Parse the output to detect updates
-          # Look for patterns like "v3 → v4" or "would be updated"
-          if grep -E "(→|would be updated|Update available)" actions-up-raw.txt > /dev/null 2>&1; then
+          if grep -q "→" actions-up-raw.txt; then
             HAS_UPDATES=true
             # Count the number of updates (lines with arrows)
             UPDATE_COUNT=$(grep -c "→" actions-up-raw.txt || echo "0")
@@ -198,67 +191,11 @@ jobs:
               echo "## GitHub Actions Update Report"
               echo ""
 
-              # Extract summary information
-              TOTAL_ACTIONS=$(grep -oP 'Found \K[0-9]+(?= actions)' actions-up-raw.txt | head -1 || echo "0")
-              BREAKING_UPDATES=$(grep -oP '\(([0-9]+) breaking\)' actions-up-raw.txt | grep -oP '[0-9]+' || echo "0")
-
               echo "### Summary"
-              echo "- **Total actions scanned:** $TOTAL_ACTIONS"
               echo "- **Updates available:** $UPDATE_COUNT"
-              if [ "$BREAKING_UPDATES" != "0" ]; then
-                echo "- **Breaking changes:** $BREAKING_UPDATES"
-              fi
               echo ""
 
-              echo "### Available Updates"
-              echo ""
-
-              # Format the updates in a table
-              echo "| Workflow File | Action | Current | Available | Type | Release Notes |"
-              echo "|--------------|--------|---------|-----------|------|---------------|"
-
-              # Parse each update line
-              grep "→" actions-up-raw.txt | while IFS= read -r line; do
-                # Extract workflow file path (remove leading path)
-                if echo "$line" | grep -q "\.github/workflows/"; then
-                  PREV_FILE=$(echo "$line" | grep -oP '\.github/workflows/[^:]+' | head -1)
-                fi
-
-                # Skip file path lines, process only action updates
-                if echo "$line" | grep -q ": .* → "; then
-                  # Extract action name and versions
-                  ACTION=$(echo "$line" | cut -d: -f1 | xargs)
-                  CURRENT=$(echo "$line" | grep -oP 'v[0-9]+(\.[0-9]+)*' | head -1)
-                  NEW=$(echo "$line" | grep -oP '→ \Kv[0-9]+(\.[0-9]+)*' | head -1)
-
-                  # Determine if it's a breaking change
-                  CURRENT_MAJOR=$(echo "$CURRENT" | grep -oP 'v\K[0-9]+' || echo "0")
-                  NEW_MAJOR=$(echo "$NEW" | grep -oP 'v\K[0-9]+' || echo "0")
-
-                  if [ "$CURRENT_MAJOR" != "$NEW_MAJOR" ]; then
-                    TYPE="Breaking"
-                    # Generate release URL
-                    # Handle both owner/repo and just repo formats
-                    if echo "$ACTION" | grep -q "/"; then
-                      REPO_PATH="$ACTION"
-                    else
-                      # For actions without owner, assume it's under 'actions' org
-                      REPO_PATH="actions/$ACTION"
-                    fi
-                    RELEASE_URL="https://github.com/${REPO_PATH}/releases/tag/${NEW}"
-                    RELEASE_LINK="[Release](${RELEASE_URL})"
-                  else
-                    TYPE="Minor"
-                    RELEASE_LINK="-"
-                  fi
-
-                  # Output table row
-                  WORKFLOW_NAME=$(basename "$PREV_FILE" 2>/dev/null || echo "workflow.yml")
-                  echo "| \`$WORKFLOW_NAME\` | $ACTION | $CURRENT | **$NEW** | $TYPE | $RELEASE_LINK |"
-                fi
-              done
-
-              echo ""
+              # See the raw output above for details.
               echo "### How to Update"
               echo ""
               echo "You have several options to update these actions:"
@@ -275,42 +212,6 @@ jobs:
               echo "3. Edit the workflow files and update the version numbers"
               echo "4. Test the changes in your CI/CD pipeline"
               echo ""
-              echo "#### Option 3: Selective Update"
-              echo '```bash'
-              echo "# Update only non-breaking changes"
-              echo "npx actions-up --breaking false"
-              echo '```'
-              echo ""
-
-              if [ "$BREAKING_UPDATES" != "0" ]; then
-                echo "### Breaking Changes Warning"
-                echo ""
-                echo "This update includes **$BREAKING_UPDATES breaking change(s)**. Please review the release notes before updating:"
-                echo ""
-                grep "→" actions-up-raw.txt | while IFS= read -r line; do
-                  if echo "$line" | grep -q ": .* → "; then
-                    ACTION=$(echo "$line" | cut -d: -f1 | xargs)
-                    CURRENT=$(echo "$line" | grep -oP 'v[0-9]+' | head -1)
-                    NEW=$(echo "$line" | grep -oP '→ \Kv[0-9]+(\.[0-9]+)*' | head -1)
-                    CURRENT_MAJOR=$(echo "$CURRENT" | grep -oP '[0-9]+' || echo "0")
-                    NEW_MAJOR=$(echo "$NEW" | grep -oP '[0-9]+' || echo "0")
-                    if [ "$CURRENT_MAJOR" != "$NEW_MAJOR" ]; then
-                      # Generate release URL
-                      if echo "$ACTION" | grep -q "/"; then
-                        REPO_PATH="$ACTION"
-                      else
-                        REPO_PATH="actions/$ACTION"
-                      fi
-                      RELEASE_URL="https://github.com/${REPO_PATH}/releases/tag/${NEW}"
-                      echo "- **$ACTION**: $CURRENT → $NEW - [View Release Notes](${RELEASE_URL})"
-                    fi
-                  fi
-                done
-                echo ""
-                echo "**Important:** Breaking changes may require modifications to your workflow configuration. Always review the release notes and test thoroughly."
-                echo ""
-              fi
-
               echo "---"
               echo ""
               echo "<details>"
@@ -440,17 +341,6 @@ jobs:
 
 </details>
 
-### Advanced PR Integration with Comments
-
-For a more sophisticated integration that comments directly on PRs with detailed update information, check out our [example workflow with PR comments](https://github.com/azat-io/actions-up/blob/main/examples/workflows/check-with-comments.yml).
-
-This advanced workflow:
-
-- Comments on PRs with a formatted table of available updates
-- Adds labels to PRs with outdated actions
-- Includes links to release notes for breaking changes
-- Updates existing comments instead of creating duplicates
-
 ### Scheduled Checks
 
 You can also set up scheduled checks to stay informed about updates:
@@ -516,22 +406,6 @@ Or in GitHub Actions:
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   run: npx actions-up --dry-run
-```
-
-### Command Line Options
-
-```bash
-# Update all actions without prompts
-npx actions-up --yes
-
-# Check for updates without making changes
-npx actions-up --dry-run
-
-# Update only non-breaking changes
-npx actions-up --breaking false
-
-# Specify custom workflow directory
-npx actions-up --workflows ./custom/workflows
 ```
 
 ## Security
