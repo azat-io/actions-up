@@ -4,6 +4,17 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
 import { Client } from '../../core/api/client'
 
+vi.mock('node:child_process', () => ({
+  execFileSync: vi.fn(() => {
+    throw new Error('gh not available')
+  }),
+}))
+vi.mock('node:fs', () => ({
+  readFileSync: vi.fn(() => {
+    throw new Error('no git config')
+  }),
+}))
+
 interface ClientWithPrivate {
   makeRequest: ReturnType<typeof vi.fn>
   token: undefined | string
@@ -24,6 +35,95 @@ describe('client', () => {
   afterEach(() => {
     consoleWarnSpy.mockRestore()
     process.env = originalEnvironment
+  })
+
+  describe('token resolution', () => {
+    let originalEnvironment_: NodeJS.ProcessEnv
+
+    beforeEach(() => {
+      originalEnvironment_ = { ...process.env }
+      vi.resetModules()
+    })
+
+    afterEach(() => {
+      process.env = originalEnvironment_
+    })
+
+    it('uses GITHUB_TOKEN from env', async () => {
+      process.env['GITHUB_TOKEN'] = 'env-github-token'
+      let { Client: ClientFromModule } = await import('../../core/api/client')
+      let client = new ClientFromModule()
+      let { remaining } = client.getRateLimitStatus()
+      expect(remaining).toBe(5000)
+    })
+
+    it('falls back to GH_TOKEN when GITHUB_TOKEN is absent', async () => {
+      delete process.env['GITHUB_TOKEN']
+      process.env['GH_TOKEN'] = 'env-gh-token'
+      let { Client: ClientFromModule } = await import('../../core/api/client')
+      let client = new ClientFromModule()
+      let { remaining } = client.getRateLimitStatus()
+      expect(remaining).toBe(5000)
+    })
+
+    it('falls back to gh auth token', async () => {
+      delete process.env['GITHUB_TOKEN']
+      delete process.env['GH_TOKEN']
+      let { execFileSync } = await import('node:child_process')
+      vi.mocked(execFileSync).mockReturnValueOnce(
+        'cli-token\n' as unknown as Buffer,
+      )
+
+      let { Client: ClientFromModule } = await import('../../core/api/client')
+      let client = new ClientFromModule()
+      let { remaining } = client.getRateLimitStatus()
+      expect(remaining).toBe(5000)
+    })
+
+    it('falls back to .git/config when gh is unavailable (section style)', async () => {
+      delete process.env['GITHUB_TOKEN']
+      delete process.env['GH_TOKEN']
+      let { readFileSync } = await import('node:fs')
+      vi.mocked(readFileSync).mockImplementationOnce(
+        () => '[github]\n    token = file-token\n',
+      )
+
+      let { Client: ClientFromModule } = await import('../../core/api/client')
+      let client = new ClientFromModule()
+      let { remaining } = client.getRateLimitStatus()
+      expect(remaining).toBe(5000)
+    })
+
+    it('falls back to .git/config when gh is unavailable (direct key style)', async () => {
+      let { readFileSync } = await import('node:fs')
+      delete process.env['GITHUB_TOKEN']
+      delete process.env['GH_TOKEN']
+      vi.mocked(readFileSync).mockImplementationOnce(
+        () => 'github.token = direct-file-token\n',
+      )
+
+      let { Client: ClientFromModule } = await import('../../core/api/client')
+      let client = new ClientFromModule()
+      let { remaining } = client.getRateLimitStatus()
+      expect(remaining).toBe(5000)
+    })
+
+    it('resolver returns GITHUB_TOKEN when constructor falls through to resolver', async () => {
+      delete process.env['GH_TOKEN']
+      process.env['GITHUB_TOKEN'] = 'via-resolver'
+      let { resolveGitHubTokenSync } = await import('../../core/api/client')
+      let token = resolveGitHubTokenSync()
+      expect(token).toBe('via-resolver')
+    })
+
+    it('uses no token when none found', async () => {
+      delete process.env['GITHUB_TOKEN']
+      delete process.env['GH_TOKEN']
+      let { Client: ClientFromModule } = await import('../../core/api/client')
+      let client = new ClientFromModule()
+      let { remaining } = client.getRateLimitStatus()
+      expect(remaining).toBe(60)
+    })
   })
 
   describe('constructor', () => {
