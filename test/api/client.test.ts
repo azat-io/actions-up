@@ -54,9 +54,6 @@ describe('client', () => {
       let client = new Client()
       expect(client).toBeInstanceOf(Client)
       expect((client as unknown as ClientWithPrivate).token).toBeUndefined()
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        'No GitHub token found. API rate limits will be restricted.',
-      )
     })
   })
 
@@ -1286,9 +1283,6 @@ describe('client', () => {
 
       let client = new Client()
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        'No GitHub token found. API rate limits will be restricted.',
-      )
       expect(client.getRateLimitStatus().remaining).toBe(60)
     })
 

@@ -66,11 +66,6 @@ export class Client {
    */
   public constructor(token?: string) {
     this.token = token ?? process.env['GITHUB_TOKEN']
-
-    if (!this.token) {
-      console.warn('No GitHub token found. API rate limits will be restricted.')
-    }
-
     this.rateLimitRemaining = this.token ? 5000 : 60
   }
 
