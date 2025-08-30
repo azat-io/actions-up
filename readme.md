@@ -162,15 +162,9 @@ jobs:
           HAS_UPDATES=false
           UPDATE_COUNT=0
 
-          # Run actions-up and capture output (force no color output)
+          # Run actions-up and capture output
           echo "Running actions-up to check for updates..."
-
-          if [ "${{ inputs.check-mode }}" == "dry-run" ]; then
-            NO_COLOR=1 FORCE_COLOR=0 actions-up --dry-run > actions-up-raw.txt 2>&1 || true
-          else
-            # Run in non-interactive mode to just check
-            NO_COLOR=1 FORCE_COLOR=0 actions-up --dry-run > actions-up-raw.txt 2>&1 || true
-          fi
+          actions-up --dry-run > actions-up-raw.txt 2>&1 || true
 
           # Strip ANSI color codes from the output
           sed -i 's/\x1b\[[0-9;]*m//g' actions-up-raw.txt
