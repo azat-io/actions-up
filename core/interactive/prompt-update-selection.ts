@@ -209,7 +209,7 @@ export async function promptUpdateSelection(
       let hasSha = Boolean(update.latestSha)
 
       let current = formatVersionOrSha(update.currentVersion)
-      let latest = formatVersion(update.latestVersion)
+      let latest = formatVersion(update.latestVersion, update.currentVersion)
       let actionName = update.action.name
 
       if (update.latestSha) {
@@ -457,9 +457,8 @@ function formatVersionOrSha(version: undefined | string | null): string {
   }
 
   if (isSha(version)) {
-    /* Shorten SHA to 7 characters. */
     return version.slice(0, 7)
   }
 
-  return version
+  return version.replace(/^v/u, '')
 }

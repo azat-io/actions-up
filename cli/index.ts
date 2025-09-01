@@ -76,7 +76,9 @@ export function run(): void {
 
         spinner.success(
           `Found ${pc.yellow(outdated.length)} updates available${
-            breaking.length > 0 ? ` (${pc.red(breaking.length)} breaking)` : ''
+            breaking.length > 0
+              ? ` (${pc.redBright(breaking.length)} breaking)`
+              : ''
           }`,
         )
 
@@ -86,7 +88,7 @@ export function run(): void {
           for (let update of outdated) {
             console.info(
               `${pc.cyan(update.action.file ?? 'unknown')}:\n` +
-                `${update.action.name}: ${pc.red(update.currentVersion)} → ${pc.green(
+                `${update.action.name}: ${pc.redBright(update.currentVersion)} → ${pc.green(
                   update.latestVersion,
                 )} ${update.latestSha ? pc.gray(`(${update.latestSha.slice(0, 7)})`) : ''}\n`,
             )
@@ -143,7 +145,7 @@ export function run(): void {
           )
         } else {
           console.error(
-            pc.red('\nError:'),
+            pc.redBright('\nError:'),
             error instanceof Error ? error.message : String(error),
           )
         }
