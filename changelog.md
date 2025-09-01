@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.2.0...v1.2.1)
+
+### 🐞 Bug Fixes
+
+- Resolve release sha via tag refs ([261db03](https://github.com/azat-io/actions-up/commit/261db03))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.2.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.1.1...v1.2.0)
