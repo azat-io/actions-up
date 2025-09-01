@@ -204,7 +204,7 @@ describe('client', () => {
         name: 'Release v1.0.0',
         isPrerelease: false,
         version: 'v1.0.0',
-        sha: 'abc123',
+        sha: null,
       })
     })
 
@@ -302,6 +302,47 @@ describe('client', () => {
 
       tagInfoSpy.mockRestore()
     })
+
+    it('should fall back to target_commitish when it looks like SHA and tagInfo fails', async () => {
+      let client = new Client('test-token')
+      let mockRelease = {
+        html_url: 'https://github.com/owner/repo/releases/v2.0.0',
+        published_at: '2023-02-01T00:00:00Z',
+        /* Cspell:disable-next-line */
+        target_commitish: 'deadbeefcafebabe',
+        name: 'Release v2.0.0',
+        tag_name: 'v2.0.0',
+        prerelease: false,
+        body: 'Desc',
+      }
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if (url === 'https://api.github.com/repos/owner/repo/releases/latest') {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockRelease), { status: 200 }),
+          )
+        }
+        if (
+          url === 'https://api.github.com/repos/owner/repo/releases/tags/v2.0.0'
+        ) {
+          return Promise.reject(new Error('temporary failure'))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let result = await client.getLatestRelease('owner', 'repo')
+
+      expect(result).toEqual({
+        url: 'https://github.com/owner/repo/releases/v2.0.0',
+        publishedAt: new Date('2023-02-01T00:00:00Z'),
+        /* Cspell:disable-next-line */
+        sha: 'deadbeefcafebabe',
+        name: 'Release v2.0.0',
+        description: 'Desc',
+        isPrerelease: false,
+        version: 'v2.0.0',
+      })
+    })
   })
 
   describe('getAllReleases', () => {
@@ -375,7 +416,7 @@ describe('client', () => {
         name: 'Release v1.0.0',
         isPrerelease: false,
         version: 'v1.0.0',
-        sha: 'abc123',
+        sha: null,
       })
     })
 
@@ -541,6 +582,50 @@ describe('client', () => {
         name: 'v1.0.0',
       })
     })
+
+    it('should fall back to target_commitish when it looks like SHA and tagInfo fails', async () => {
+      let client = new Client('test-token')
+
+      let mockReleases = [
+        {
+          html_url: 'https://github.com/owner/repo/releases/v3.0.0',
+          published_at: '2023-03-01T00:00:00Z',
+          target_commitish: 'beadface1234567',
+          name: 'Release v3.0.0',
+          tag_name: 'v3.0.0',
+          prerelease: false,
+          body: 'R3',
+        },
+      ]
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if (
+          url === 'https://api.github.com/repos/owner/repo/releases?per_page=1'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockReleases), { status: 200 }),
+          )
+        }
+        if (
+          url === 'https://api.github.com/repos/owner/repo/releases/tags/v3.0.0'
+        ) {
+          return Promise.reject(new Error('temporary failure'))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let result = await client.getAllReleases('owner', 'repo', 1)
+
+      expect(result[0]).toEqual({
+        url: 'https://github.com/owner/repo/releases/v3.0.0',
+        publishedAt: new Date('2023-03-01T00:00:00Z'),
+        name: 'Release v3.0.0',
+        sha: 'beadface1234567',
+        isPrerelease: false,
+        description: 'R3',
+        version: 'v3.0.0',
+      })
+    })
   })
 
   describe('getTagInfo', () => {
@@ -564,11 +649,14 @@ describe('client', () => {
             ),
           )
         }
-        if ((url as string).includes('/commits/commitish-123')) {
+        if ((url as string).includes('/git/refs/tags/v1.2.3')) {
           return Promise.resolve(
-            new Response(JSON.stringify({ sha: 'commit-sha-xyz' }), {
-              status: 200,
-            }),
+            new Response(
+              JSON.stringify({
+                object: { sha: 'commit-sha-xyz', type: 'commit' },
+              }),
+              { status: 200 },
+            ),
           )
         }
         return Promise.reject(new Error('Unexpected URL'))
@@ -584,31 +672,320 @@ describe('client', () => {
       })
     })
 
+    it('should resolve annotated tag via release path and fill metadata', async () => {
+      let client = new Client('test-token')
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v2.2.2')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v2.2.2',
+                target_commitish: 'main',
+                published_at: null,
+                tag_name: 'v2.2.2',
+                prerelease: false,
+                body: null,
+                name: 'R',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v2.2.2')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ object: { sha: 'anno-sha', type: 'tag' } }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/anno-sha')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                tagger: { date: '2020-01-01T00:00:00Z' },
+                object: { sha: 'commit-sha-777' },
+                message: 'Tag msg',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let info = await client.getTagInfo('owner', 'repo', 'v2.2.2')
+      expect(info).toEqual({
+        date: new Date('2020-01-01T00:00:00Z'),
+        sha: 'commit-sha-777',
+        message: 'Tag msg',
+        tag: 'v2.2.2',
+      })
+    })
+
+    it('should fall back to ref sha when annotated tag details fail (release path)', async () => {
+      let client = new Client('test-token')
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v4.4.4')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v4.4.4',
+                published_at: '2021-04-04T00:00:00Z',
+                target_commitish: 'main',
+                tag_name: 'v4.4.4',
+                prerelease: false,
+                body: 'Rel body',
+                name: 'R',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v4.4.4')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ object: { sha: 'tag-sha-444', type: 'tag' } }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/tag-sha-444')) {
+          return Promise.reject(new Error('temporary'))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let info = await client.getTagInfo('owner', 'repo', 'v4.4.4')
+      expect(info).toEqual({
+        date: new Date('2021-04-04T00:00:00Z'),
+        message: 'Rel body',
+        sha: 'tag-sha-444',
+        tag: 'v4.4.4',
+      })
+    })
+
+    it('should enrich from commit when ref type is commit (release path)', async () => {
+      let client = new Client('test-token')
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v5.5.5')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v5.5.5',
+                target_commitish: 'main',
+                published_at: null,
+                tag_name: 'v5.5.5',
+                prerelease: false,
+                body: null,
+                name: 'R',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v5.5.5')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ object: { sha: 'commit-555', type: 'commit' } }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/commits/commit-555')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                author: { date: '2022-05-05T00:00:00Z' },
+                message: 'Commit msg 555',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let info = await client.getTagInfo('owner', 'repo', 'v5.5.5')
+      expect(info).toEqual({
+        date: new Date('2022-05-05T00:00:00Z'),
+        message: 'Commit msg 555',
+        sha: 'commit-555',
+        tag: 'v5.5.5',
+      })
+    })
+
+    it('should tolerate commit enrichment failure (release path, commit type)', async () => {
+      let client = new Client('test-token')
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v6.6.6')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v6.6.6',
+                target_commitish: 'main',
+                published_at: null,
+                tag_name: 'v6.6.6',
+                prerelease: false,
+                body: null,
+                name: 'R',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v6.6.6')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ object: { sha: 'commit-666', type: 'commit' } }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/commits/commit-666')) {
+          return Promise.reject(new Error('commit fail'))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let info = await client.getTagInfo('owner', 'repo', 'v6.6.6')
+      expect(info).toEqual({
+        sha: 'commit-666',
+        tag: 'v6.6.6',
+        message: null,
+        date: null,
+      })
+    })
+
+    it('should leave sha null for unexpected ref type (release path)', async () => {
+      let client = new Client('test-token')
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v7.7.7')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v7.7.7',
+                published_at: '2022-07-07T00:00:00Z',
+                target_commitish: 'main',
+                tag_name: 'v7.7.7',
+                prerelease: false,
+                body: 'Body',
+                name: 'R',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v7.7.7')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ object: { sha: 'weird-sha', type: 'blob' } }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let info = await client.getTagInfo('owner', 'repo', 'v7.7.7')
+      expect(info).toEqual({
+        date: new Date('2022-07-07T00:00:00Z'),
+        message: 'Body',
+        tag: 'v7.7.7',
+        sha: null,
+      })
+    })
+
+    it('should handle annotated tag without object.sha (release path)', async () => {
+      let client = new Client('test-token')
+
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v8.8.8')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v8.8.8',
+                published_at: '2020-08-08T00:00:00Z',
+                target_commitish: 'main',
+                tag_name: 'v8.8.8',
+                prerelease: false,
+                body: 'R body',
+                name: 'R',
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v8.8.8')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ object: { sha: 'anno-missing', type: 'tag' } }),
+              { status: 200 },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/tags/anno-missing')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                tagger: { date: '2020-08-08T00:00:00Z' },
+                message: 'M',
+                object: {},
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
+
+      let info = await client.getTagInfo('owner', 'repo', 'v8.8.8')
+      expect(info).toEqual({
+        date: new Date('2020-08-08T00:00:00Z'),
+        message: 'R body',
+        tag: 'v8.8.8',
+        sha: null,
+      })
+    })
+
     it('should handle release-by-tag with null published_at (date null)', async () => {
       let client = new Client('test-token')
 
-      vi.mocked(globalThis.fetch).mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            html_url: 'https://github.com/owner/repo/releases/v0.0.1',
-            target_commitish: 'main',
-            published_at: null,
-            tag_name: 'v0.0.1',
-            prerelease: false,
-            body: null,
-            name: null,
-          }),
-          { status: 200, headers: {} },
-        ),
-      )
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v0.0.1')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                html_url: 'https://github.com/owner/repo/releases/v0.0.1',
+                target_commitish: 'main',
+                published_at: null,
+                tag_name: 'v0.0.1',
+                prerelease: false,
+                body: null,
+                name: null,
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v0.0.1')) {
+          return Promise.resolve(new Response('Not Found', { status: 404 }))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
 
       let result = await client.getTagInfo('owner', 'repo', 'v0.0.1')
 
       expect(result).toEqual({
         message: null,
         tag: 'v0.0.1',
-        sha: 'main',
         date: null,
+        sha: null,
       })
     })
 
@@ -1390,20 +1767,28 @@ describe('client', () => {
       delete process.env['GITHUB_TOKEN']
       let client = new Client()
 
-      vi.mocked(globalThis.fetch).mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            published_at: '2023-01-15T10:00:00Z',
-            html_url: 'https://github.com',
-            target_commitish: 'main',
-            tag_name: 'v1.0.0',
-            prerelease: false,
-            name: 'Release',
-            body: 'Body',
-          }),
-          { status: 200, headers: {} },
-        ),
-      )
+      vi.mocked(globalThis.fetch).mockImplementation(url => {
+        if ((url as string).includes('/releases/tags/v1.0.0')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                published_at: '2023-01-15T10:00:00Z',
+                html_url: 'https://github.com',
+                target_commitish: 'main',
+                tag_name: 'v1.0.0',
+                prerelease: false,
+                name: 'Release',
+                body: 'Body',
+              }),
+              { status: 200, headers: {} },
+            ),
+          )
+        }
+        if ((url as string).includes('/git/refs/tags/v1.0.0')) {
+          return Promise.resolve(new Response('Not Found', { status: 404 }))
+        }
+        return Promise.reject(new Error('Unexpected URL'))
+      })
 
       let result = await client.getTagInfo('owner', 'repo', 'v1.0.0')
 
@@ -1411,7 +1796,7 @@ describe('client', () => {
         date: new Date('2023-01-15T10:00:00Z'),
         message: 'Body',
         tag: 'v1.0.0',
-        sha: 'main',
+        sha: null,
       })
     })
 

@@ -114,28 +114,100 @@ export class Client {
           `/repos/${owner}/${repo}/releases/tags/${displayTag}`,
         )
         let releaseData = releaseResp.data as components['schemas']['release']
-
+        let date: Date | null = releaseData.published_at
+          ? new Date(releaseData.published_at)
+          : null
+        let message: string | null = releaseData.body ?? null
         let sha: string | null = null
-        if (releaseData.target_commitish) {
-          try {
-            let commitResp = await this.makeRequest(
-              `/repos/${owner}/${repo}/commits/${releaseData.target_commitish}`,
-            )
-            let commitData = commitResp.data as components['schemas']['commit']
-            ;({ sha } = commitData)
-          } catch {
+
+        /**
+         * Resolve commit SHA strictly from the tag reference to avoid
+         * accidentally using a moving branch from target_commitish.
+         */
+        try {
+          let referenceResp = await this.makeRequest(
+            `/repos/${owner}/${repo}/git/refs/tags/${displayTag}`,
+          )
+          let referenceData =
+            referenceResp.data as components['schemas']['git-ref']
+
+          let objectSha = referenceData.object.sha
+          let objectType = referenceData.object.type
+
+          if (objectSha && objectType === 'tag') {
+            try {
+              let tagResp = await this.makeRequest(
+                `/repos/${owner}/${repo}/git/tags/${objectSha}`,
+              )
+              let tagData = tagResp.data as components['schemas']['git-tag']
+
+              let tagObject = (
+                tagData as {
+                  object?: { sha?: string | null }
+                }
+              ).object
+              sha = tagObject?.sha ?? null
+
+              /* Fill missing metadata from annotated tag if release lacks it. */
+              let taggerDate = (
+                tagData as {
+                  tagger?: { date?: string | null }
+                }
+              ).tagger?.date
+              if (!date && taggerDate) {
+                date = new Date(taggerDate)
+              }
+              let tagMessage = (tagData as { message?: string | null }).message
+              if (!message && typeof tagMessage === 'string') {
+                message = tagMessage
+              }
+            } catch {
+              /** Fall back to ref sha if tag details can't be fetched. */
+              sha = objectSha
+            }
+          } else if (objectSha && objectType === 'commit') {
+            sha = objectSha
+            /* Optionally enrich from commit if release lacks metadata. */
+            if (!date || !message) {
+              try {
+                let commitResp = await this.makeRequest(
+                  `/repos/${owner}/${repo}/git/commits/${objectSha}`,
+                )
+                let commitData =
+                  commitResp.data as components['schemas']['git-commit']
+
+                let { message: commitMessage } = commitData as {
+                  message?: string | null
+                }
+                if (!message && typeof commitMessage === 'string') {
+                  message = commitMessage
+                }
+                let authorDate = (
+                  commitData as {
+                    author?: { date?: string | null }
+                  }
+                ).author?.date
+                if (!date && authorDate) {
+                  date = new Date(authorDate)
+                }
+              } catch {
+                /** Keep current nulls if commit details can't be fetched. */
+              }
+            }
+          } else {
+            /* Invalid or unexpected ref format; leave sha as null */
+          }
+        } catch {
+          /**
+           * If ref lookup fails, only use target_commitish when it looks like a
+           * SHA. Do NOT use branch names (moving targets).
+           */
+          if (isLikelySha(releaseData.target_commitish)) {
             sha = releaseData.target_commitish
           }
         }
 
-        return {
-          date: releaseData.published_at
-            ? new Date(releaseData.published_at)
-            : null,
-          sha: sha ?? releaseData.target_commitish,
-          message: releaseData.body ?? null,
-          tag: displayTag,
-        }
+        return { tag: displayTag, message, date, sha }
       } catch (releaseError: unknown) {
         if (
           releaseError &&
@@ -244,7 +316,10 @@ export class Client {
                 ;({ sha } = tagInfo)
               }
             } catch {
-              sha = release.target_commitish
+              /* Only keep SHA if target_commitish actually looks like SHA. */
+              sha = isLikelySha(release.target_commitish)
+                ? release.target_commitish
+                : null
             }
           }
 
@@ -295,7 +370,9 @@ export class Client {
             ;({ sha } = tagInfo)
           }
         } catch {
-          sha = release.target_commitish
+          sha = isLikelySha(release.target_commitish)
+            ? release.target_commitish
+            : null
         }
       }
 
@@ -550,4 +627,19 @@ export function resolveGitHubTokenSync(): undefined | string {
   }
 
   return undefined
+}
+
+/**
+ * Lightweight SHA detector (7-40 hex chars, optional leading 'v' already
+ * handled by callers).
+ *
+ * @param value - Value to check for SHA-like format.
+ * @returns True when the value matches a Git SHA pattern.
+ */
+function isLikelySha(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return false
+  }
+  let normalized = value.replace(/^v/u, '')
+  return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }
