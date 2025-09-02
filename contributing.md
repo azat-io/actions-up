@@ -2,16 +2,6 @@
 
 Thank you for your interest in contributing to Actions Up! This document provides guidelines and instructions for contributing to the project.
 
-## Code of Conduct
-
-By participating in this project, you agree to abide by our Code of Conduct:
-
-- Use welcoming and inclusive language
-- Be respectful of differing viewpoints and experiences
-- Gracefully accept constructive criticism
-- Focus on what is best for the community
-- Show empathy towards other community members
-
 ## How to Contribute
 
 ### Reporting Issues
@@ -59,18 +49,24 @@ Feature requests are welcome! Please:
    - Add/update tests as needed
    - Update documentation if required
 
-5. **Run Tests**
+5. **Run Tests & Checks**
 
    ```bash
-   pnpm test
-   pnpm test:coverage
+   pnpm test          # Full suite: lint, types, unit (with coverage), etc.
+   # Or target specific checks during iteration:
+   pnpm test:unit     # Unit tests with coverage (Vitest)
+   pnpm test:js       # ESLint
+   pnpm test:types    # TypeScript type check
+   pnpm test:format   # Prettier formatting check
+   pnpm test:spelling # Spell check (cspell)
    ```
 
-6. **Run Linting**
+6. **Type, Lint, Format (optional granular run)**
 
    ```bash
-   pnpm lint
-   pnpm typecheck
+   pnpm test:js
+   pnpm test:types
+   pnpm test:format
    ```
 
 7. **Commit Changes**
@@ -98,43 +94,51 @@ Feature requests are welcome! Please:
 
 ### Prerequisites
 
-- Node.js 20+
-- pnpm 8+
+- Node.js ^18 or >=20 (LTS recommended)
+- pnpm 10
 - Git
 
 ### Project Structure
 
 ```
 actions-up/
-├── cli/               # CLI entry point
+├── bin/               # CLI launcher pointing to dist
+├── cli/               # CLI entry point (TypeScript)
 ├── core/              # Core logic
-│   ├── api/          # GitHub API client
-│   ├── ast/          # AST manipulation
-│   ├── interactive/  # Interactive prompts
-│   └── parsing/      # YAML parsing
-├── test/             # Test files
-├── types/            # TypeScript types
-└── utils/            # Utility functions
+│   ├── api/           # GitHub API client
+│   ├── ast/           # AST updates and helpers
+│   ├── fs/            # File system helpers
+│   ├── interactive/   # Interactive prompts
+│   ├── parsing/       # YAML/action parsing
+│   └── schema/        # YAML schema helpers
+├── test/              # Tests (Vitest)
+├── types/             # Shared TypeScript types
+└── assets/            # Images and media
 ```
 
 ### Available Scripts
 
 ```bash
-# Development
-pnpm dev           # Run in development mode
-
-# Testing
-pnpm test          # Run tests
-pnpm test:watch    # Run tests in watch mode
-pnpm test:coverage # Run tests with coverage
-
-# Linting & Type Checking
-pnpm lint          # Run ESLint
-pnpm typecheck     # Run TypeScript compiler
-
 # Build
-pnpm build         # Build the project
+pnpm build          # Build the project (Vite)
+
+# Full test suite
+pnpm test           # Runs all test:* scripts
+
+# Focused checks
+pnpm test:unit      # Unit tests with coverage (Vitest)
+pnpm test:js        # ESLint
+pnpm test:types     # TypeScript type check (no emit)
+pnpm test:format    # Prettier formatting check
+pnpm test:spelling  # Spell check (cspell)
+pnpm test:usage     # Unused files/exports/deps (knip)
+pnpm test:packages  # Dependency dedupe check
+
+# Local CLI run (after build)
+node bin/actions-up.js --help
 ```
+
+Note: A `dev` command is not used in this repo. Build, then run the CLI via `node bin/actions-up.js` for local testing.
 
 ## Testing Guidelines
 
@@ -191,8 +195,6 @@ describe('parseActionReference', () => {
 ### File Naming
 
 - Kebab case for files: `check-updates.ts`
-- PascalCase for types/interfaces: `GitHubAction`
-- camelCase for functions/variables: `checkUpdates`
 
 ## Security
 
@@ -204,28 +206,18 @@ If you discover a security vulnerability:
 
 ## Release Process
 
-Maintainers handle releases:
+Maintainers handle releases using automated scripts and CI:
 
-1. Update version in `package.json`
-2. Update CHANGELOG.md
-3. Create git tag
-4. Publish to npm
-5. Create GitHub release
+1. Ensure main is green: `pnpm test` and `pnpm build`
+2. Run the release flow: `pnpm release`
+   - Runs checks, bumps version and updates `changelog.md`
+   - Commits, tags, and pushes (`vX.Y.Z`)
+3. CI on tag creates a GitHub Release and publishes to npm
+   - See `.github/workflows/release.yml` and `ci:*` scripts in `package.json`
 
-## Questions?
+No manual `npm publish` is needed locally.
 
-Feel free to:
+## Tips
 
-- Open a discussion on GitHub
-- Ask in issues (for project-related questions)
-- Contact maintainers
-
-## Recognition
-
-Contributors are recognized in:
-
-- README.md contributors section
-- GitHub contributors page
-- Release notes for significant contributions
-
-Thank you for contributing! 🙌
+- Commit messages follow Conventional Commits. A commit-msg hook is configured via `simple-git-hooks`. To enable hooks locally after install, run: `pnpm exec simple-git-hooks`.
+- Use `pnpm` v10 to ensure script features like regex runs (e.g. `pnpm run /^test:/`).
