@@ -3,7 +3,7 @@ import semver from 'semver'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
 
-import { Client } from './client'
+import { createGitHubClient } from './create-github-client'
 
 /**
  * Check for updates for GitHub Actions.
@@ -16,7 +16,7 @@ export async function checkUpdates(
   actions: GitHubAction[],
   token?: string,
 ): Promise<ActionUpdate[]> {
-  let client = new Client(token)
+  let client = createGitHubClient(token)
 
   /* Filter only external actions. */
   let externalActions = actions.filter(action => action.type === 'external')

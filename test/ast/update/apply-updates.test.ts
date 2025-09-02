@@ -258,7 +258,7 @@ describe('applyUpdates', () => {
           name: 'actions/cache',
           type: 'external',
           file: filePath,
-          version: null, // Simulate unknown parsed version
+          version: null,
         },
         latestSha: '1234567890abcdef1234567890abcdef12345678',
         latestVersion: 'v3.1.5',

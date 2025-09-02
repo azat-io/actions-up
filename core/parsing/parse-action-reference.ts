@@ -79,7 +79,7 @@ export function parseActionReference(
   if (!owner || !repo) {
     return null
   }
-  // Disallow empty path segments beyond owner/repo (e.g., trailing slash)
+
   for (let seg of segs.slice(2)) {
     if (!seg) {
       return null

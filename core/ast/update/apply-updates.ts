@@ -1,5 +1,3 @@
-// Core/ast/apply-updates.ts
-
 import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
