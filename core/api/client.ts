@@ -58,11 +58,15 @@ class GitHubRateLimitError extends Error {
 
 /** GitHub REST API client with optional authentication. */
 export class Client {
+  private readonly refTypeCache = new Map<string, 'branch' | 'tag' | null>()
+  private readonly tagInfoCache = new Map<string, TagInfo | null>()
+  private readonly tagShaCache = new Map<string, string | null>()
+
   private readonly baseUrl = 'https://api.github.com'
+
   private readonly token: undefined | string
   private rateLimitReset: Date = new Date()
   private rateLimitRemaining: number = 60
-
   /**
    * Creates a new GitHub API client.
    *
@@ -108,6 +112,10 @@ export class Client {
   ): Promise<TagInfo | null> {
     try {
       let displayTag = tag.replace(/^refs\/tags\//u, '')
+      let cacheKey = `${owner}/${repo}#${displayTag}`
+      if (this.tagInfoCache.has(cacheKey)) {
+        return this.tagInfoCache.get(cacheKey) ?? null
+      }
 
       try {
         let releaseResp = await this.makeRequest(
@@ -207,7 +215,11 @@ export class Client {
           }
         }
 
-        return { tag: displayTag, message, date, sha }
+        {
+          let result: TagInfo = { tag: displayTag, message, date, sha }
+          this.tagInfoCache.set(cacheKey, result)
+          return result
+        }
       } catch (releaseError: unknown) {
         if (
           releaseError &&
@@ -256,11 +268,15 @@ export class Client {
               }
             }
 
-            return {
-              tag: displayTag,
-              message,
-              date,
-              sha,
+            {
+              let result: TagInfo = {
+                tag: displayTag,
+                message,
+                date,
+                sha,
+              }
+              this.tagInfoCache.set(cacheKey, result)
+              return result
             }
           } catch (tagError: unknown) {
             if (
@@ -269,6 +285,7 @@ export class Client {
               'status' in tagError &&
               tagError.status === 404
             ) {
+              this.tagInfoCache.set(cacheKey, null)
               return null
             }
             throw tagError
@@ -281,6 +298,61 @@ export class Client {
         throw new GitHubRateLimitError(this.rateLimitReset)
       }
       throw error
+    }
+  }
+
+  /**
+   * Resolve commit SHA for a tag without fetching commit metadata. Prefers
+   * annotated tag target when present.
+   *
+   * @param owner - Repository owner (organization or user).
+   * @param repo - Repository name.
+   * @param tag - Tag name (may include 'refs/tags/' prefix).
+   * @returns Commit SHA string or null when unavailable.
+   */
+  public async getTagSha(
+    owner: string,
+    repo: string,
+    tag: string,
+  ): Promise<string | null> {
+    let displayTag = tag.replace(/^refs\/tags\//u, '')
+    let cacheKey = `${owner}/${repo}#${displayTag}`
+    if (this.tagShaCache.has(cacheKey)) {
+      return this.tagShaCache.get(cacheKey) ?? null
+    }
+
+    try {
+      let referenceResp = await this.makeRequest(
+        `/repos/${owner}/${repo}/git/refs/tags/${displayTag}`,
+      )
+      let referenceData = referenceResp.data as components['schemas']['git-ref']
+
+      let objectSha = referenceData.object.sha
+      let objectType = referenceData.object.type
+      let sha: string | null = null
+
+      if (objectSha && objectType === 'tag') {
+        try {
+          let tagResp = await this.makeRequest(
+            `/repos/${owner}/${repo}/git/tags/${objectSha}`,
+          )
+          let tagData = tagResp.data as components['schemas']['git-tag']
+          sha = (tagData.object as { sha?: string | null }).sha ?? null
+        } catch {
+          sha = objectSha
+        }
+      } else if (objectSha && objectType === 'commit') {
+        sha = objectSha
+      }
+
+      this.tagShaCache.set(cacheKey, sha)
+      return sha
+    } catch (error) {
+      if (Client.isRateLimitError(error)) {
+        throw new GitHubRateLimitError(this.rateLimitReset)
+      }
+      this.tagShaCache.set(cacheKey, null)
+      return null
     }
   }
 
@@ -304,36 +376,29 @@ export class Client {
       let releases = releasesResp.data as components['schemas']['release'][]
 
       let releaseInfos: ReleaseInfo[] = []
+      let i = 0
 
-      await Promise.all(
-        releases.map(async release => {
-          let sha: string | null = null
+      for (let release_ of releases) {
+        let release = release_
+        let sha: string | null = null
 
-          if (release.tag_name) {
-            try {
-              let tagInfo = await this.getTagInfo(owner, repo, release.tag_name)
-              if (tagInfo) {
-                ;({ sha } = tagInfo)
-              }
-            } catch {
-              /* Only keep SHA if target_commitish actually looks like SHA. */
-              sha = isLikelySha(release.target_commitish)
-                ? release.target_commitish
-                : null
-            }
-          }
+        if (i === 0 && release.tag_name) {
+          sha = isLikelySha(release.target_commitish)
+            ? release.target_commitish
+            : null
+        }
 
-          releaseInfos.push({
-            publishedAt: new Date(release.published_at!),
-            name: release.name ?? release.tag_name,
-            description: release.body ?? null,
-            isPrerelease: release.prerelease,
-            version: release.tag_name,
-            url: release.html_url,
-            sha,
-          })
-        }),
-      )
+        releaseInfos.push({
+          publishedAt: new Date(release.published_at!),
+          name: release.name ?? release.tag_name,
+          description: release.body ?? null,
+          isPrerelease: release.prerelease,
+          version: release.tag_name,
+          url: release.html_url,
+          sha,
+        })
+        i++
+      }
 
       return releaseInfos
     } catch (error) {
@@ -361,22 +426,11 @@ export class Client {
       )
       let release = releaseResp.data as components['schemas']['release']
 
-      let sha: string | null = null
+      let sha: string | null = isLikelySha(release.target_commitish)
+        ? release.target_commitish
+        : null
 
-      if (release.tag_name) {
-        try {
-          let tagInfo = await this.getTagInfo(owner, repo, release.tag_name)
-          if (tagInfo) {
-            ;({ sha } = tagInfo)
-          }
-        } catch {
-          sha = isLikelySha(release.target_commitish)
-            ? release.target_commitish
-            : null
-        }
-      }
-
-      return {
+      let result: ReleaseInfo = {
         publishedAt: new Date(release.published_at!),
         name: release.name ?? release.tag_name,
         description: release.body ?? null,
@@ -385,6 +439,7 @@ export class Client {
         url: release.html_url,
         sha,
       }
+      return result
     } catch (error: unknown) {
       if (
         error &&
@@ -398,6 +453,35 @@ export class Client {
         throw new GitHubRateLimitError(this.rateLimitReset)
       }
       throw error
+    }
+  }
+
+  public async getRefType(
+    owner: string,
+    repo: string,
+    reference: string,
+  ): Promise<'branch' | 'tag' | null> {
+    try {
+      let cacheKey = `${owner}/${repo}#${reference}`
+      if (this.refTypeCache.has(cacheKey)) {
+        return this.refTypeCache.get(cacheKey) ?? null
+      }
+      await this.makeRequest(
+        `/repos/${owner}/${repo}/git/refs/tags/${reference}`,
+      )
+      this.refTypeCache.set(cacheKey, 'tag')
+      return 'tag'
+    } catch {
+      try {
+        await this.makeRequest(
+          `/repos/${owner}/${repo}/git/refs/heads/${reference}`,
+        )
+        this.refTypeCache.set(`${owner}/${repo}#${reference}`, 'branch')
+        return 'branch'
+      } catch {
+        this.refTypeCache.set(`${owner}/${repo}#${reference}`, null)
+        return null
+      }
     }
   }
 
@@ -429,28 +513,6 @@ export class Client {
         throw new GitHubRateLimitError(this.rateLimitReset)
       }
       throw error
-    }
-  }
-
-  public async getRefType(
-    owner: string,
-    repo: string,
-    reference: string,
-  ): Promise<'branch' | 'tag' | null> {
-    try {
-      await this.makeRequest(
-        `/repos/${owner}/${repo}/git/refs/tags/${reference}`,
-      )
-      return 'tag'
-    } catch {
-      try {
-        await this.makeRequest(
-          `/repos/${owner}/${repo}/git/refs/heads/${reference}`,
-        )
-        return 'branch'
-      } catch {
-        return null
-      }
     }
   }
 

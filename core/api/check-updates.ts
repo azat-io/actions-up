@@ -64,7 +64,11 @@ export async function checkUpdates(
           /* First check if current versions are branches - if so, skip update check. */
           let currentVersions = uniqueActions.get(actionName)!
           let firstVersion = currentVersions[0]?.version
-          if (firstVersion) {
+          if (
+            firstVersion &&
+            !isSha(firstVersion) &&
+            !isSemverLike(firstVersion)
+          ) {
             let referenceType = await client.getRefType(
               owner,
               repo,
@@ -81,7 +85,7 @@ export async function checkUpdates(
 
           if (!release) {
             /* Try to get all releases if no latest release. */
-            let allReleases = await client.getAllReleases(owner, repo, 10)
+            let allReleases = await client.getAllReleases(owner, repo, 1)
             let stableRelease = allReleases.find(
               currentRelease => !currentRelease.isPrerelease,
             )
@@ -111,12 +115,11 @@ export async function checkUpdates(
           }
 
           if (release) {
-            /* Get SHA if missing. */
+            /* Get SHA if missing: prefer release-provided SHA (when SHA-like), fallback to tag SHA. */
             let { version, sha } = release
-            if (!sha) {
+            if (!sha && version) {
               try {
-                let tagInfo = await client.getTagInfo(owner, repo, version)
-                sha = tagInfo?.sha ?? null
+                sha = await client.getTagSha(owner, repo, version)
               } catch {
                 /* Ignore SHA fetch errors. */
               }
@@ -321,4 +324,19 @@ function isSha(value: undefined | string | null): boolean {
 
   /* Check if it matches SHA pattern (7-40 hex characters). */
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
+}
+
+/**
+ * Check if a string looks like a semver-like tag (with optional leading 'v').
+ * Examples: v1, v2.3, 3.4.5.
+ *
+ * @param value - String to test for semver-like pattern.
+ * @returns True if the value matches a simple semver-like pattern.
+ */
+function isSemverLike(value: undefined | string | null): boolean {
+  if (!value) {
+    return false
+  }
+  let normalized = value.trim()
+  return /^v?\d+(?:\.\d+){0,2}$/u.test(normalized)
 }

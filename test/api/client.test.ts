@@ -1092,14 +1092,6 @@ describe('client', () => {
       let client = new Client('test-token')
 
       vi.mocked(globalThis.fetch).mockImplementation(url => {
-        if ((url as string).includes('/releases/tags/v1.0.0')) {
-          return Promise.resolve(
-            new Response('Not Found', {
-              statusText: 'Not Found',
-              status: 404,
-            }),
-          )
-        }
         if ((url as string).includes('/git/refs/tags/v1.0.0')) {
           return Promise.resolve(
             new Response(
@@ -1130,7 +1122,7 @@ describe('client', () => {
       await client.getTagInfo('owner', 'repo', 'refs/tags/v1.0.0')
 
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/releases/tags/v1.0.0'),
+        expect.stringContaining('/git/refs/tags/v1.0.0'),
         expect.any(Object),
       )
     })

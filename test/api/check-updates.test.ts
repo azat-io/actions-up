@@ -63,6 +63,7 @@ describe('checkUpdates', () => {
       getRateLimitStatus: vi.fn(),
       getAllReleases: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
 
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
@@ -105,6 +106,7 @@ describe('checkUpdates', () => {
       getRateLimitStatus: vi.fn(),
       getAllReleases: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
 
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
@@ -201,6 +203,7 @@ describe('checkUpdates', () => {
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
 
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
@@ -224,7 +227,7 @@ describe('checkUpdates', () => {
     expect(mockClient.getAllReleases).toHaveBeenCalledWith(
       'actions',
       'setup-node',
-      10,
+      1,
     )
     expect(result[0]!).toEqual({
       currentVersion: 'v1.0.0',
@@ -247,12 +250,7 @@ describe('checkUpdates', () => {
         version: 'v2.0.0',
         sha: null,
       }),
-      getTagInfo: vi.fn().mockResolvedValue({
-        date: new Date('2024-01-01'),
-        message: 'Release v2.0.0',
-        sha: 'fetched789',
-        tag: 'v2.0.0',
-      }),
+      getTagSha: vi.fn().mockResolvedValue('fetched789'),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
       shouldWaitForRateLimit: vi.fn(),
@@ -274,7 +272,7 @@ describe('checkUpdates', () => {
 
     let result = await checkUpdates(actions)
 
-    expect(mockClient.getTagInfo).toHaveBeenCalledWith(
+    expect(mockClient.getTagSha).toHaveBeenCalledWith(
       'actions',
       'setup-node',
       'v2.0.0',
@@ -293,7 +291,7 @@ describe('checkUpdates', () => {
         version: 'v2.0.0',
         sha: null,
       }),
-      getTagInfo: vi.fn().mockRejectedValue(new Error('Tag not found')),
+      getTagSha: vi.fn().mockRejectedValue(new Error('Tag not found')),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
       shouldWaitForRateLimit: vi.fn(),
@@ -315,7 +313,7 @@ describe('checkUpdates', () => {
 
     let result = await checkUpdates(actions)
 
-    expect(mockClient.getTagInfo).toHaveBeenCalledWith(
+    expect(mockClient.getTagSha).toHaveBeenCalledWith(
       'actions',
       'setup-node',
       'v2.0.0',
@@ -340,6 +338,7 @@ describe('checkUpdates', () => {
       getRateLimitStatus: vi.fn(),
       getAllReleases: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
 
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
@@ -434,6 +433,7 @@ describe('checkUpdates', () => {
       getRateLimitStatus: vi.fn(),
       getAllReleases: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
 
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
@@ -724,12 +724,7 @@ describe('checkUpdates', () => {
         name: 'v4.2.0',
         sha: null,
       }),
-      getTagInfo: vi.fn().mockResolvedValue({
-        date: new Date('2024-01-01'),
-        sha: 'f1f2f3f4f5f6f7f8f9f0',
-        message: 'Release v4.2.0',
-        tag: 'v4.2.0',
-      }),
+      getTagSha: vi.fn().mockResolvedValue('f1f2f3f4f5f6f7f8f9f0'),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
       shouldWaitForRateLimit: vi.fn(),
@@ -751,7 +746,7 @@ describe('checkUpdates', () => {
 
     let result = await checkUpdates(actions)
 
-    expect(mockClient.getTagInfo).toHaveBeenCalledWith(
+    expect(mockClient.getTagSha).toHaveBeenCalledWith(
       'actions',
       'checkout',
       'v4.2.0',
@@ -864,6 +859,7 @@ describe('checkUpdates', () => {
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
 
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
@@ -887,7 +883,7 @@ describe('checkUpdates', () => {
     expect(mockClient.getAllReleases).toHaveBeenCalledWith(
       'pnpm',
       'action-setup',
-      10,
+      1,
     )
     expect(mockClient.getAllTags).toHaveBeenCalledWith(
       'pnpm',
@@ -1158,6 +1154,7 @@ describe('checkUpdates', () => {
       getAllReleases: vi.fn(),
       getAllTags: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
 
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
@@ -1186,6 +1183,7 @@ describe('checkUpdates', () => {
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
       getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
     vi.mocked(Client).mockImplementation(() => mockClient as unknown as Client)
 
