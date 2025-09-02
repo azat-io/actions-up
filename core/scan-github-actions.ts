@@ -229,7 +229,7 @@ export async function scanGitHubActions(
     let repoSlug = await getCurrentRepoSlug(normalizedRoot)
 
     if (repoSlug) {
-      /* Test-only branch to exercise outer catch during coverage runs. */
+      /** Test-only branch to exercise outer catch during coverage runs. */
       if (process.env['ACTIONS_UP_TEST_THROW'] === '1') {
         throw new Error('test')
       }

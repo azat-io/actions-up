@@ -34,7 +34,7 @@ export function run(): void {
       let spinner = createSpinner('Scanning GitHub Actions...').start()
 
       try {
-        /* Scan for GitHub Actions in the repository */
+        /** Scan for GitHub Actions in the repository. */
         let scanResult = await scanGitHubActions(process.cwd())
 
         let totalActions = scanResult.actions.length
@@ -54,7 +54,7 @@ export function run(): void {
           return
         }
 
-        /* Check for updates */
+        /** Check for updates. */
         spinner = createSpinner('Checking for updates...').start()
 
         let updates = await checkUpdates(
@@ -62,7 +62,7 @@ export function run(): void {
           process.env['GITHUB_TOKEN'],
         )
 
-        /* Filter outdated actions */
+        /** Filter outdated actions. */
         let outdated = updates.filter(update => update.hasUpdate)
         let breaking = outdated.filter(update => update.isBreaking)
 
@@ -101,7 +101,7 @@ export function run(): void {
         }
 
         if (options.yes) {
-          /* Auto-update all actions with SHA */
+          /** Auto-update all actions with SHA. */
           let toUpdate = outdated.filter(update => update.latestSha)
           if (toUpdate.length === 0) {
             console.info(
@@ -136,7 +136,7 @@ export function run(): void {
       } catch (error) {
         spinner.error('Failed')
 
-        /* Handle rate limit errors with helpful message */
+        /** Handle rate limit errors with helpful message. */
         if (error instanceof Error && error.name === 'GitHubRateLimitError') {
           console.error(pc.yellow('\n⚠️ Rate Limit Exceeded\n'))
           console.error(error.message)

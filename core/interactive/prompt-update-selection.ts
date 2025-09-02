@@ -501,10 +501,10 @@ function isSha(value: string): boolean {
     return false
   }
 
-  /* Remove 'v' prefix if present. */
+  /** Remove 'v' prefix if present. */
   let normalized = value.replace(/^v/u, '')
 
-  /* Check if it matches SHA pattern (7-40 hex characters). */
+  /** Check if it matches SHA pattern (7-40 hex characters). */
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }
 

@@ -601,7 +601,6 @@ describe('scanGitHubActions', () => {
 
     let result = await scanGitHubActions('.')
     expect(result.workflows.size).toBe(1)
-    /* 1 external from workflow + 1 nested from composite */
     expect(result.actions).toHaveLength(2)
     expect(
       result.actions.some(

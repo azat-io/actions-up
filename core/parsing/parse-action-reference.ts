@@ -37,7 +37,7 @@ export function parseActionReference(
     return null
   }
 
-  /* Handle docker actions. */
+  /** Handle docker actions. */
   if (reference.startsWith('docker://')) {
     return {
       version: undefined,
@@ -48,7 +48,7 @@ export function parseActionReference(
     }
   }
 
-  /* Handle local actions. */
+  /** Handle local actions. */
   if (reference.startsWith('./') || reference.startsWith('../')) {
     return {
       version: undefined,
@@ -59,7 +59,7 @@ export function parseActionReference(
     }
   }
 
-  /* Handle external actions, supporting owner/repo or owner/repo/path. */
+  /** Handle external actions, supporting owner/repo or owner/repo/path. */
   let parts = reference.split('@')
   if (parts.length !== 2) {
     return null
@@ -70,7 +70,7 @@ export function parseActionReference(
     return null
   }
 
-  /* Validate owner/repo(/path...) format */
+  /** Validate owner/repo(/path...) format. */
   let segs = namePart.split('/')
   if (segs.length < 2) {
     return null

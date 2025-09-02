@@ -18,14 +18,14 @@ export async function checkUpdates(
 ): Promise<ActionUpdate[]> {
   let client = createGitHubClient(token)
 
-  /* Filter only external actions. */
+  /** Filter only external actions. */
   let externalActions = actions.filter(action => action.type === 'external')
 
   if (externalActions.length === 0) {
     return []
   }
 
-  /* Group by action name to avoid duplicate API calls. */
+  /** Group by action name to avoid duplicate API calls. */
   let uniqueActions = new Map<string, GitHubAction[]>()
 
   for (let action of externalActions) {
@@ -34,22 +34,22 @@ export async function checkUpdates(
     uniqueActions.set(action.name, group)
   }
 
-  /* Track rate limit errors with shared state. */
+  /** Track rate limit errors with shared state. */
   let sharedState = {
     rateLimitError: null as Error | null,
     rateLimitHit: false,
   }
 
-  /* Fetch releases sequentially to stop on rate limit. */
+  /** Fetch releases sequentially to stop on rate limit. */
   let releaseResults = await [...uniqueActions.keys()].reduce(
     (promise, actionName) =>
       promise.then(async results => {
-        /* Skip remaining if rate limit hit. */
+        /** Skip remaining if rate limit hit. */
         if (sharedState.rateLimitHit) {
           return [...results, { version: null, actionName, sha: null }]
         }
 
-        /* Parse owner/repo from actionName, which may include path. */
+        /** Parse owner/repo from actionName, which may include path. */
         let segments = actionName.split('/')
         if (segments.length < 2) {
           return [...results, { version: null, actionName, sha: null }]
@@ -61,7 +61,10 @@ export async function checkUpdates(
         }
 
         try {
-          /* First check if current versions are branches - if so, skip update check. */
+          /**
+           * First check if current versions are branches - if so, skip update
+           * check.
+           */
           let currentVersions = uniqueActions.get(actionName)!
           let firstVersion = currentVersions[0]?.version
           if (
@@ -75,16 +78,16 @@ export async function checkUpdates(
               firstVersion,
             )
             if (referenceType === 'branch') {
-              /* Skip update check for branch references. */
+              /** Skip update check for branch references. */
               return [...results, { version: null, actionName, sha: null }]
             }
           }
 
-          /* Get latest release. */
+          /** Get latest release. */
           let release = await client.getLatestRelease(owner, repo)
 
           if (!release) {
-            /* Try to get all releases if no latest release. */
+            /** Try to get all releases if no latest release. */
             let allReleases = await client.getAllReleases(owner, repo, 1)
             let stableRelease = allReleases.find(
               currentRelease => !currentRelease.isPrerelease,
@@ -92,11 +95,11 @@ export async function checkUpdates(
             release = stableRelease ?? allReleases[0] ?? null
           }
 
-          /* If no releases found, try tags. */
+          /** If no releases found, try tags. */
           if (!release) {
             let tags = await client.getAllTags(owner, repo, 30)
             if (tags.length > 0) {
-              /* Find the latest semver-like tag (non-capturing groups). */
+              /** Find the latest semver-like tag (non-capturing groups). */
               let semverTag = tags.find(tag =>
                 /^v?\d+(?:\.\d+){0,2}/u.test(tag.tag),
               )
@@ -115,13 +118,16 @@ export async function checkUpdates(
           }
 
           if (release) {
-            /* Get SHA if missing: prefer release-provided SHA (when SHA-like), fallback to tag SHA. */
+            /**
+             * Get SHA if missing: prefer release-provided SHA (when SHA-like),
+             * fallback to tag SHA.
+             */
             let { version, sha } = release
             if (!sha && version) {
               try {
                 sha = await client.getTagSha(owner, repo, version)
               } catch {
-                /* Ignore SHA fetch errors. */
+                /** Ignore SHA fetch errors. */
               }
             }
 
@@ -130,14 +136,14 @@ export async function checkUpdates(
 
           return [...results, { version: null, actionName, sha: null }]
         } catch (error: unknown) {
-          /* Handle rate limit errors specially. */
+          /** Handle rate limit errors specially. */
           if (error instanceof Error && error.name === 'GitHubRateLimitError') {
             sharedState.rateLimitHit = true
             sharedState.rateLimitError = error
-            /* Don't log individual rate limit errors. */
+            /** Don't log individual rate limit errors. */
             return [...results, { version: null, actionName, sha: null }]
           }
-          /* Log other failures per action. */
+          /** Log other failures per action. */
           console.warn(`Failed to check ${actionName}:`, error)
           return [...results, { version: null, actionName, sha: null }]
         }
@@ -151,7 +157,7 @@ export async function checkUpdates(
     ),
   )
 
-  /* If rate limit was hit, throw a user-friendly error. */
+  /** If rate limit was hit, throw a user-friendly error. */
   if (sharedState.rateLimitError) {
     let error = new Error(
       'GitHub API rate limit exceeded. Please set GITHUB_TOKEN environment ' +
@@ -162,7 +168,7 @@ export async function checkUpdates(
     throw error
   }
 
-  /* Create cache from results. */
+  /** Create cache from results. */
   let cache = new Map<string, { version: string | null; sha: string | null }>()
   for (let result of releaseResults) {
     cache.set(result.actionName, {
@@ -171,7 +177,7 @@ export async function checkUpdates(
     })
   }
 
-  /* Create updates for all actions. */
+  /** Create updates for all actions. */
   let updates: ActionUpdate[] = []
 
   for (let action of externalActions) {
@@ -263,19 +269,19 @@ function compareSha(sha1: string | null, sha2: string | null): boolean {
     return false
   }
 
-  /* Normalize by removing 'v' prefix if present. */
+  /** Normalize by removing 'v' prefix if present. */
   let normalized1 = sha1.replace(/^v/u, '')
   let normalized2 = sha2.replace(/^v/u, '')
 
-  /* If one SHA is shorter, compare only the common prefix. */
+  /** If one SHA is shorter, compare only the common prefix. */
   let minLength = Math.min(normalized1.length, normalized2.length)
 
-  /* Both must be at least 7 characters (minimum SHA length). */
+  /** Both must be at least 7 characters (minimum SHA length). */
   if (minLength < 7) {
     return false
   }
 
-  /* Compare the common prefix. */
+  /** Compare the common prefix. */
   return (
     normalized1.slice(0, Math.max(0, minLength)).toLowerCase() ===
     normalized2.slice(0, Math.max(0, minLength)).toLowerCase()
@@ -299,7 +305,7 @@ function normalizeVersion(version: string): string | null {
     return version
   }
 
-  /* Try to coerce to semver. */
+  /** Try to coerce to semver. */
   let coerced = semver.coerce(normalized)
   if (coerced) {
     return coerced.version
@@ -319,10 +325,10 @@ function isSha(value: undefined | string | null): boolean {
     return false
   }
 
-  /* Remove 'v' prefix if present. */
+  /** Remove 'v' prefix if present. */
   let normalized = value.replace(/^v/u, '')
 
-  /* Check if it matches SHA pattern (7-40 hex characters). */
+  /** Check if it matches SHA pattern (7-40 hex characters). */
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }
 

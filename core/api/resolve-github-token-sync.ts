@@ -29,7 +29,7 @@ export function resolveGitHubTokenSync(): undefined | string {
       return token
     }
   } catch {
-    /* Ignore */
+    /** Ignore. */
   }
 
   try {
@@ -68,7 +68,7 @@ export function resolveGitHubTokenSync(): undefined | string {
       }
     }
   } catch {
-    /* Ignore */
+    /** Ignore. */
   }
 
   return undefined
