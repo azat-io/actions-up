@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.3.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.2.1...v1.3.0)
+
+### 🚀 Features
+
+- Add colored version diff display ([19a502a](https://github.com/azat-io/actions-up/commit/19a502a))
+- Show version for pinned shas ([f6f994e](https://github.com/azat-io/actions-up/commit/f6f994e))
+
+### 🏎 Performance Improvements
+
+- Reduce github api requests ([7cf1b42](https://github.com/azat-io/actions-up/commit/7cf1b42))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.2.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.2.0...v1.2.1)
