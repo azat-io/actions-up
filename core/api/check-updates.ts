@@ -247,11 +247,17 @@ export async function checkUpdates(
 
   /** If rate limit was hit, throw a user-friendly error. */
   if (sharedState.rateLimitError) {
-    let error = new Error(
-      'GitHub API rate limit exceeded. Please set GITHUB_TOKEN environment ' +
-        'variable to increase the limit.\n' +
-        'See: https://github.com/azat-io/actions-up?tab=readme-ov-file#using-github-token-for-higher-rate-limits',
-    )
+    let usingToken = Boolean(token ?? process.env['GITHUB_TOKEN'])
+    let base =
+      sharedState.rateLimitError.message || 'GitHub API rate limit exceeded.'
+    let message = `${base}\n${
+      usingToken
+        ? 'Wait for reset or reduce request rate.'
+        : 'Please set GITHUB_TOKEN environment variable to increase the limit.\n' +
+          'See: https://github.com/azat-io/actions-up?tab=readme-ov-file#using-github-token-for-higher-rate-limits'
+    }`
+
+    let error = new Error(message)
     error.name = 'GitHubRateLimitError'
     throw error
   }

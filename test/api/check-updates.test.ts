@@ -905,4 +905,76 @@ describe('checkUpdates', () => {
       'GitHubRateLimitError',
     )
   })
+
+  it('propagates rate-limit error with authenticated hint when token is used', async () => {
+    let errorObject: { name: string } & Error = Object.assign(
+      new Error('API rate limit exceeded. Resets at 00:00:00'),
+      { name: 'GitHubRateLimitError' },
+    )
+
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockRejectedValue(errorObject),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1.0.0',
+        ref: 'owner/repo@v1.0.0',
+        name: 'owner/repo',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    await expect(checkUpdates(actions, 'token')).rejects.toMatchObject({
+      message: expect.stringContaining(
+        'Wait for reset or reduce request rate.',
+      ) as string,
+      name: 'GitHubRateLimitError',
+    })
+  })
+
+  it('uses default base message when rate-limit error has empty message', async () => {
+    // eslint-disable-next-line unicorn/error-message
+    let errorObject: { name: string } & Error = Object.assign(new Error(''), {
+      name: 'GitHubRateLimitError',
+    })
+
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockRejectedValue(errorObject),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1.0.0',
+        ref: 'owner/repo@v1.0.0',
+        name: 'owner/repo',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toMatchObject({
+      message: expect.stringContaining(
+        'GitHub API rate limit exceeded.',
+      ) as string,
+      name: 'GitHubRateLimitError',
+    })
+  })
 })
