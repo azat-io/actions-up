@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.3.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.3.0...v1.3.1)
+
+### 🐞 Bug Fixes
+
+- Prefer highest version from releases and tags ([7da9ba9](https://github.com/azat-io/actions-up/commit/7da9ba9))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.3.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.2.1...v1.3.0)
