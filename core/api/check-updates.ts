@@ -83,11 +83,10 @@ export async function checkUpdates(
             }
           }
 
-          /** Get latest release. */
+          /** Get latest release first to minimize requests. */
           let release = await client.getLatestRelease(owner, repo)
 
           if (!release) {
-            /** Try to get all releases if no latest release. */
             let allReleases = await client.getAllReleases(owner, repo, 1)
             let stableRelease = allReleases.find(
               currentRelease => !currentRelease.isPrerelease,
@@ -95,34 +94,79 @@ export async function checkUpdates(
             release = stableRelease ?? allReleases[0] ?? null
           }
 
-          /** If no releases found, try tags. */
-          if (!release) {
-            let tags = await client.getAllTags(owner, repo, 30)
-            if (tags.length > 0) {
-              /** Find the latest semver-like tag (non-capturing groups). */
-              let semverTag = tags.find(tag =>
-                /^v?\d+(?:\.\d+){0,2}/u.test(tag.tag),
-              )
-              let latestTag = semverTag ?? tags[0]
-              if (latestTag) {
-                return [
-                  ...results,
-                  {
-                    version: latestTag.tag,
-                    sha: latestTag.sha,
-                    actionName,
-                  },
-                ]
+          /**
+           * If we have a release, prefer it and avoid tags, except when the
+           * release tag looks like a moving major (e.g., v1). In that case, try
+           * tags to find a more specific highest semver.
+           */
+          if (release) {
+            let { version, sha } = release
+            let considerTags = false
+            {
+              /**
+               * Consider tags when:
+               *
+               * - Release version is missing/empty
+               * - Or it's a moving major (v1)
+               * - Or it doesn't parse as valid semver after normalization.
+               */
+              let normalized = normalizeVersion(version)
+              let hasVersion = Boolean(version && version.trim() !== '')
+              let majorOnly = hasVersion && /^v?\d+$/u.test(version.trim())
+              let valid = semver.valid(normalized)
+              considerTags = !hasVersion || majorOnly || !valid
+            }
+
+            if (considerTags) {
+              let tags = await client.getAllTags(owner, repo, 30)
+              if (tags.length > 0) {
+                let semverCandidates = tags
+                  .filter(tag => isSemverLike(tag.tag))
+                  .map(tag => ({
+                    v: semver.valid(normalizeVersion(tag.tag))!,
+                    raw: tag,
+                  }))
+
+                if (semverCandidates.length > 0) {
+                  /** Sort desc; tie-break to prefer more specific (x.y.z). */
+                  semverCandidates.sort((a, b) => {
+                    let cmp = semver.rcompare(a.v, b.v)
+                    if (cmp !== 0) {
+                      return cmp
+                    }
+                    let aSpecific = /\d+\.\d+/u.test(a.raw.tag) ? 1 : 0
+                    let bSpecific = /\d+\.\d+/u.test(b.raw.tag) ? 1 : 0
+                    return bSpecific - aSpecific
+                  })
+
+                  let best = semverCandidates[0]!.raw
+                  let releaseSem = semver.valid(
+                    normalizeVersion(version) ?? undefined,
+                  )
+
+                  /** If best tag is newer or same but more specific, prefer it. */
+                  if (
+                    !releaseSem ||
+                    semver.gt(semverCandidates[0]!.v, releaseSem) ||
+                    (semver.eq(semverCandidates[0]!.v, releaseSem) &&
+                      /\d+\.\d+/u.test(best.tag))
+                  ) {
+                    let tagVersion = best.tag
+                    let tagSha = best.sha?.length ? best.sha : null
+                    if (!tagSha && tagVersion) {
+                      try {
+                        tagSha = await client.getTagSha(owner, repo, tagVersion)
+                      } catch {}
+                    }
+                    return [
+                      ...results,
+                      { version: tagVersion, sha: tagSha, actionName },
+                    ]
+                  }
+                }
               }
             }
-          }
 
-          if (release) {
-            /**
-             * Get SHA if missing: prefer release-provided SHA (when SHA-like),
-             * fallback to tag SHA.
-             */
-            let { version, sha } = release
             if (!sha && version) {
               try {
                 sha = await client.getTagSha(owner, repo, version)
@@ -130,7 +174,51 @@ export async function checkUpdates(
                 /** Ignore SHA fetch errors. */
               }
             }
+            return [...results, { actionName, version, sha }]
+          }
 
+          /** No releases found: fetch tags and choose the best semver tag. */
+          let tags = await client.getAllTags(owner, repo, 30)
+          if (tags.length > 0) {
+            /**
+             * Prefer the highest semver tag; among equal numeric versions,
+             * prefer more specific (x.y.z over v1). If no semver-like tags,
+             * fallback to the first tag as returned by the API (most recent by
+             * commit date).
+             */
+            let semverCandidates = tags
+              .filter(tag => isSemverLike(tag.tag))
+              .map(tag => ({
+                v: semver.valid(normalizeVersion(tag.tag))!,
+                raw: tag,
+              }))
+
+            let best: (typeof tags)[number]
+            if (semverCandidates.length > 0) {
+              semverCandidates.sort((a, b) => {
+                let cmp = semver.rcompare(a.v, b.v)
+                if (cmp !== 0) {
+                  return cmp
+                }
+                /** Tie-breaker: prefer more specific tags containing a dot. */
+                let aSpecific = /\d+\.\d+/u.test(a.raw.tag) ? 1 : 0
+                let bSpecific = /\d+\.\d+/u.test(b.raw.tag) ? 1 : 0
+                return bSpecific - aSpecific
+              })
+              best = semverCandidates[0]!.raw
+            } else {
+              best = tags[0]!
+            }
+
+            let version = best.tag
+            let sha = best.sha?.length ? best.sha : null
+            if (!sha && version) {
+              try {
+                sha = await client.getTagSha(owner, repo, version)
+              } catch {
+                /** Ignore SHA fetch errors. */
+              }
+            }
             return [...results, { actionName, version, sha }]
           }
 
