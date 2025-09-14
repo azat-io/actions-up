@@ -2,7 +2,7 @@
 
 <img
   src="https://raw.githubusercontent.com/azat-io/actions-up/main/assets/logo.svg"
-  alt="Actions Up! logo"
+  alt="Actions Up logo"
   width="160"
   height="160"
   align="right"
@@ -19,7 +19,7 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 ## Features
 
 - **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml`)
-- **SHA Pinning**: Updates actions to use commit SHA instead of tags for better security
+- **SHA pinning**: Updates actions to use commit SHA instead of tags for better security
 - **Batch Updates**: Update multiple actions at once
 - **Interactive Selection**: Choose which actions to update
 - **Breaking Changes Detection**: Warns about major version updates
@@ -41,7 +41,7 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
   />
   <img
     src="https://raw.githubusercontent.com/azat-io/actions-up/main/assets/example-light.webp"
-    alt="Actions Up interactive example"
+    alt="Actions Up! interactive example"
     width="820"
   />
 </picture>
@@ -209,7 +209,7 @@ jobs:
               echo "#### Option 2: Manual Update"
               echo "1. Review each update in the table above"
               echo "2. For breaking changes, click the Release Notes link to review changes"
-              echo "3. Edit the workflow files and update the version numbers"
+              echo "3. Edit the workflows and update the version numbers"
               echo "4. Test the changes in your CI/CD pipeline"
               echo ""
               echo "---"
@@ -233,7 +233,7 @@ jobs:
               echo ""
               echo "### All GitHub Actions in this repository are up to date!"
               echo ""
-              echo "No action required. Your workflow files are using the latest versions of all GitHub Actions."
+              echo "No action required. Your workflows are using the latest versions of all GitHub Actions."
             } > actions-up-report.md
 
             echo "has-updates=false" >> $GITHUB_OUTPUT
@@ -335,7 +335,7 @@ jobs:
           echo "::error:: Found ${{ steps.actions-check.outputs.update-count }} outdated GitHub Actions. Please update them before merging."
           echo ""
           echo "You can update them by running: npx actions-up"
-          echo "Or manually update the versions in your workflow files."
+          echo "Or manually update the versions in your workflows."
           exit 1
 ````
 
@@ -459,8 +459,8 @@ Example:
 
 Actions Up promotes security best practices:
 
-- **SHA Pinning**: Uses commit SHA instead of mutable tags
-- **Version Comments**: Adds version as comment for readability
+- **SHA pinning**: Uses commit SHA instead of mutable tags
+- **Version comment**: Adds the released version next to the pinned SHA for readability
 - **No Auto-Updates**: Full control over what gets updated
 - **Breaking Change Warnings**: Alerts you to major version updates that may require configuration changes
 
