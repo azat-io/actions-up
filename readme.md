@@ -408,7 +408,30 @@ Or in GitHub Actions:
   run: npx actions-up --dry-run
 ```
 
-### Ignoring Updates
+### Skipping Updates
+
+Skip updates using CLI excludes and YAML ignore comments. Excludes run first, then ignore comments.
+
+#### CLI Excludes
+
+Skip actions by name using regular expressions. Patterns are matched against the full action name (`owner/repo[/path]`).
+
+- Repeatable flag: `--exclude <regex>` (can be used multiple times)
+- Comma-separated list is supported inside a single flag
+- Forms:
+  - Plain string compiled as case-insensitive regex: `my-org/.*`
+  - Literal with flags: `/^actions\/internal-.+$/i`
+
+Examples:
+
+```bash
+npx actions-up --exclude "my-org/.*"
+npx actions-up --exclude ".*/internal-.*" --exclude "/^acme\/.+$/i"
+# or
+npx actions-up --exclude "my-org/.*, .*/internal-.*"
+```
+
+#### Ignore Comments
 
 You can skip specific actions or files using YAML comments. Ignored items are hidden in dry-run and interactive modes and are not updated with `--yes`.
 

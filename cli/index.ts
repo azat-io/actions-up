@@ -12,6 +12,9 @@ import { version } from '../package.json'
 
 /** CLI Options. */
 interface CLIOptions {
+  /** Regex patterns to exclude actions by name (repeatable). */
+  exclude?: string[] | string
+
   /** Preview changes without applying them. */
   dryRun: boolean
 
@@ -26,8 +29,9 @@ export function run(): void {
   cli
     .help()
     .version(version)
-    .option('--yes, -y', 'Skip all confirmations')
     .option('--dry-run', 'Preview changes without applying them')
+    .option('--exclude <regex>', 'Exclude actions by regex (repeatable)')
+    .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
     .action(async (options: CLIOptions) => {
       console.info(pc.cyan('\n🚀 Actions Up!\n'))
@@ -55,11 +59,51 @@ export function run(): void {
           return
         }
 
+        /** Prepare actions list and apply CLI excludes if provided. */
+        let actionsToCheck = scanResult.actions
+
+        let rawExcludes: string[] = []
+        if (Array.isArray(options.exclude)) {
+          rawExcludes.push(...options.exclude)
+        } else if (typeof options.exclude === 'string') {
+          rawExcludes.push(options.exclude)
+        }
+
+        /** Support comma-separated lists inside a single flag. */
+        let normalizedExcludes = rawExcludes
+          .flatMap(item => item.split(','))
+          .map(item => item.trim())
+          .filter(Boolean)
+
+        if (normalizedExcludes.length > 0) {
+          let { parseExcludePatterns } = await import(
+            '../core/filters/parse-exclude-patterns'
+          )
+          let regexes = parseExcludePatterns(normalizedExcludes)
+          if (regexes.length > 0) {
+            actionsToCheck = actionsToCheck.filter(action => {
+              let { name } = action
+              for (let rx of regexes) {
+                if (rx.test(name)) {
+                  return false
+                }
+              }
+              return true
+            })
+          }
+        }
+
         /** Check for updates. */
         spinner = createSpinner('Checking for updates...').start()
 
+        if (actionsToCheck.length === 0) {
+          spinner.success('No actions to check after excludes')
+          console.info(pc.green('\n✨ Nothing to check after excludes\n'))
+          return
+        }
+
         let updates = await checkUpdates(
-          scanResult.actions,
+          actionsToCheck,
           process.env['GITHUB_TOKEN'],
         )
 
