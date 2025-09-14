@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.4.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.3.1...v1.4.0)
+
+### 🚀 Features
+
+- Support ignore comments to skip updates ([ef7b14c](https://github.com/azat-io/actions-up/commit/ef7b14c))
+- Add regex-based excludes ([d653288](https://github.com/azat-io/actions-up/commit/d653288))
+
+### 🐞 Bug Fixes
+
+- Clarify rate-limit error ([87843fe](https://github.com/azat-io/actions-up/commit/87843fe))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.3.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.3.0...v1.3.1)
