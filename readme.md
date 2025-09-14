@@ -408,6 +408,30 @@ Or in GitHub Actions:
   run: npx actions-up --dry-run
 ```
 
+### Ignoring Updates
+
+You can skip specific actions or files using YAML comments. Ignored items are hidden in dry-run and interactive modes and are not updated with `--yes`.
+
+- Ignore whole file: `# actions-up-ignore-file`
+- Block ignore: `# actions-up-ignore-start` … `# actions-up-ignore-end`
+- Next line: `# actions-up-ignore-next-line`
+- Inline on the same line: append `# actions-up-ignore`
+
+Example:
+
+```yaml
+# actions-up-ignore-file
+
+# actions-up-ignore-next-line
+- uses: actions/checkout@v3
+
+- uses: actions/setup-node@v3 # actions-up-ignore
+
+# actions-up-ignore-start
+- uses: actions/cache@v3
+# actions-up-ignore-end
+```
+
 ## Security
 
 Actions Up promotes security best practices:

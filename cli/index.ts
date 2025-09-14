@@ -5,6 +5,7 @@ import cac from 'cac'
 
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
 import { applyUpdates } from '../core/ast/update/apply-updates'
+import { shouldIgnore } from '../core/ignore/should-ignore'
 import { checkUpdates } from '../core/api/check-updates'
 import { scanGitHubActions } from '../core/index'
 import { version } from '../package.json'
@@ -62,8 +63,22 @@ export function run(): void {
           process.env['GITHUB_TOKEN'],
         )
 
+        /** Apply ignore comments (file/block/next-line/inline). */
+        let filtered: typeof updates = []
+        await Promise.all(
+          updates.map(async update => {
+            let ignored = await shouldIgnore(
+              update.action.file,
+              update.action.line,
+            )
+            if (!ignored) {
+              filtered.push(update)
+            }
+          }),
+        )
+
         /** Filter outdated actions. */
-        let outdated = updates.filter(update => update.hasUpdate)
+        let outdated = filtered.filter(update => update.hasUpdate)
         let breaking = outdated.filter(update => update.isBreaking)
 
         if (outdated.length === 0) {
@@ -118,7 +133,7 @@ export function run(): void {
 
           console.info(pc.green('\n✓ Updates applied successfully!'))
         } else {
-          let selected = await promptUpdateSelection(updates)
+          let selected = await promptUpdateSelection(filtered)
 
           if (!selected || selected.length === 0) {
             console.info(pc.gray('\nNo updates applied'))
