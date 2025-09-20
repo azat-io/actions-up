@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.4.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.4.0...v1.4.1)
+
+### 🐞 Bug Fixes
+
+- Preserve inline comments after updates ([eec8f82](https://github.com/azat-io/actions-up/commit/eec8f82))
+- Prevent duplicate version suffix when pinning overlapping tags ([46ce518](https://github.com/azat-io/actions-up/commit/46ce518))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.4.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.3.1...v1.4.0)
