@@ -58,7 +58,7 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
         }
 
         let pattern = new RegExp(
-          `(^\\s*-?\\s*uses:\\s*)(['"]?)(${escapedName})@${escapedVersion}\\2(\\s*#[^\\n]*)?`,
+          `(^\\s*-?\\s*uses:\\s*)(['"]?)(${escapedName})@${escapedVersion}\\2([^\\S\\r\\n]*#[^\\r\\n]*)?`,
           'gm',
         )
 
