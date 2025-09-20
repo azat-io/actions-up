@@ -57,8 +57,10 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
           continue
         }
 
+        let boundary = escapedVersion ? String.raw`(?=[^\S\r\n]|$|#)` : ''
+
         let pattern = new RegExp(
-          `(^\\s*-?\\s*uses:\\s*)(['"]?)(${escapedName})@${escapedVersion}\\2([^\\S\\r\\n]*#[^\\r\\n]*)?`,
+          `(^\\s*-?\\s*uses:\\s*)(['"]?)(${escapedName})@${escapedVersion}\\2${boundary}([^\\S\\r\\n]*#[^\\r\\n]*)?`,
           'gm',
         )
 

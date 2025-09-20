@@ -251,6 +251,78 @@ describe('applyUpdates', () => {
     )
   })
 
+  it('handles actions with overlapping version prefixes without duplicating suffix in comment', async () => {
+    let filePath = '/repo/.github/workflows/prefix.yml'
+    let original = [
+      'name: deploy',
+      'on:',
+      '  push:',
+      '',
+      'jobs:',
+      '  build:',
+      '    name: build',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - name: checkout',
+      '        uses: actions/checkout@v3',
+      '',
+      '  publish_typescript_sdk:',
+      '    runs-on: ubuntu-latest',
+      '    name: publish typescript sdk',
+      '    steps:',
+      '      - id: checkout',
+      '        name: Checkout',
+      '        uses: actions/checkout@v3.0.2',
+      '',
+    ].join('\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        typeof path === 'string' && path === filePath ? original : '',
+      ),
+    )
+
+    let sha = '08c6903cd8c0fde910a37f88322edcfb5dd907a8'
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestVersion: 'v5.0.0',
+        currentVersion: 'v3',
+        isBreaking: true,
+        hasUpdate: true,
+        latestSha: sha,
+      },
+      {
+        action: {
+          name: 'actions/checkout',
+          version: 'v3.0.2',
+          type: 'external',
+          file: filePath,
+        },
+        currentVersion: 'v3.0.2',
+        latestVersion: 'v5.0.0',
+        isBreaking: false,
+        hasUpdate: true,
+        latestSha: sha,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toContain(`uses: actions/checkout@${sha} # v5.0.0`)
+    expect(content).not.toContain('# v5.0.0.0.2')
+  })
+
   it('skips updates without latestSha', async () => {
     let filePath = '/repo/.github/workflows/skip.yml'
     let original = `uses: actions/checkout@v3\n`
