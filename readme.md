@@ -2,7 +2,7 @@
 
 <img
   src="https://raw.githubusercontent.com/azat-io/actions-up/main/assets/logo.svg"
-  alt="Actions Up! logo"
+  alt="Actions Up logo"
   width="160"
   height="160"
   align="right"
@@ -14,16 +14,17 @@
 
 Actions Up scans your workflows and composite actions to discover every referenced GitHub Action, then checks for newer releases.
 
-Interactively upgrade and pin actions to exact commit SHAs for secure, reproducible CI and low‑friction maintenance.
+Interactively upgrade and pin actions to exact commit SHAs for secure, reproducible CI and low-friction maintenance.
 
 ## Features
 
 - **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml`)
-- **SHA Pinning**: Updates actions to use commit SHA instead of tags for better security
+- **SHA pinning**: Updates actions to use commit SHA instead of tags for better security
 - **Batch Updates**: Update multiple actions at once
 - **Interactive Selection**: Choose which actions to update
 - **Breaking Changes Detection**: Warns about major version updates
-- **Fast & Efficient**: Parallel processing with optimized API calls
+- **Fast & Efficient**: Optimized API usage with deduped lookups
+- **CI/CD Integration**: Use in GitHub Actions workflows for automated PR checks
 
 ###
 
@@ -40,7 +41,7 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
   />
   <img
     src="https://raw.githubusercontent.com/azat-io/actions-up/main/assets/example-light.webp"
-    alt="Actions Up interactive example"
+    alt="Actions Up! interactive example"
     width="820"
   />
 </picture>
@@ -113,6 +114,389 @@ npx actions-up --yes
 npx actions-up -y
 ```
 
+### Dry Run Mode
+
+Check for updates without making any changes:
+
+```bash
+npx actions-up --dry-run
+```
+## Comparison with Other Tools
+
+While there are several dependency update tools available, Actions Up is specifically designed for GitHub Actions with a focus on security and developer experience.
+
+<details>
+<summary>Quick Comparison</summary>
+
+| Feature | Actions Up | Renovate | Dependabot |
+|---------|------------|----------|------------|
+| **GitHub Actions Focus** | ✅ Purpose-built | ⚠️ General purpose | ⚠️ General purpose |
+| **Interactive CLI** | ✅ Yes | ❌ No | ❌ No |
+| **SHA Pinning** | ✅ Default | ⚠️ Configurable | ⚠️ Configurable |
+| **No Configuration Required** | ✅ Yes | ❌ No | ❌ No |
+| **One-time Updates** | ✅ Yes | ⚠️ Primarily automated | ⚠️ Primarily automated |
+| **Pull Request Automation** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Self-hosted Option** | ✅ Local CLI | ✅ Yes | ⚠️ GitHub only |
+| **Setup Complexity** | ✅ None | ❌ High | ⚠️ Medium |
+| **API Rate Limit Friendly** | ✅ Optimized | ⚠️ Can be heavy | ⚠️ Managed by GitHub |
+</details>
+
+<details>
+<summary>Detailed Comparison</summary>
+
+#### **Actions Up**
+- **Philosophy**: Interactive, on-demand updates with full developer control
+- **Best for**: Teams wanting manual control over updates, one-time migrations to SHA pinning, or quick security updates
+- **Unique strengths**:
+  - Zero configuration - just run and select updates
+  - Interactive selection of specific updates
+  - Immediate local file updates (no waiting for PRs)
+  - Optimized for GitHub Actions workflows specifically
+  - Perfect for CI/CD security audits and quick fixes
+  - Lightweight - no background services or webhooks
+
+#### **Renovate**
+- **Philosophy**: Automated, continuous dependency management across all ecosystems
+- **Best for**: Large organizations wanting comprehensive automation across multiple package managers
+- **Unique strengths**:
+  - Supports 70+ package managers and languages
+  - Highly configurable update schedules and grouping
+  - Can manage all dependencies, not just Actions
+  - Enterprise features available
+  - Extensive configuration options via `renovate.json`
+
+#### **Dependabot**
+- **Philosophy**: Native GitHub integration for automated dependency updates
+- **Best for**: Teams already using GitHub wanting a simple, integrated solution
+- **Unique strengths**:
+  - Built into GitHub (no third-party access needed)
+  - Native GitHub UI integration
+  - Security advisory integration
+  - Simple YAML configuration
+  - Managed infrastructure (no self-hosting needed)
+
+### When to Use Actions Up
+
+Choose **Actions Up** when you want:
+- ✅ **Immediate updates** without waiting for PR automation
+- ✅ **Interactive control** over what gets updated
+- ✅ **Zero configuration** setup
+- ✅ **One-time migration** to SHA-pinned actions
+- ✅ **Quick security patches** before the next automated PR cycle
+- ✅ **Local development workflow** without external services
+- ✅ **Teaching tool** to understand action versioning and security
+
+Choose **Renovate** when you want:
+- ✅ Fully automated dependency management across all ecosystems
+- ✅ Complex update schedules and grouping rules
+- ✅ Enterprise-grade configuration and customization
+- ✅ Monorepo support with custom managers
+
+Choose **Dependabot** when you want:
+- ✅ Simple automated updates with minimal configuration
+- ✅ Native GitHub integration without third-party tools
+- ✅ GitHub's security advisory integration
+- ✅ Managed service with no infrastructure overhead
+</details>
+
+<details>
+<summary>Complementary Usage</summary>
+
+Actions Up works great alongside automated tools:
+
+1. **With Renovate/Dependabot**: Use Actions Up for immediate critical updates while waiting for the next automated PR cycle
+2. **Migration Path**: Use Actions Up to initially migrate all actions to SHA pinning, then maintain with Renovate/Dependabot
+3. **Security Audits**: Run Actions Up periodically to audit and update actions outside your normal automation schedule
+4. **Development Workflow**: Use Actions Up locally during development, automated tools in production
+</details>
+
+<details>
+<summary>Example Workflows</summary>
+
+#### Quick Security Update with Actions Up
+```bash
+# Immediate update when a critical vulnerability is announced
+GITHUB_TOKEN=ghp_xxxx npx actions-up --yes
+git commit -am "security: update vulnerable actions"
+git push
+```
+
+#### Initial Setup Comparison
+
+**Actions Up** (0 configuration):
+```bash
+npx actions-up
+```
+
+**Renovate** (requires configuration):
+```json
+{
+  "extends": ["config:base"],
+  "packageRules": [{
+    "matchManagers": ["github-actions"],
+    "pinDigests": true
+  }]
+}
+```
+
+**Dependabot** (requires configuration):
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+</details>
+
+## GitHub Actions Integration
+
+### Automated PR Checks
+
+You can integrate Actions Up into your CI/CD pipeline to automatically check for outdated actions on every pull request. This helps maintain security and ensures your team stays aware of available updates.
+
+<details>
+<summary>Create <code>.github/workflows/check-actions-updates.yml</code>.</summary>
+
+````yaml
+name: Check for outdated GitHub Actions
+on:
+  pull_request:
+    types: [edited, opened, synchronize, reopened]
+
+jobs:
+  check-actions:
+    name: Check for GHA updates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install actions-up
+        run: npm install -g actions-up
+
+      - name: Run actions-up check
+        id: actions-check
+        run: |
+          echo "## GitHub Actions Update Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Initialize variables
+          HAS_UPDATES=false
+          UPDATE_COUNT=0
+
+          # Run actions-up and capture output
+          echo "Running actions-up to check for updates..."
+          actions-up --dry-run > actions-up-raw.txt 2>&1 || true
+
+          # Parse the output to detect updates
+          if grep -q "→" actions-up-raw.txt; then
+            HAS_UPDATES=true
+            # Count the number of updates (lines with arrows)
+            UPDATE_COUNT=$(grep -c "→" actions-up-raw.txt || echo "0")
+          fi
+
+          # Create formatted output
+          if [ "$HAS_UPDATES" = true ]; then
+            echo "Found $UPDATE_COUNT GitHub Actions with available updates" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Click to see details</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat actions-up-raw.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+            # Create detailed markdown report with better formatting
+            {
+              echo "## GitHub Actions Update Report"
+              echo ""
+
+              echo "### Summary"
+              echo "- **Updates available:** $UPDATE_COUNT"
+              echo ""
+
+              # See the raw output above for details.
+              echo "### How to Update"
+              echo ""
+              echo "You have several options to update these actions:"
+              echo ""
+              echo "#### Option 1: Automatic Update (Recommended)"
+              echo '```bash'
+              echo "# Run this command locally in your repository"
+              echo "npx actions-up"
+              echo '```'
+              echo ""
+              echo "#### Option 2: Manual Update"
+              echo "1. Review each update in the table above"
+              echo "2. For breaking changes, click the Release Notes link to review changes"
+              echo "3. Edit the workflows and update the version numbers"
+              echo "4. Test the changes in your CI/CD pipeline"
+              echo ""
+              echo "---"
+              echo ""
+              echo "<details>"
+              echo "<summary>Raw actions-up output</summary>"
+              echo ""
+              echo '```'
+              cat actions-up-raw.txt
+              echo '```'
+              echo "</details>"
+            } > actions-up-report.md
+
+            echo "has-updates=true" >> $GITHUB_OUTPUT
+            echo "update-count=$UPDATE_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "All GitHub Actions are up to date!" >> $GITHUB_STEP_SUMMARY
+
+            {
+              echo "## GitHub Actions Update Report"
+              echo ""
+              echo "### All GitHub Actions in this repository are up to date!"
+              echo ""
+              echo "No action required. Your workflows are using the latest versions of all GitHub Actions."
+            } > actions-up-report.md
+
+            echo "has-updates=false" >> $GITHUB_OUTPUT
+            echo "update-count=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment PR with updates
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('actions-up-report.md', 'utf8');
+            const hasUpdates = '${{ steps.actions-check.outputs.has-updates }}' === 'true';
+            const updateCount = '${{ steps.actions-check.outputs.update-count }}';
+
+            // Check if we already commented
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const botComment = comments.data.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('GitHub Actions Update Report')
+            );
+
+            const commentBody = `${report}
+
+            ---
+            *Generated by [actions-up](https://github.com/azat-io/actions-up) | Last check: ${new Date().toISOString()}*`;
+
+            // Only comment if there are updates or if we previously commented
+            if (hasUpdates || botComment) {
+              if (botComment) {
+                // Update existing comment
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: commentBody
+                });
+                console.log('Updated existing comment');
+              } else {
+                // Create new comment only if there are updates
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: commentBody
+                });
+                console.log('Created new comment');
+              }
+            } else {
+              console.log('No updates found and no previous comment exists - skipping comment');
+            }
+
+            // Add or update PR labels based on status
+            const labels = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const hasOutdatedLabel = labels.data.some(label => label.name === 'outdated-actions');
+
+            if (hasUpdates && !hasOutdatedLabel) {
+              // Add label if updates are found
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  labels: ['outdated-actions']
+                });
+                console.log('Added outdated-actions label');
+              } catch (error) {
+                console.log('Could not add label (might not exist in repo):', error.message);
+              }
+            } else if (!hasUpdates && hasOutdatedLabel) {
+              // Remove label if no updates
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: 'outdated-actions'
+                });
+                console.log('Removed outdated-actions label');
+              } catch (error) {
+                console.log('Could not remove label:', error.message);
+              }
+            }
+
+      - name: Fail if outdated actions found
+        if: steps.actions-check.outputs.has-updates == 'true'
+        run: |
+          echo "::error:: Found ${{ steps.actions-check.outputs.update-count }} outdated GitHub Actions. Please update them before merging."
+          echo ""
+          echo "You can update them by running: npx actions-up"
+          echo "Or manually update the versions in your workflows."
+          exit 1
+````
+
+</details>
+
+### Scheduled Checks
+
+You can also set up scheduled checks to stay informed about updates:
+
+```yaml
+name: Weekly Actions Update Check
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday at 9 AM
+  workflow_dispatch: # Allow manual triggers
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install -g actions-up
+      - run: |
+          if actions-up --dry-run | grep -q "→"; then
+            echo "Updates available! Run 'npx actions-up' to update."
+            exit 1
+          fi
+```
+
 ## Example
 
 ```yaml
@@ -136,13 +520,86 @@ While Actions Up works without authentication, providing a GitHub token increase
 - For public repositories: Select `public_repo` scope
 - For private repositories: Select `repo` scope
 
+Set the token as an environment variable:
+
+```bash
+export GITHUB_TOKEN=your_token_here
+npx actions-up
+```
+
+Or in GitHub Actions:
+
+```yaml
+- name: Check for updates
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: npx actions-up --dry-run
+```
+
+### Skipping Updates
+
+Skip updates using CLI excludes and YAML ignore comments. Excludes run first, then ignore comments.
+
+#### CLI Excludes
+
+Skip actions by name using regular expressions. Patterns are matched against the full action name (`owner/repo[/path]`).
+
+- Repeatable flag: `--exclude <regex>` (can be used multiple times)
+- Comma-separated list is supported inside a single flag
+- Forms:
+  - Plain string compiled as case-insensitive regex: `my-org/.*`
+  - Literal with flags: `/^actions\/internal-.+$/i`
+
+Examples:
+
+```bash
+npx actions-up --exclude "my-org/.*"
+npx actions-up --exclude ".*/internal-.*" --exclude "/^acme\/.+$/i"
+# or
+npx actions-up --exclude "my-org/.*, .*/internal-.*"
+```
+
+#### Ignore Comments
+
+You can skip specific actions or files using YAML comments. Ignored items are hidden in dry-run and interactive modes and are not updated with `--yes`.
+
+- Ignore whole file: `# actions-up-ignore-file`
+- Block ignore: `# actions-up-ignore-start` … `# actions-up-ignore-end`
+- Next line: `# actions-up-ignore-next-line`
+- Inline on the same line: append `# actions-up-ignore`
+
+Example:
+
+```yaml
+# actions-up-ignore-file
+
+# actions-up-ignore-next-line
+- uses: actions/checkout@v3
+
+- uses: actions/setup-node@v3 # actions-up-ignore
+
+# actions-up-ignore-start
+- uses: actions/cache@v3
+# actions-up-ignore-end
+```
+
 ## Security
 
 Actions Up promotes security best practices:
 
-- **SHA Pinning**: Uses commit SHA instead of mutable tags
-- **Version Comments**: Adds version as comment for readability
+- **SHA pinning**: Uses commit SHA instead of mutable tags
+- **Version comment**: Adds the released version next to the pinned SHA for readability
 - **No Auto-Updates**: Full control over what gets updated
+- **Breaking Change Warnings**: Alerts you to major version updates that may require configuration changes
+
+## CI/CD Best Practices
+
+When using Actions Up in your CI/CD pipeline:
+
+1. **Start with warnings**: Begin by running checks without failing builds to gauge the update frequency
+2. **Regular updates**: Schedule weekly or monthly update PRs rather than blocking every PR
+3. **Team education**: Ensure your team understands the security benefits of keeping actions updated
+4. **Gradual adoption**: Roll out to a few repositories first before organization-wide deployment
 
 ## Contributing
 
