@@ -121,6 +121,7 @@ Check for updates without making any changes:
 ```bash
 npx actions-up --dry-run
 ```
+
 ## Comparison with Other Tools
 
 While there are several dependency update tools available, Actions Up is specifically designed for GitHub Actions with a focus on security and developer experience.

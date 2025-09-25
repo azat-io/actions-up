@@ -1,5 +1,3 @@
-// Core/ast/apply-updates.ts
-
 import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
@@ -59,8 +57,10 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
           continue
         }
 
+        let boundary = escapedVersion ? String.raw`(?=[^\S\r\n]|$|#)` : ''
+
         let pattern = new RegExp(
-          `(^\\s*-?\\s*uses:\\s*)(['"]?)(${escapedName})@${escapedVersion}\\2(\\s*#[^\\n]*)?`,
+          `(^\\s*-?\\s*uses:\\s*)(['"]?)(${escapedName})@${escapedVersion}\\2${boundary}([^\\S\\r\\n]*#[^\\r\\n]*)?`,
           'gm',
         )
 

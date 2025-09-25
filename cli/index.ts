@@ -5,12 +5,16 @@ import cac from 'cac'
 
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
 import { applyUpdates } from '../core/ast/update/apply-updates'
+import { shouldIgnore } from '../core/ignore/should-ignore'
 import { checkUpdates } from '../core/api/check-updates'
 import { scanGitHubActions } from '../core/index'
 import { version } from '../package.json'
 
 /** CLI Options. */
 interface CLIOptions {
+  /** Regex patterns to exclude actions by name (repeatable). */
+  exclude?: string[] | string
+
   /** Preview changes without applying them. */
   dryRun: boolean
 
@@ -25,8 +29,9 @@ export function run(): void {
   cli
     .help()
     .version(version)
-    .option('--yes, -y', 'Skip all confirmations')
     .option('--dry-run', 'Preview changes without applying them')
+    .option('--exclude <regex>', 'Exclude actions by regex (repeatable)')
+    .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
     .action(async (options: CLIOptions) => {
       console.info(pc.cyan('\n🚀 Actions Up!\n'))
@@ -34,7 +39,7 @@ export function run(): void {
       let spinner = createSpinner('Scanning GitHub Actions...').start()
 
       try {
-        /* Scan for GitHub Actions in the repository */
+        /** Scan for GitHub Actions in the repository. */
         let scanResult = await scanGitHubActions(process.cwd())
 
         let totalActions = scanResult.actions.length
@@ -54,16 +59,70 @@ export function run(): void {
           return
         }
 
-        /* Check for updates */
+        /** Prepare actions list and apply CLI excludes if provided. */
+        let actionsToCheck = scanResult.actions
+
+        let rawExcludes: string[] = []
+        if (Array.isArray(options.exclude)) {
+          rawExcludes.push(...options.exclude)
+        } else if (typeof options.exclude === 'string') {
+          rawExcludes.push(options.exclude)
+        }
+
+        /** Support comma-separated lists inside a single flag. */
+        let normalizedExcludes = rawExcludes
+          .flatMap(item => item.split(','))
+          .map(item => item.trim())
+          .filter(Boolean)
+
+        if (normalizedExcludes.length > 0) {
+          let { parseExcludePatterns } = await import(
+            '../core/filters/parse-exclude-patterns'
+          )
+          let regexes = parseExcludePatterns(normalizedExcludes)
+          if (regexes.length > 0) {
+            actionsToCheck = actionsToCheck.filter(action => {
+              let { name } = action
+              for (let rx of regexes) {
+                if (rx.test(name)) {
+                  return false
+                }
+              }
+              return true
+            })
+          }
+        }
+
+        /** Check for updates. */
         spinner = createSpinner('Checking for updates...').start()
 
+        if (actionsToCheck.length === 0) {
+          spinner.success('No actions to check after excludes')
+          console.info(pc.green('\n✨ Nothing to check after excludes\n'))
+          return
+        }
+
         let updates = await checkUpdates(
-          scanResult.actions,
+          actionsToCheck,
           process.env['GITHUB_TOKEN'],
         )
 
-        /* Filter outdated actions */
-        let outdated = updates.filter(update => update.hasUpdate)
+        /** Apply ignore comments (file/block/next-line/inline). */
+        let filtered: typeof updates = []
+        await Promise.all(
+          updates.map(async update => {
+            let ignored = await shouldIgnore(
+              update.action.file,
+              update.action.line,
+            )
+            if (!ignored) {
+              filtered.push(update)
+            }
+          }),
+        )
+
+        /** Filter outdated actions. */
+        let outdated = filtered.filter(update => update.hasUpdate)
         let breaking = outdated.filter(update => update.isBreaking)
 
         if (outdated.length === 0) {
@@ -76,7 +135,9 @@ export function run(): void {
 
         spinner.success(
           `Found ${pc.yellow(outdated.length)} updates available${
-            breaking.length > 0 ? ` (${pc.red(breaking.length)} breaking)` : ''
+            breaking.length > 0
+              ? ` (${pc.redBright(breaking.length)} breaking)`
+              : ''
           }`,
         )
 
@@ -86,7 +147,7 @@ export function run(): void {
           for (let update of outdated) {
             console.info(
               `${pc.cyan(update.action.file ?? 'unknown')}:\n` +
-                `${update.action.name}: ${pc.red(update.currentVersion)} → ${pc.green(
+                `${update.action.name}: ${pc.redBright(update.currentVersion)} → ${pc.green(
                   update.latestVersion,
                 )} ${update.latestSha ? pc.gray(`(${update.latestSha.slice(0, 7)})`) : ''}\n`,
             )
@@ -99,7 +160,7 @@ export function run(): void {
         }
 
         if (options.yes) {
-          /* Auto-update all actions with SHA */
+          /** Auto-update all actions with SHA. */
           let toUpdate = outdated.filter(update => update.latestSha)
           if (toUpdate.length === 0) {
             console.info(
@@ -116,7 +177,7 @@ export function run(): void {
 
           console.info(pc.green('\n✓ Updates applied successfully!'))
         } else {
-          let selected = await promptUpdateSelection(updates)
+          let selected = await promptUpdateSelection(filtered)
 
           if (!selected || selected.length === 0) {
             console.info(pc.gray('\nNo updates applied'))
@@ -134,7 +195,7 @@ export function run(): void {
       } catch (error) {
         spinner.error('Failed')
 
-        /* Handle rate limit errors with helpful message */
+        /** Handle rate limit errors with helpful message. */
         if (error instanceof Error && error.name === 'GitHubRateLimitError') {
           console.error(pc.yellow('\n⚠️ Rate Limit Exceeded\n'))
           console.error(error.message)
@@ -143,7 +204,7 @@ export function run(): void {
           )
         } else {
           console.error(
-            pc.red('\nError:'),
+            pc.redBright('\nError:'),
             error instanceof Error ? error.message : String(error),
           )
         }

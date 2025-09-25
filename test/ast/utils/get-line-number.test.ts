@@ -39,7 +39,6 @@ describe('getLineNumberForKey', () => {
     let document_ = parseDocument(content)
     let pair = findMapPair(document_.contents, 'name')
     expect(pair).toBeTruthy()
-    // Simulate missing range by passing a plain object
     expect(getLineNumberForKey(content, { value: 'name' })).toBe(0)
   })
 })

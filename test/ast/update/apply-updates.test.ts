@@ -102,6 +102,51 @@ describe('applyUpdates', () => {
     expect(updated).toContain(`- uses: 'actions/cache@${sha}' # v3.1.2`)
   })
 
+  it('preserves comment on next line with CRLF endings', async () => {
+    let filePath = '/repo/.github/workflows/comment-crlf.yml'
+    let original = [
+      'jobs:',
+      '  build:',
+      '    steps:',
+      '      - uses: actions/checkout@v2',
+      '      # keep me',
+      '      - run: echo "done"',
+      '',
+    ].join('\r\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        typeof path === 'string' && path === filePath ? original : '',
+      ),
+    )
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v2',
+        },
+        latestSha: '0123456789abcdef0123456789abcdef01234567',
+        latestVersion: 'v4.2.0',
+        currentVersion: 'v2',
+        isBreaking: true,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toContain(
+      '- uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.0\r\n      # keep me',
+    )
+  })
+
   it('replaces double-quoted uses and overwrites existing trailing comment', async () => {
     let filePath = '/repo/.github/workflows/node.yml'
     let original = [
@@ -206,6 +251,78 @@ describe('applyUpdates', () => {
     )
   })
 
+  it('handles actions with overlapping version prefixes without duplicating suffix in comment', async () => {
+    let filePath = '/repo/.github/workflows/prefix.yml'
+    let original = [
+      'name: deploy',
+      'on:',
+      '  push:',
+      '',
+      'jobs:',
+      '  build:',
+      '    name: build',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - name: checkout',
+      '        uses: actions/checkout@v3',
+      '',
+      '  publish_typescript_sdk:',
+      '    runs-on: ubuntu-latest',
+      '    name: publish typescript sdk',
+      '    steps:',
+      '      - id: checkout',
+      '        name: Checkout',
+      '        uses: actions/checkout@v3.0.2',
+      '',
+    ].join('\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        typeof path === 'string' && path === filePath ? original : '',
+      ),
+    )
+
+    let sha = '08c6903cd8c0fde910a37f88322edcfb5dd907a8'
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestVersion: 'v5.0.0',
+        currentVersion: 'v3',
+        isBreaking: true,
+        hasUpdate: true,
+        latestSha: sha,
+      },
+      {
+        action: {
+          name: 'actions/checkout',
+          version: 'v3.0.2',
+          type: 'external',
+          file: filePath,
+        },
+        currentVersion: 'v3.0.2',
+        latestVersion: 'v5.0.0',
+        isBreaking: false,
+        hasUpdate: true,
+        latestSha: sha,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toContain(`uses: actions/checkout@${sha} # v5.0.0`)
+    expect(content).not.toContain('# v5.0.0.0.2')
+  })
+
   it('skips updates without latestSha', async () => {
     let filePath = '/repo/.github/workflows/skip.yml'
     let original = `uses: actions/checkout@v3\n`
@@ -258,7 +375,7 @@ describe('applyUpdates', () => {
           name: 'actions/cache',
           type: 'external',
           file: filePath,
-          version: null, // Simulate unknown parsed version
+          version: null,
         },
         latestSha: '1234567890abcdef1234567890abcdef12345678',
         latestVersion: 'v3.1.5',

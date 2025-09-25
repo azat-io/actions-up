@@ -1,8 +1,9 @@
 import type Enquirer from 'enquirer'
 
+import { readFile } from 'node:fs/promises'
 import enquirer from 'enquirer'
-import path from 'node:path'
 import 'node:worker_threads'
+import path from 'node:path'
 import pc from 'picocolors'
 
 import type { ActionUpdate } from '../../types/action-update'
@@ -16,7 +17,7 @@ import { padString } from './pad-string'
 const MIN_ACTION_WIDTH = 56
 
 /** Global minimum width for the current version column. */
-const MIN_CURRENT_WIDTH = 10
+const MIN_CURRENT_WIDTH = 16
 
 /** Minimal prompt options shape we use to avoid Enquirer union pitfalls. */
 interface PromptOptionsLike {
@@ -170,16 +171,48 @@ export async function promptUpdateSelection(
     groups.set(file, group)
   }
 
+  /**
+   * Resolve display value for Current and an effective version for diffing. If
+   * the current ref is a SHA and we previously pinned with a version comment
+   * (e.g. "# v5.0.0"), show that version instead of the SHA and use it for diff
+   * coloring in the Target column.
+   */
+  let currentComputedByIndex = await Promise.all(
+    outdated.map(async update => {
+      let display = formatVersionOrSha(update.currentVersion)
+      let effectiveForDiff: undefined | string =
+        update.currentVersion ?? undefined
+
+      if (!update.currentVersion || !isSha(update.currentVersion)) {
+        return { effectiveForDiff, display }
+      }
+
+      let versionFromComment = await tryReadInlineVersionComment(
+        update.action.file,
+        update.action.line,
+      )
+
+      if (versionFromComment) {
+        let shortSha = update.currentVersion.slice(0, 7)
+        let version = formatVersionOrSha(versionFromComment)
+        display = `${version} ${pc.gray(`(${shortSha})`)}`
+        effectiveForDiff = versionFromComment
+      }
+
+      return { effectiveForDiff, display }
+    }),
+  )
+
   let choices: (ChoiceSeparator | ChoiceItem)[] = []
 
   let maxActionLength = stripAnsi('Action').length
   let maxCurrentLength = stripAnsi('Current').length
 
-  for (let update of outdated) {
+  for (let [index, update] of outdated.entries()) {
     let actionNameRaw = update.action.name
-    let currentRaw = formatVersionOrSha(update.currentVersion)
+    let currentRaw = currentComputedByIndex[index]!.display
     maxActionLength = Math.max(maxActionLength, actionNameRaw.length)
-    maxCurrentLength = Math.max(maxCurrentLength, currentRaw.length)
+    maxCurrentLength = Math.max(maxCurrentLength, stripAnsi(currentRaw).length)
   }
 
   let globalActionWidth = Math.max(maxActionLength, MIN_ACTION_WIDTH)
@@ -205,11 +238,13 @@ export async function promptUpdateSelection(
       arrow: '❯',
     })
 
-    for (let { update } of groupOrder) {
+    for (let { update, index } of groupOrder) {
       let hasSha = Boolean(update.latestSha)
 
-      let current = formatVersionOrSha(update.currentVersion)
-      let latest = formatVersion(update.latestVersion)
+      let current = currentComputedByIndex[index]!.display
+      let effectiveCurrentForDiff =
+        currentComputedByIndex[index]?.effectiveForDiff ?? update.currentVersion
+      let latest = formatVersion(update.latestVersion, effectiveCurrentForDiff)
       let actionName = update.action.name
 
       if (update.latestSha) {
@@ -392,6 +427,46 @@ export async function promptUpdateSelection(
 }
 
 /**
+ * Best-effort extraction of version number from an inline comment on the same
+ * line as `uses:`. Expected shape after update is, for example: `uses:
+ * actions/checkout@<sha> # v5.0.0`.
+ *
+ * Only used when the current reference is a SHA. Returns null if not found.
+ *
+ * @param filePath - Absolute path to the YAML file.
+ * @param lineNumber - 1-based line number of the `uses:` key.
+ * @returns Extracted version (e.g., `v5.0.0`) or null when not present.
+ */
+async function tryReadInlineVersionComment(
+  filePath: undefined | string,
+  lineNumber: undefined | number,
+): Promise<string | null> {
+  try {
+    if (!filePath || !lineNumber || lineNumber <= 0) {
+      return null
+    }
+
+    let content = await readFile(filePath, 'utf8')
+    let lines = content.split('\n')
+    let index = lineNumber - 1
+    if (index < 0 || index >= lines.length) {
+      return null
+    }
+
+    let line = lines[index]!
+    let match = line.match(
+      /#\s*(?<version>[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?)/u,
+    )
+    if (match?.groups?.['version']) {
+      return match.groups['version']
+    }
+  } catch {
+    /** Ignore errors - simply fall back to SHA display. */
+  }
+  return null
+}
+
+/**
  * Format a table row with proper spacing.
  *
  * @param row - Row data.
@@ -416,18 +491,6 @@ function formatTableRow(
 }
 
 /**
- * Prompts the user to interactively select which actions to update.
- *
- * - Always pins to SHA (items without SHA are not selectable).
- * - Groups by files (visual separators) for context.
- * - Pre-selects compatible updates (non-breaking) by default.
- * - Cancel/ESC returns null without throwing an exception.
- *
- * @param updates - List of available updates for user selection.
- * @returns List of selected updates or null if selection is cancelled or empty.
- */
-
-/**
  * Check if a string is a Git SHA hash.
  *
  * @param value - String to check.
@@ -438,10 +501,10 @@ function isSha(value: string): boolean {
     return false
   }
 
-  /* Remove 'v' prefix if present. */
+  /** Remove 'v' prefix if present. */
   let normalized = value.replace(/^v/u, '')
 
-  /* Check if it matches SHA pattern (7-40 hex characters). */
+  /** Check if it matches SHA pattern (7-40 hex characters). */
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }
 
@@ -457,9 +520,8 @@ function formatVersionOrSha(version: undefined | string | null): string {
   }
 
   if (isSha(version)) {
-    /* Shorten SHA to 7 characters. */
     return version.slice(0, 7)
   }
 
-  return version
+  return version.replace(/^v/u, '')
 }

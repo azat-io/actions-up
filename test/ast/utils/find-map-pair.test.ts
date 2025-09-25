@@ -10,7 +10,6 @@ describe('findMapPair', () => {
     let jobsPair = findMapPair(document.contents, 'jobs')
     expect(jobsPair).toBeTruthy()
     expect(jobsPair && 'key' in jobsPair && jobsPair.key).toBeTruthy()
-    // Find nested pair inside jobs map
     let nested = jobsPair?.value ? findMapPair(jobsPair.value, 'build') : null
     expect(nested).toBeTruthy()
   })

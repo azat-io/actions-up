@@ -531,6 +531,144 @@ describe('scanGitHubActions', () => {
     expect(result.actions).toHaveLength(0)
   })
 
+  it('follows same-repo external composite actions referenced by owner/repo/path@ref', async () => {
+    process.env['GITHUB_REPOSITORY'] = 'my/repo'
+
+    vi.mocked(stat).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('.github/workflows')) {
+        return Promise.resolve({ isDirectory: () => true } as Stats)
+      }
+      if (currentPath.endsWith('setup-js/action.yml')) {
+        return Promise.resolve({
+          isDirectory: () => false,
+          isFile: () => true,
+        } as unknown as Stats)
+      }
+      if (currentPath.endsWith('.github/actions')) {
+        return Promise.resolve({ isDirectory: () => false } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readdir).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('.github/workflows')) {
+        return Promise.resolve(['coverage.yml']) as unknown as ReturnType<
+          typeof readdir
+        >
+      }
+      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+    })
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('coverage.yml')) {
+        return Promise.resolve('workflow content') as unknown as ReturnType<
+          typeof readFile
+        >
+      }
+      if (currentPath.endsWith('setup-js/action.yml')) {
+        return Promise.resolve('action content') as unknown as ReturnType<
+          typeof readFile
+        >
+      }
+      return Promise.reject(new Error('not used'))
+    })
+
+    vi.mocked(parseDocument).mockImplementation((content: string) => {
+      if (content === 'workflow content') {
+        return createMockDocument({
+          jobs: {
+            coverage: {
+              steps: [{ uses: 'my/repo/setup-js@v1' }],
+            },
+          },
+        }) as unknown as ReturnType<typeof parseDocument>
+      }
+      if (content === 'action content') {
+        return createMockDocument({
+          runs: {
+            steps: [{ uses: 'actions/setup-node@v5' }],
+            using: 'composite',
+          },
+        }) as unknown as ReturnType<typeof parseDocument>
+      }
+      return createMockDocument(null) as unknown as ReturnType<
+        typeof parseDocument
+      >
+    })
+
+    let result = await scanGitHubActions('.')
+    expect(result.workflows.size).toBe(1)
+    expect(result.actions).toHaveLength(2)
+    expect(
+      result.actions.some(
+        a => a.type === 'external' && a.name === 'actions/setup-node',
+      ),
+    ).toBeTruthy()
+
+    delete process.env['GITHUB_REPOSITORY']
+  })
+
+  it('parses repo slug from .git/config when env is absent', async () => {
+    delete process.env['GITHUB_REPOSITORY']
+
+    vi.mocked(stat).mockRejectedValue(new Error('ENOENT'))
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('.git/config')) {
+        return Promise.resolve(
+          '[remote "origin"]\n' +
+            '    url = https://github.com/acme/demo.git\n' +
+            '    fetch = +refs/heads/*:refs/remotes/origin/*\n',
+        ) as unknown as ReturnType<typeof readFile>
+      }
+      return Promise.reject(new Error('not used'))
+    })
+
+    let result = await scanGitHubActions('.')
+    expect(result.actions).toEqual([])
+
+    delete process.env['GITHUB_REPOSITORY']
+  })
+
+  it('falls back to any remote url when origin is absent', async () => {
+    delete process.env['GITHUB_REPOSITORY']
+
+    vi.mocked(stat).mockRejectedValue(new Error('ENOENT'))
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('.git/config')) {
+        return Promise.resolve(
+          '[remote "upstream"]\n' +
+            '    url = git@github.com:acme/up.git\n' +
+            '    fetch = +refs/heads/*:refs/remotes/upstream/*\n',
+        ) as unknown as ReturnType<typeof readFile>
+      }
+      return Promise.reject(new Error('not used'))
+    })
+
+    let result = await scanGitHubActions('.')
+    expect(result.actions).toEqual([])
+
+    delete process.env['GITHUB_REPOSITORY']
+  })
+
+  it('ignores repo detection errors (outer catch covered)', async () => {
+    process.env['ACTIONS_UP_TEST_THROW'] = '1'
+
+    vi.mocked(stat).mockResolvedValue({ isDirectory: () => false } as Stats)
+    vi.mocked(readdir).mockResolvedValue([])
+
+    let result = await scanGitHubActions('.')
+    expect(result.actions).toEqual([])
+
+    delete process.env['ACTIONS_UP_TEST_THROW']
+  })
+
   it.each([
     ['project', 'custom project directory'],
     ['../parent', 'parent directory'],

@@ -1,5 +1,95 @@
 # Changelog
 
+## v1.4.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.4.0...v1.4.1)
+
+### 🐞 Bug Fixes
+
+- Preserve inline comments after updates ([eec8f82](https://github.com/azat-io/actions-up/commit/eec8f82))
+- Prevent duplicate version suffix when pinning overlapping tags ([46ce518](https://github.com/azat-io/actions-up/commit/46ce518))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.4.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.3.1...v1.4.0)
+
+### 🚀 Features
+
+- Support ignore comments to skip updates ([ef7b14c](https://github.com/azat-io/actions-up/commit/ef7b14c))
+- Add regex-based excludes ([d653288](https://github.com/azat-io/actions-up/commit/d653288))
+
+### 🐞 Bug Fixes
+
+- Clarify rate-limit error ([87843fe](https://github.com/azat-io/actions-up/commit/87843fe))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.3.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.3.0...v1.3.1)
+
+### 🐞 Bug Fixes
+
+- Prefer highest version from releases and tags ([7da9ba9](https://github.com/azat-io/actions-up/commit/7da9ba9))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.3.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.2.1...v1.3.0)
+
+### 🚀 Features
+
+- Add colored version diff display ([19a502a](https://github.com/azat-io/actions-up/commit/19a502a))
+- Show version for pinned shas ([f6f994e](https://github.com/azat-io/actions-up/commit/f6f994e))
+
+### 🏎 Performance Improvements
+
+- Reduce github api requests ([7cf1b42](https://github.com/azat-io/actions-up/commit/7cf1b42))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.2.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.2.0...v1.2.1)
+
+### 🐞 Bug Fixes
+
+- Resolve release sha via tag refs ([261db03](https://github.com/azat-io/actions-up/commit/261db03))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
+## v1.2.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.1.1...v1.2.0)
+
+### 🚀 Features
+
+- Add fallback to tags when no releases found ([9e87ac1](https://github.com/azat-io/actions-up/commit/9e87ac1))
+- Support same-repo composite actions ([38e3b5a](https://github.com/azat-io/actions-up/commit/38e3b5a))
+- Suggest pinning equal tags to latest sha ([cd172b3](https://github.com/azat-io/actions-up/commit/cd172b3))
+- Auto-resolve github token ([8358f6e](https://github.com/azat-io/actions-up/commit/8358f6e))
+
+### 🐞 Bug Fixes
+
+- Remove unnecessary warning ([1770068](https://github.com/azat-io/actions-up/commit/1770068))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.1.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.1.0...v1.1.1)
