@@ -351,14 +351,14 @@ export async function promptUpdateSelection(
         `(Press ${pc.cyan('<space>')} to select, ` +
         `${pc.cyan('<a>')} to toggle all, ` +
         `${pc.cyan('<i>')} to invert selection)`,
-      cancel() {
-        console.info(pc.yellow('\nSelection cancelled'))
-        return null
-      },
       styles: {
         success: pc.reset,
         em: pc.bgBlack,
         dark: pc.reset,
+      },
+      cancel() {
+        logSelectionCancelled()
+        return null
       },
       j() {
         return this.down?.() ?? Promise.resolve([])
@@ -417,7 +417,7 @@ export async function promptUpdateSelection(
         error.message.includes('ESC') ||
         error.name === 'ExitPromptError')
     ) {
-      console.info(pc.yellow('\nSelection cancelled'))
+      logSelectionCancelled()
       return null
     }
 
@@ -524,4 +524,17 @@ function formatVersionOrSha(version: undefined | string | null): string {
   }
 
   return version.replace(/^v/u, '')
+}
+
+/**
+ * Logs a cancellation message to the console, clearing any terminal artifacts
+ * left by the interactive prompt.
+ *
+ * Uses `\r` to return the cursor to the beginning of the line and `\x1b[K`
+ * (ANSI escape code) to clear from the cursor to the end of the line. This
+ * prevents leftover text from the prompt being concatenated with the
+ * cancellation message.
+ */
+function logSelectionCancelled(): void {
+  console.info(`\r\u001B[K${pc.yellow('Selection cancelled')}`)
 }
