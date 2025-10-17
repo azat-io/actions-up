@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.2
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.4.1...v1.4.2)
+
+### 🐞 Bug Fixes
+
+- Clear terminal artifacts when cancelling selection ([9f895b1](https://github.com/azat-io/actions-up/commit/9f895b1))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.4.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.4.0...v1.4.1)
