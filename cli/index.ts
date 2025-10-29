@@ -18,6 +18,9 @@ interface CLIOptions {
   /** Preview changes without applying them. */
   dryRun: boolean
 
+  /** Custom directory name (e.g., '.gitea' instead of '.github'). */
+  dir?: string
+
   /** Skip all confirmations. */
   yes: boolean
 }
@@ -29,6 +32,7 @@ export function run(): void {
   cli
     .help()
     .version(version)
+    .option('--dir <directory>', 'Custom directory name (default: .github)')
     .option('--dry-run', 'Preview changes without applying them')
     .option('--exclude <regex>', 'Exclude actions by regex (repeatable)')
     .option('--yes, -y', 'Skip all confirmations')
@@ -40,7 +44,7 @@ export function run(): void {
 
       try {
         /** Scan for GitHub Actions in the repository. */
-        let scanResult = await scanGitHubActions(process.cwd())
+        let scanResult = await scanGitHubActions(process.cwd(), options.dir)
 
         let totalActions = scanResult.actions.length
         let totalWorkflows = scanResult.workflows.size

@@ -22,6 +22,8 @@ import { isYamlFile } from './fs/is-yaml-file'
  *
  * @param rootPath - The root path of the repository to scan. Defaults to
  *   current working directory.
+ * @param ciDirectory - The CI directory name (e.g., '.github' or '.gitea').
+ *   Defaults to '.github'.
  * @returns A promise that resolves to a ScanResult containing:
  *
  *   - Workflows: Map of workflow file paths to their referenced actions
@@ -30,6 +32,7 @@ import { isYamlFile } from './fs/is-yaml-file'
  */
 export async function scanGitHubActions(
   rootPath: string = process.cwd(),
+  ciDirectory: string = GITHUB_DIRECTORY,
 ): Promise<ScanResult> {
   let result: ScanResult = {
     compositeActions: new Map(),
@@ -48,7 +51,7 @@ export async function scanGitHubActions(
     )
   }
 
-  let githubPath = join(normalizedRoot, GITHUB_DIRECTORY)
+  let githubPath = join(normalizedRoot, ciDirectory)
 
   if (!isWithin(normalizedRoot, githubPath)) {
     throw new Error('Invalid path: detected path traversal attempt')
@@ -104,13 +107,13 @@ export async function scanGitHubActions(
           try {
             let actions = await scanWorkflowFile(filePath)
             return {
-              path: `${GITHUB_DIRECTORY}/${WORKFLOWS_DIRECTORY}/${file}`,
+              path: `${ciDirectory}/${WORKFLOWS_DIRECTORY}/${file}`,
               success: true,
               actions,
             }
           } catch {
             return {
-              path: `${GITHUB_DIRECTORY}/${WORKFLOWS_DIRECTORY}/${file}`,
+              path: `${ciDirectory}/${WORKFLOWS_DIRECTORY}/${file}`,
               success: false,
               actions: [],
             }
@@ -197,7 +200,7 @@ export async function scanGitHubActions(
           }
 
           return {
-            path: `${GITHUB_DIRECTORY}/${ACTIONS_DIRECTORY}/${subdir}`,
+            path: `${ciDirectory}/${ACTIONS_DIRECTORY}/${subdir}`,
             name: subdir,
             actions,
           }

@@ -122,6 +122,14 @@ Check for updates without making any changes:
 npx actions-up --dry-run
 ```
 
+### Custom Directory
+
+By default, Actions Up scans the `.github` directory. You can specify a different directory (e.g., for Gitea):
+
+```bash
+npx actions-up --dir .gitea
+```
+
 ## GitHub Actions Integration
 
 ### Automated PR Checks
