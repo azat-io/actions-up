@@ -798,4 +798,40 @@ describe('scanGitHubActions', () => {
     let result = await scanGitHubActions('.')
     expect(result.compositeActions.size).toBe(0)
   })
+
+  it('scans custom directory when ciDirectory parameter is provided', async () => {
+    vi.mocked(stat).mockResolvedValue({
+      isDirectory: () => true,
+    } as Stats)
+
+    vi.mocked(readdir).mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.includes('workflows')) {
+        return Promise.resolve(['ci.yml']) as unknown as ReturnType<
+          typeof readdir
+        >
+      }
+      if (typeof path === 'string' && path.includes('actions')) {
+        return Promise.resolve(['build']) as unknown as ReturnType<
+          typeof readdir
+        >
+      }
+      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+    })
+
+    vi.mocked(readFile).mockResolvedValue('content')
+    vi.mocked(parseDocument).mockReturnValue(
+      createMockDocument({
+        runs: {
+          steps: [{ uses: 'actions/setup-node@v5' }],
+          using: 'composite',
+        },
+        jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
+      }) as unknown as ReturnType<typeof parseDocument>,
+    )
+
+    let result = await scanGitHubActions('.', '.gitea')
+
+    expect(result.workflows.has('.gitea/workflows/ci.yml')).toBeTruthy()
+    expect(result.compositeActions.get('build')).toBe('.gitea/actions/build')
+  })
 })
