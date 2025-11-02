@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.5.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.4.2...v1.5.0)
+
+### 🚀 Features
+
+- Add support for custom ci directory ([26d7d35](https://github.com/azat-io/actions-up/commit/26d7d35))
+
+### ❤️ Contributors
+
+- Eduard Aksamitov ([@euaaaio](https://github.com/euaaaio))
+
 ## v1.4.2
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.4.1...v1.4.2)
