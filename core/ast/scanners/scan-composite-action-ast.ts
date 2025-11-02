@@ -26,6 +26,7 @@ export function scanCompositeActionAst(
   filePath: string,
 ): GitHubAction[] {
   let action = document.toJSON() as unknown
+
   if (!isCompositeActionStructure(action)) {
     return []
   }
@@ -35,11 +36,13 @@ export function scanCompositeActionAst(
   }
 
   let runsPair = findMapPair(document.contents, 'runs')
+
   if (!runsPair?.value || !isYAMLMap(runsPair.value)) {
     return []
   }
 
   let runsJson = (action as Record<string, unknown>)['runs']
+
   if (
     !runsJson ||
     !isCompositeActionRuns(runsJson) ||
@@ -50,6 +53,7 @@ export function scanCompositeActionAst(
   }
 
   let stepsPair = findMapPair(runsPair.value, 'steps')
+
   if (!stepsPair?.value) {
     return []
   }

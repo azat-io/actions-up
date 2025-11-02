@@ -127,6 +127,42 @@ describe('getTagInfo', () => {
     })
   })
 
+  it('returns cached info before performing requests', async () => {
+    let context = makeContext()
+    let cached = {
+      message: 'cached',
+      tag: 'v1.2.3',
+      date: null,
+      sha: 'sha',
+    }
+    context.caches.tagInfo.set('o/r#v1.2.3', cached)
+    let fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    let info = await getTagInfo(context, {
+      tag: 'v1.2.3',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toBe(cached)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('returns null when cached entry is null', async () => {
+    let context = makeContext()
+    context.caches.tagInfo.set('o/r#v1.2.4', null)
+    let fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    let info = await getTagInfo(context, {
+      tag: 'v1.2.4',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('ignores commit enrichment failure for commit-type ref', async () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
@@ -460,6 +496,411 @@ describe('getTagInfo', () => {
       sha: 'refsha',
       message: 'T',
     })
+  })
+
+  it('preserves annotated ref sha when release tag detail lookup fails', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.0.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-03-01T00:00:00Z',
+              body: 'Release message',
+              target_commitish: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v4.0.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { sha: 'tagRef', type: 'tag' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/tags/tagRef')) {
+        return Promise.resolve(
+          new Response('error', {
+            statusText: 'Internal Server Error',
+            status: 500,
+          }),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.0.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-03-01T00:00:00Z'),
+      message: 'Release message',
+      tag: 'v4.0.0',
+      sha: 'tagRef',
+    })
+  })
+
+  it('ignores commit enrichment failure in release path for commit refs', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.4.1')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-03-10T00:00:00Z',
+              target_commitish: 'commitSha',
+              body: 'Release message',
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v4.4.1')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { sha: 'commitSha', type: 'commit' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/commits/commitSha')) {
+        return Promise.resolve(new Response('error', { status: 500 }))
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.4.1',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-03-10T00:00:00Z'),
+      message: 'Release message',
+      sha: 'commitSha',
+      tag: 'v4.4.1',
+    })
+  })
+
+  it('enriches release commit reference via commit lookup', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.1.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              target_commitish: null,
+              published_at: null,
+              body: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v4.1.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { sha: 'commit123', type: 'commit' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/commits/commit123')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              author: { date: '2024-03-02T00:00:00Z' },
+              message: 'Commit message',
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.1.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-03-02T00:00:00Z'),
+      message: 'Commit message',
+      sha: 'commit123',
+      tag: 'v4.1.0',
+    })
+  })
+
+  it('uses release commitish when reference lookup fails', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.2.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-03-05T00:00:00Z',
+              target_commitish: 'deadbeef',
+              body: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.includes('/git/refs/tags/')) {
+        return Promise.resolve(
+          new Response('Not Found', { statusText: 'Not Found', status: 404 }),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.2.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-03-05T00:00:00Z'),
+      sha: 'deadbeef',
+      tag: 'v4.2.0',
+      message: null,
+    })
+  })
+
+  it('ignores release commitish that is not a SHA when reference lookup fails', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.2.1')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-03-05T00:00:00Z',
+              target_commitish: 'main',
+              body: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.resolve(new Response('Not Found', { status: 404 }))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.2.1',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-03-05T00:00:00Z'),
+      tag: 'v4.2.1',
+      message: null,
+      sha: null,
+    })
+  })
+
+  it('ignores null release commitish when reference lookup fails', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.2.2')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-03-05T00:00:00Z',
+              target_commitish: null,
+              body: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v4.2.2')) {
+        return Promise.resolve(
+          new Response('Not Found', {
+            statusText: 'Not Found',
+            status: 404,
+          }),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.2.2',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-03-05T00:00:00Z'),
+      tag: 'v4.2.2',
+      message: null,
+      sha: null,
+    })
+  })
+
+  it('ignores blank release commitish when reference lookup fails', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.2.3')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-03-05T00:00:00Z',
+              target_commitish: '   ',
+              body: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v4.2.3')) {
+        return Promise.resolve(
+          new Response('Not Found', {
+            statusText: 'Not Found',
+            status: 404,
+          }),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.2.3',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-03-05T00:00:00Z'),
+      tag: 'v4.2.3',
+      message: null,
+      sha: null,
+    })
+  })
+
+  it('preserves ref sha when fallback tag detail lookup fails', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.3.0')) {
+        return Promise.resolve(
+          new Response('Not Found', { statusText: 'Not Found', status: 404 }),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v4.3.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { sha: 'tagRef', type: 'tag' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/tags/tagRef')) {
+        return Promise.resolve(
+          new Response('fail', {
+            statusText: 'Server Error',
+            status: 500,
+          }),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.3.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      tag: 'v4.3.0',
+      message: null,
+      sha: 'tagRef',
+      date: null,
+    })
+  })
+
+  it('returns null when tag lookup fails with status error', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v4.4.0')) {
+        return Promise.resolve(
+          new Response('Not Found', { statusText: 'Not Found', status: 404 }),
+        )
+      }
+      if (urlString.includes('/git/refs/tags/')) {
+        return Promise.resolve(
+          new Response('Forbidden', { statusText: 'Forbidden', status: 403 }),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v4.4.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toBeNull()
+    expect(context.caches.tagInfo.get('o/r#v4.4.0')).toBeNull()
+  })
+
+  it('throws GitHubRateLimitError when API signals rate limit', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new Error('rate limit triggered'),
+    )
+
+    await expect(
+      getTagInfo(context, { tag: 'v5.0.0', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+  })
+
+  it('rethrows unexpected errors from both release and fallback paths', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fatal'))
+
+    await expect(
+      getTagInfo(context, { tag: 'v6.0.0', owner: 'o', repo: 'r' }),
+    ).rejects.toThrow('fatal')
   })
 })
 

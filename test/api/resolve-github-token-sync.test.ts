@@ -69,4 +69,34 @@ describe('resolveGitHubTokenSync', () => {
     )
     expect(resolveGitHubTokenSync()).toBe('section')
   })
+
+  it('parses token from .git/config hub section', async () => {
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(() => {
+        throw new Error('no cli')
+      }),
+    }))
+    vi.doMock('node:fs', () => ({
+      readFileSync: vi.fn(() => '[hub]\n    oauthtoken = hub-token\n'),
+    }))
+    let { resolveGitHubTokenSync } = await import(
+      '../../core/api/resolve-github-token-sync'
+    )
+    expect(resolveGitHubTokenSync()).toBe('hub-token')
+  })
+
+  it('returns undefined when no token source succeeds', async () => {
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(() => {
+        throw new Error('no cli')
+      }),
+    }))
+    vi.doMock('node:fs', () => ({
+      readFileSync: vi.fn(() => ''),
+    }))
+    let { resolveGitHubTokenSync } = await import(
+      '../../core/api/resolve-github-token-sync'
+    )
+    expect(resolveGitHubTokenSync()).toBeUndefined()
+  })
 })

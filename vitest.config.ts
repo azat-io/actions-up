@@ -2,15 +2,17 @@ import { defineConfig, mergeConfig } from 'vitest/config'
 
 import viteConfig from './vite.config'
 
-export default mergeConfig(
-  viteConfig,
-  defineConfig({
+export default defineConfig(
+  mergeConfig(viteConfig, {
     test: {
       coverage: {
         thresholds: {
-          100: true,
+          statements: 100,
+          functions: 100,
+          branches: 100,
+          lines: 100,
         },
-        all: false,
+        provider: 'v8',
       },
     },
   }),

@@ -21,6 +21,12 @@ describe('shouldIgnore', () => {
     await expect(shouldIgnore(filePath, 10)).resolves.toBeTruthy()
   })
 
+  it('returns false when file path is missing', async () => {
+    let { readFile } = await import('node:fs/promises')
+    await expect(shouldIgnore(undefined, 5)).resolves.toBeFalsy()
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
   it('ignores the immediate next physical line after actions-up-ignore-next-line', async () => {
     let filePath = '/repo/.github/workflows/next-line.yml'
     let content = [

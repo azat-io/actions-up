@@ -100,6 +100,20 @@ describe('getLatestRelease', () => {
     let release = await getLatestRelease(context(), 'o', 'r')
     expect(release?.sha).toBeNull()
   })
+
+  it('rethrows unexpected errors from makeRequest', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Server failure', {
+        statusText: 'Internal Server Error',
+        status: 500,
+      }),
+    )
+
+    await expect(getLatestRelease(context(), 'o', 'r')).rejects.toHaveProperty(
+      'message',
+      expect.stringContaining('GitHub API error'),
+    )
+  })
 })
 
 /* eslint-enable camelcase */

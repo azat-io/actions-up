@@ -57,4 +57,14 @@ describe('parseExcludePatterns', () => {
       expect.any(SyntaxError),
     )
   })
+
+  it('skips invalid literal patterns with bad flags and warns', () => {
+    let warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let compiledPatterns = parseExcludePatterns([' /test/uux '])
+    expect(compiledPatterns).toHaveLength(0)
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid regex exclude'),
+      expect.any(SyntaxError),
+    )
+  })
 })

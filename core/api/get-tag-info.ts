@@ -95,8 +95,8 @@ export async function getTagInfo(
               if (!date && authorDate) {
                 date = new Date(authorDate)
               }
-            } catch (error) {
-              void error
+            } catch {
+              /* Ignore commit fetch errors. */
             }
           }
         }
@@ -136,9 +136,7 @@ export async function getTagInfo(
             sha = tagData.object.sha ?? sha
             message = tagData.message ?? null
             date = tagData.tagger.date ? new Date(tagData.tagger.date) : null
-          } catch (error) {
-            void error
-          }
+          } catch {}
         } else {
           try {
             let commitResp = await makeRequest(
@@ -153,8 +151,8 @@ export async function getTagInfo(
             date = commitData.author.date
               ? new Date(commitData.author.date)
               : null
-          } catch (error) {
-            void error
+          } catch {
+            /* Ignore commit fetch errors. */
           }
         }
 

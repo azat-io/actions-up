@@ -55,4 +55,34 @@ describe('getReferenceType', () => {
     })
     expect(t).toBeNull()
   })
+
+  it('returns cached entry without issuing requests', async () => {
+    let context_ = context()
+    context_.caches.refType.set('o/r#main', 'branch')
+    let fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    let result = await getReferenceType(context_, {
+      reference: 'main',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(result).toBe('branch')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('returns null when cached entry stores null', async () => {
+    let context_ = context()
+    context_.caches.refType.set('o/r#main', null)
+    let fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    let result = await getReferenceType(context_, {
+      reference: 'main',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(result).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })

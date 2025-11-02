@@ -19,4 +19,10 @@ describe('stripAnsi', () => {
     let input = `pre \u001B[32mgreen\u001B[0m mid \u001B[1;31mbold-red\u001B[0m post`
     expect(stripAnsi(input)).toBe('pre green mid bold-red post')
   })
+
+  it('keeps malformed escape sequence unchanged', () => {
+    /* Cspell:disable-next-line */
+    let input = `text \u001B[x tail`
+    expect(stripAnsi(input)).toBe(`text \u001B[x tail`)
+  })
 })

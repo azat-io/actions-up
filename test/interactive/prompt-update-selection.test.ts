@@ -1,4 +1,7 @@
+import type { MockInstance } from 'vitest'
+
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import path from 'node:path'
 
 import type { ActionUpdate } from '../../types/action-update'
 
@@ -77,6 +80,7 @@ function isSelectable(
 }
 let nextSelected: string[] = []
 let capturedOptions: PromptOptionsForTest | undefined
+let promptError: Error | null = null
 
 vi.mock('enquirer', () => {
   let prompt: EnquirerPrompt = async (options: PromptOptionsForTest) => {
@@ -119,6 +123,12 @@ vi.mock('enquirer', () => {
       }
     } catch {}
 
+    if (promptError) {
+      let error = promptError
+      promptError = null
+      throw error
+    }
+
     let nameKey = options.name as 'selected'
     return { [nameKey]: nextSelected }
   }
@@ -147,14 +157,14 @@ vi.mock('node:fs/promises', () => {
   ].join('\n')
 
   return {
-    readFile: vi.fn((path: unknown) => {
-      if (typeof path === 'string' && path === withCommentPath) {
+    readFile: vi.fn((currentPath: unknown) => {
+      if (typeof currentPath === 'string' && currentPath === withCommentPath) {
         return Promise.resolve(withCommentContent)
       }
-      if (typeof path === 'string' && path === noCommentPath) {
+      if (typeof currentPath === 'string' && currentPath === noCommentPath) {
         return Promise.resolve(noCommentContent)
       }
-      if (typeof path === 'string' && path === errorPath) {
+      if (typeof currentPath === 'string' && currentPath === errorPath) {
         return Promise.reject(new Error('boom'))
       }
       return Promise.resolve('')
@@ -163,27 +173,53 @@ vi.mock('node:fs/promises', () => {
 })
 
 describe('promptUpdateSelection', () => {
-  let restoreInfo: (() => void) | undefined
-  let restoreLog: (() => void) | undefined
+  let infoSpy: MockInstance | undefined
+  let logSpy: MockInstance | undefined
 
   beforeEach(() => {
     nextSelected = []
-    let infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-    restoreInfo = () => infoSpy.mockRestore()
-    let logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    restoreLog = () => logSpy.mockRestore()
+    promptError = null
+    infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
   })
 
   afterEach(() => {
-    restoreInfo?.()
-    restoreLog?.()
-    restoreInfo = undefined
-    restoreLog = undefined
+    infoSpy?.mockRestore()
+    logSpy?.mockRestore()
+    infoSpy = undefined
+    logSpy = undefined
   })
 
   it('returns null when there are no updates', async () => {
     let result = await promptUpdateSelection([])
     expect(result).toBeNull()
+  })
+
+  it('prints confirmation when all actions are current', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/a.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'abc123def4567890',
+        currentVersion: 'v4.1.0',
+        latestVersion: 'v4.1.0',
+        isBreaking: false,
+        hasUpdate: false,
+      },
+    ]
+
+    let result = await promptUpdateSelection(updates)
+
+    expect(result).toBeNull()
+    expect(
+      infoSpy?.mock.calls.some(
+        ([message]) => typeof message === 'string' && message.includes('✓'),
+      ),
+    ).toBeTruthy()
   })
 
   it('expands a selected group label into all selectable rows', async () => {
@@ -298,6 +334,32 @@ describe('promptUpdateSelection', () => {
     expect(selected?.[0]?.action.name).toBe('actions/cache')
   })
 
+  it('uses original path when relative path resolves to empty string', async () => {
+    let githubDirectory = path.join(process.cwd(), '.github')
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          file: githubDirectory,
+          type: 'external',
+          version: 'v1',
+        },
+        latestSha: '9aa4b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8',
+        currentVersion: 'v1.0.0',
+        latestVersion: 'v1.1.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates)
+
+    let groupLabel = capturedOptions?.choices.find(isGroupLabel)
+    expect(groupLabel).toBeTruthy()
+    expect(stripAnsi(groupLabel!.message)).toBe(githubDirectory)
+  })
+
   it('handles non-existent group label gracefully (selects none)', async () => {
     let updates: ActionUpdate[] = [
       {
@@ -318,6 +380,50 @@ describe('promptUpdateSelection', () => {
     nextSelected = ['label|does-not-exist.yml']
     let selected = await promptUpdateSelection(updates)
     expect(selected).toBeNull()
+  })
+
+  it('warns when a group is missing during rendering', async () => {
+    let warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let originalGet = Map.prototype.get
+    let observedKeys: unknown[] = []
+    let getSpy = vi.spyOn(Map.prototype, 'get').mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key,
+    ): unknown {
+      observedKeys.push(key)
+      let value = originalGet.call(this, key) as unknown
+      if (typeof key === 'string' && key === 'workflows/special.yml') {
+        return
+      }
+      return value
+    })
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/special.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'sha-special',
+        latestVersion: 'v4.2.4',
+        currentVersion: 'v4',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates)
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('workflows/special.yml'),
+    )
+    expect(observedKeys).toContain('workflows/special.yml')
+
+    getSpy.mockRestore()
+    warnSpy.mockRestore()
   })
 
   it('executes prompt option callbacks (indicator/cancel/j/k)', async () => {
@@ -347,6 +453,30 @@ describe('promptUpdateSelection', () => {
     expect(typeof capturedOptions?.cancel).toBe('function')
 
     expect(capturedOptions?.cancel?.()).toBeNull()
+  })
+
+  it('handles empty update groups gracefully', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/test.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'abcd1234abcd1234abcd1234abcd1234abcd1234',
+        currentVersion: 'v4.0.0',
+        latestVersion: 'v4.2.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates)
+
+    expect(capturedOptions).toBeTruthy()
+    expect(capturedOptions?.choices.length).toBeGreaterThan(0)
   })
 
   it('renders Current as version plus short SHA when inline comment exists, and formats Target using version diff', async () => {
@@ -404,6 +534,60 @@ describe('promptUpdateSelection', () => {
     expect(message).toMatch(/\s❯\s.*v4\.2\.4 .*\(0400d5f\)/u)
   })
 
+  it('retains short SHA when file path is missing for inline comment resolution', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          version: 'abc123def4567890abc123def4567890abc123de',
+          name: 'actions/checkout',
+          type: 'external',
+          file: undefined,
+          line: 4,
+        },
+        currentVersion: 'abc123def4567890abc123def4567890abc123de',
+        latestSha: '0400d5faaaabbbbbccccccddddeeefff11122233',
+        latestVersion: 'v4.2.4',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates)
+
+    let message = getFirstRenderedRowMessage(capturedOptions!)
+
+    expect(message).toMatch(/\babc123d\b/u)
+    expect(message).not.toMatch(/\(abc123d\)/u)
+  })
+
+  it('returns null when inline comment line index is out of bounds', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          version: 'abc123def4567890abc123def4567890abc123de',
+          file: '/repo/.github/workflows/no-comment.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          line: 99,
+        },
+        currentVersion: 'abc123def4567890abc123def4567890abc123de',
+        latestSha: '0400d5faaaabbbbbccccccddddeeefff11122233',
+        latestVersion: 'v4.2.4',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates)
+
+    let message = getFirstRenderedRowMessage(capturedOptions!)
+
+    expect(message).toMatch(/\babc123d\b/u)
+    expect(message).not.toMatch(/\(abc123d\)/u)
+  })
+
   it('handles missing currentVersion gracefully and exercises nullish fallbacks', async () => {
     let updates: ActionUpdate[] = [
       {
@@ -455,5 +639,62 @@ describe('promptUpdateSelection', () => {
     expect(message).toMatch(/\bdef456a\b/u)
     expect(message).not.toMatch(/\(def456a\)/u)
     expect(message).toMatch(/\s❯\s.*v4\.0\.1 .*\(08c6903\)/u)
+  })
+
+  it('logs cancellation and returns null when prompt is cancelled', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/cancel.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'deadbeefcafebabe1234567890abcdef12345678',
+        currentVersion: 'v4.1.0',
+        latestVersion: 'v4.2.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    promptError = new Error('Prompt cancelled by user')
+
+    let result = await promptUpdateSelection(updates)
+
+    expect(result).toBeNull()
+    expect(
+      infoSpy?.mock.calls.some(
+        ([message]) =>
+          typeof message === 'string' &&
+          message.includes('Selection cancelled'),
+      ),
+    ).toBeTruthy()
+  })
+
+  it('propagates unexpected prompt errors', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/error.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'deadbeefcafebabe1234567890abcdef12345678',
+        currentVersion: 'v4.1.0',
+        latestVersion: 'v4.2.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    promptError = new Error('fatal error')
+    let errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(promptUpdateSelection(updates)).rejects.toThrow('fatal error')
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
+    errorSpy.mockRestore()
   })
 })

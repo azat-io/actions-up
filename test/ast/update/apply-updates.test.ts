@@ -434,4 +434,92 @@ describe('applyUpdates', () => {
       'Invalid action name: actions/cache\nmalformed',
     )
   })
+
+  it('skips update when file path is missing', async () => {
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue('')
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: undefined,
+          version: 'v3',
+        },
+        latestSha: '1234567890abcdef1234567890abcdef12345678',
+        latestVersion: 'v3.1.5',
+        currentVersion: 'v3',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(readFile).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  it('logs error when current version contains newline', async () => {
+    let filePath = '/repo/.github/workflows/invalid-version.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v3\n',
+          file: filePath,
+        },
+        latestSha: '1234567890abcdef1234567890abcdef12345678',
+        latestVersion: 'v3.1.5',
+        currentVersion: 'v3\n',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
+    expect(consoleSpy).toHaveBeenCalledWith('Invalid version: v3\n')
+  })
+
+  it('logs error when latest SHA has invalid format', async () => {
+    let filePath = '/repo/.github/workflows/invalid-sha.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestVersion: 'v3.1.5',
+        latestSha: 'not-a-sha',
+        currentVersion: 'v3',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
+    expect(consoleSpy).toHaveBeenCalledWith('Invalid SHA format: not-a-sha')
+  })
 })

@@ -107,6 +107,35 @@ describe('getAllReleases', () => {
     })
     expect(array[0]!.name).toBe('v2.0.0')
   })
+
+  it('throws GitHubRateLimitError when API reports rate limit exceeded', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('API rate limit exceeded', {
+        statusText: 'Forbidden',
+        status: 403,
+      }),
+    )
+
+    await expect(
+      getAllReleases(context(), { owner: 'o', repo: 'r', limit: 1 }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+  })
+
+  it('rethrows unexpected errors from makeRequest', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Upstream failure', {
+        statusText: 'Internal Server Error',
+        status: 500,
+      }),
+    )
+
+    await expect(
+      getAllReleases(context(), { owner: 'o', repo: 'r', limit: 1 }),
+    ).rejects.toHaveProperty(
+      'message',
+      expect.stringContaining('GitHub API error'),
+    )
+  })
 })
 
 /* eslint-enable camelcase */

@@ -283,11 +283,7 @@ export async function promptUpdateSelection(
           name: '',
         })
       } else {
-        let entry = groupOrder[i - 1]
-        if (!entry) {
-          continue
-        }
-        let { update, index } = entry
+        let { update, index } = groupOrder[i - 1]!
         let hasSha = Boolean(update.latestSha)
         let enabled = hasSha && !update.isBreaking
         groupChildren.push({
@@ -497,10 +493,6 @@ function formatTableRow(
  * @returns True if the string is a SHA hash.
  */
 function isSha(value: string): boolean {
-  if (!value) {
-    return false
-  }
-
   /** Remove 'v' prefix if present. */
   let normalized = value.replace(/^v/u, '')
 

@@ -1,6 +1,6 @@
 import type { Stats } from 'node:fs'
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { parseDocument } from 'yaml'
 
@@ -23,6 +23,14 @@ interface MockNode {
   toJSON?(): unknown
   items?: MockNode[]
   key?: MockKey
+}
+
+interface WorkflowModule {
+  scanWorkflowFile(filePath: string): Promise<GitHubAction[]>
+}
+
+interface ActionModule {
+  scanActionFile(filePath: string): Promise<GitHubAction[]>
 }
 
 interface MockDocument {
@@ -94,9 +102,24 @@ function createMockDocument(data: unknown): MockDocument {
   }
 }
 
+let workflowModule: WorkflowModule | undefined
+let actionModule: ActionModule | undefined
+
 describe('scanGitHubActions', () => {
+  beforeAll(async () => {
+    workflowModule = await import('../core/scan-workflow-file')
+    actionModule = await import('../core/scan-action-file')
+  })
+
   beforeEach(() => {
+    vi.restoreAllMocks()
     vi.clearAllMocks()
+  })
+
+  it('throws when ci directory traverses outside root', async () => {
+    await expect(scanGitHubActions('.', '../outside')).rejects.toThrow(
+      'Invalid path',
+    )
   })
 
   it('scans workflows and composite actions successfully', async () => {
@@ -184,6 +207,48 @@ describe('scanGitHubActions', () => {
     expect(result.workflows.size).toBe(2)
     expect(result.compositeActions.size).toBe(1)
     expect(result.compositeActions.get('build')).toBe('.github/actions/build')
+  })
+
+  it('skips invalid workflow names and logs warning', async () => {
+    let warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    vi.mocked(stat).mockImplementation(pathArgument => {
+      let pathValue = String(pathArgument)
+      if (pathValue.endsWith('.github/workflows')) {
+        return Promise.resolve({
+          isDirectory: () => true,
+        } as Stats)
+      }
+      if (pathValue.endsWith('.github/actions')) {
+        return Promise.resolve({
+          isDirectory: () => false,
+        } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readdir).mockImplementation(pathArgument => {
+      let pathValue = String(pathArgument)
+      if (pathValue.endsWith('.github/workflows')) {
+        return Promise.resolve(['..evil.yml']) as unknown as ReturnType<
+          typeof readdir
+        >
+      }
+      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+    })
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.workflows.size).toBe(0)
+    expect(
+      warnSpy.mock.calls.some(
+        ([message]) =>
+          typeof message === 'string' &&
+          message.includes('Skipping invalid name'),
+      ),
+    ).toBeTruthy()
+
+    warnSpy.mockRestore()
   })
 
   it('handles missing .github directory', async () => {
@@ -277,6 +342,20 @@ describe('scanGitHubActions', () => {
     expect(result.workflows.size).toBe(1)
     expect(result.compositeActions.size).toBe(0)
     expect(result.actions).toHaveLength(1)
+  })
+
+  it('returns empty result when repository slug cannot be detected', async () => {
+    let previous = process.env['GITHUB_REPOSITORY']
+    delete process.env['GITHUB_REPOSITORY']
+
+    vi.mocked(stat).mockResolvedValue({ isDirectory: () => false } as Stats)
+    vi.mocked(readdir).mockResolvedValue([])
+    vi.mocked(readFile).mockRejectedValue(new Error('no config'))
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.actions).toHaveLength(0)
+    process.env['GITHUB_REPOSITORY'] = previous
   })
 
   it('handles empty workflows directory', async () => {
@@ -457,6 +536,145 @@ describe('scanGitHubActions', () => {
     expect(firstAction.name).toBe('actions/setup-node')
   })
 
+  it('applies queue guards when following same-repo composite actions', async () => {
+    let actionsList: GitHubAction[] = [
+      {
+        name: './.github/actions/local-build',
+        file: '.github/workflows/ci.yml',
+        type: 'local',
+        version: 'v1',
+      },
+      {
+        file: '.github/workflows/ci.yml',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'v1',
+      },
+      {
+        file: '.github/workflows/ci.yml',
+        name: 'other/repo/composite',
+        type: 'external',
+        version: 'v1',
+      },
+      {
+        name: 'owner/repo/../outside/composite',
+        file: '.github/workflows/ci.yml',
+        type: 'external',
+        version: 'v1',
+      },
+      {
+        name: 'owner/repo/composite/path',
+        file: '.github/workflows/ci.yml',
+        type: 'external',
+        version: 'v1',
+      },
+      {
+        name: 'owner/repo/composite/path',
+        file: '.github/workflows/ci.yml',
+        type: 'external',
+        version: 'v1',
+      },
+    ]
+
+    let workflowSpy = vi
+      .spyOn(workflowModule!, 'scanWorkflowFile')
+      .mockResolvedValue(actionsList)
+
+    let actionSpy = vi
+      .spyOn(actionModule!, 'scanActionFile')
+      .mockResolvedValue([
+        {
+          file: '.github/actions/internal/action.yml',
+          name: './.github/actions/internal',
+          type: 'local',
+          version: 'v1',
+        },
+        {
+          file: '.github/actions/composite/path/action.yml',
+          name: 'owner/repo',
+          type: 'external',
+          version: 'v1',
+        },
+        {
+          file: '.github/actions/composite/path/action.yml',
+          name: 'other/repo/path',
+          type: 'external',
+          version: 'v1',
+        },
+        {
+          file: '.github/actions/composite/path/action.yml',
+          name: 'owner/repo/../escape/path',
+          type: 'external',
+          version: 'v1',
+        },
+        {
+          file: '.github/actions/composite/path/action.yml',
+          name: 'owner/repo/composite/path',
+          type: 'external',
+          version: 'v1',
+        },
+        {
+          file: '.github/actions/composite/path/action.yml',
+          name: 'owner/repo/composite/path',
+          type: 'external',
+          version: 'v1',
+        },
+        {
+          file: '.github/actions/composite/invalid/action.yml',
+          name: 'owner/repo/composite/invalid',
+          type: 'external',
+          version: 'v1',
+        },
+      ])
+
+    vi.mocked(stat).mockImplementation(pathArgument => {
+      let value = String(pathArgument)
+      if (value.endsWith('.github/workflows')) {
+        return Promise.resolve({ isDirectory: () => true } as Stats)
+      }
+      if (value.endsWith('.github/actions')) {
+        return Promise.resolve({ isDirectory: () => false } as Stats)
+      }
+      if (value.endsWith('composite/path/action.yml')) {
+        return Promise.resolve({ isFile: () => false } as Stats)
+      }
+      if (value.endsWith('composite/path/action.yaml')) {
+        return Promise.resolve({ isFile: () => true } as Stats)
+      }
+      if (value.endsWith('composite/invalid/action.yml')) {
+        return Promise.resolve({ isFile: () => false } as Stats)
+      }
+      if (value.endsWith('composite/invalid/action.yaml')) {
+        return Promise.resolve({ isFile: () => false } as Stats)
+      }
+      if (value.endsWith('deeper/component/action.yml')) {
+        return Promise.resolve({ isFile: () => false } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readdir).mockImplementation(pathArgument => {
+      let value = String(pathArgument)
+      if (value.endsWith('.github/workflows')) {
+        return Promise.resolve(['ci.yml']) as unknown as ReturnType<
+          typeof readdir
+        >
+      }
+      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+    })
+
+    let previousRepo = process.env['GITHUB_REPOSITORY']
+    process.env['GITHUB_REPOSITORY'] = 'owner/repo'
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.actions.length).toBeGreaterThanOrEqual(2)
+
+    process.env['GITHUB_REPOSITORY'] = previousRepo
+    workflowSpy.mockRestore()
+    actionSpy.mockRestore()
+  })
+
   it('handles composite action scan errors gracefully', async () => {
     vi.mocked(stat).mockImplementation(
       (path: Parameters<typeof stat>[0]): ReturnType<typeof stat> => {
@@ -529,6 +747,36 @@ describe('scanGitHubActions', () => {
     let result = await scanGitHubActions('.')
     expect(result.compositeActions.size).toBe(0)
     expect(result.actions).toHaveLength(0)
+  })
+
+  it('skips invalid action subdirectory names', async () => {
+    let warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    vi.mocked(stat).mockImplementation(pathArgument => {
+      let value = String(pathArgument)
+      if (value.endsWith('.github/workflows')) {
+        return Promise.resolve({ isDirectory: () => false } as Stats)
+      }
+      if (value.endsWith('.github/actions')) {
+        return Promise.resolve({ isDirectory: () => true } as Stats)
+      }
+      return Promise.resolve({ isDirectory: () => false } as Stats)
+    })
+
+    vi.mocked(readdir).mockImplementation(pathArgument => {
+      let value = String(pathArgument)
+      if (value.endsWith('.github/actions')) {
+        return Promise.resolve(['..bad']) as unknown as ReturnType<
+          typeof readdir
+        >
+      }
+      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+    })
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.compositeActions.size).toBe(0)
+    warnSpy.mockRestore()
   })
 
   it('follows same-repo external composite actions referenced by owner/repo/path@ref', async () => {

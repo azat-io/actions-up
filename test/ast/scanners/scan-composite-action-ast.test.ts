@@ -1,3 +1,5 @@
+import type { Document } from 'yaml'
+
 import { describe, expect, it } from 'vitest'
 import { parseDocument } from 'yaml'
 
@@ -31,5 +33,51 @@ describe('scanCompositeActionAst', () => {
     let content = `${['name: Bad', 'runs:', '  using: docker', '  image: Dockerfile'].join('\n')}\n`
     let document_ = parseDocument(content)
     expect(scanCompositeActionAst(document_, content, 'file.yml')).toEqual([])
+  })
+
+  it('returns empty when steps entry is absent in runs map', () => {
+    let content = `${[
+      'name: Missing steps',
+      'runs:',
+      '  using: composite',
+      '  env:',
+      '    NODE_VERSION: 20',
+    ].join('\n')}\n`
+    let document_ = parseDocument(content)
+    expect(scanCompositeActionAst(document_, content, 'file.yml')).toEqual([])
+  })
+
+  it('returns empty when steps pair lacks AST value despite JSON array', () => {
+    let fakeStepsPair = {
+      key: { value: 'steps' },
+      value: null,
+    }
+
+    let fakeDocument = {
+      contents: {
+        items: [
+          {
+            value: {
+              items: [fakeStepsPair],
+            },
+            key: { value: 'runs' },
+          },
+        ],
+      },
+      toJSON: () => ({
+        runs: {
+          using: 'composite',
+          steps: [],
+        },
+      }),
+    } as unknown as Document
+
+    expect(
+      scanCompositeActionAst(
+        fakeDocument,
+        'runs:\n  using: composite\n  steps: []\n',
+        'file.yml',
+      ),
+    ).toEqual([])
   })
 })

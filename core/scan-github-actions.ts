@@ -74,10 +74,6 @@ export async function scanGitHubActions(
   /** Scan workflows. */
   let workflowsPath = join(githubPath, WORKFLOWS_DIRECTORY)
 
-  if (!isWithin(normalizedRoot, workflowsPath)) {
-    return result
-  }
-
   try {
     let workflowsStat = await stat(workflowsPath)
 
@@ -94,15 +90,6 @@ export async function scanGitHubActions(
         })
         .map(async file => {
           let filePath = join(workflowsPath, file)
-
-          if (!isWithin(workflowsPath, filePath)) {
-            console.warn(`Skipping file outside workflows directory: ${file}`)
-            return {
-              success: false,
-              actions: [],
-              path: '',
-            }
-          }
 
           try {
             let actions = await scanWorkflowFile(filePath)
@@ -142,10 +129,6 @@ export async function scanGitHubActions(
   /** Scan composite actions. */
   let actionsPath = join(githubPath, ACTIONS_DIRECTORY)
 
-  if (!isWithin(normalizedRoot, actionsPath)) {
-    return result
-  }
-
   try {
     let actionsStat = await stat(actionsPath)
 
@@ -160,12 +143,6 @@ export async function scanGitHubActions(
 
         let subdirPath = join(actionsPath, subdir)
 
-        /** Ensure subdirectory path is within the actions directory. */
-        if (!isWithin(actionsPath, subdirPath)) {
-          console.warn(`Skipping subdirectory outside actions path: ${subdir}`)
-          return null
-        }
-
         try {
           let subdirectoryStat = await stat(subdirPath)
 
@@ -175,11 +152,6 @@ export async function scanGitHubActions(
 
           let actionFilePath = join(subdirPath, 'action.yml')
 
-          /** Validate action file path. */
-          if (!isWithin(subdirPath, actionFilePath)) {
-            return null
-          }
-
           let actions: GitHubAction[] = []
 
           try {
@@ -187,11 +159,6 @@ export async function scanGitHubActions(
           } catch {
             try {
               actionFilePath = join(subdirPath, 'action.yaml')
-
-              /** Validate action file path for yaml variant. */
-              if (!isWithin(subdirPath, actionFilePath)) {
-                return null
-              }
 
               actions = await scanActionFile(actionFilePath)
             } catch {

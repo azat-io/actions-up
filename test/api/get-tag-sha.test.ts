@@ -65,6 +65,39 @@ describe('getTagSha', () => {
     expect(sha).toBe('light')
   })
 
+  it('returns cached entry without performing requests', async () => {
+    let context = makeContext()
+    context.caches.tagSha.set('o/r#v1.0.0', 'cached')
+    let fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    let sha = await getTagSha(context, { tag: 'v1.0.0', owner: 'o', repo: 'r' })
+
+    expect(sha).toBe('cached')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('returns null when cached entry is null', async () => {
+    let context = makeContext()
+    context.caches.tagSha.set('o/r#v1.1.0', null)
+    let fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    let sha = await getTagSha(context, { tag: 'v1.1.0', owner: 'o', repo: 'r' })
+
+    expect(sha).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('returns null when cached entry is undefined', async () => {
+    let context = makeContext()
+    context.caches.tagSha.set('o/r#v1.1.1', undefined as unknown as string)
+    let fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    let sha = await getTagSha(context, { tag: 'v1.1.1', owner: 'o', repo: 'r' })
+
+    expect(sha).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('falls back to ref SHA when annotated tag details fail', async () => {
     let context = makeContext()
 
@@ -141,5 +174,21 @@ describe('getTagSha', () => {
     await expect(
       getTagSha(context, { tag: 'v0.0.1', owner: 'o', repo: 'r' }),
     ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+  })
+
+  it('caches null on non rate limit failure', async () => {
+    let context = makeContext()
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('fatal', {
+        statusText: 'Internal Server Error',
+        status: 500,
+      }),
+    )
+
+    let sha = await getTagSha(context, { tag: 'v9.9.9', owner: 'o', repo: 'r' })
+
+    expect(sha).toBeNull()
+    expect(context.caches.tagSha.get('o/r#v9.9.9')).toBeNull()
   })
 })

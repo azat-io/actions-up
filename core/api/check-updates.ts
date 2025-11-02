@@ -358,11 +358,7 @@ function createUpdate(
  * @param sha2 - Second SHA hash.
  * @returns True if the SHAs refer to the same commit.
  */
-function compareSha(sha1: string | null, sha2: string | null): boolean {
-  if (!sha1 || !sha2) {
-    return false
-  }
-
+function compareSha(sha1: string, sha2: string): boolean {
   /** Normalize by removing 'v' prefix if present. */
   let normalized1 = sha1.replace(/^v/u, '')
   let normalized2 = sha2.replace(/^v/u, '')
