@@ -109,4 +109,85 @@ describe('parseActionReference', () => {
     let result = parseActionReference(reference, 'workflow.yml', 40)
     expect(result).toBeNull()
   })
+
+  it('parses reusable workflow reference with .yml extension', () => {
+    let result = parseActionReference(
+      'org/repo/.github/workflows/ci.yml@v1.0.0',
+      'workflow.yml',
+      10,
+    )
+    expect(result).toEqual({
+      name: 'org/repo/.github/workflows/ci.yml',
+      type: 'reusable-workflow',
+      file: 'workflow.yml',
+      version: 'v1.0.0',
+      line: 10,
+    })
+  })
+
+  it('parses reusable workflow reference with .yaml extension', () => {
+    let result = parseActionReference(
+      'org/repo/.github/workflows/ci.yaml@main',
+      'workflow.yml',
+      15,
+    )
+    expect(result).toEqual({
+      name: 'org/repo/.github/workflows/ci.yaml',
+      type: 'reusable-workflow',
+      file: 'workflow.yml',
+      version: 'main',
+      line: 15,
+    })
+  })
+
+  it('parses reusable workflow with nested path', () => {
+    let result = parseActionReference(
+      'owner/repo/path/to/workflow.yml@v2.5.0',
+      'workflow.yml',
+      20,
+    )
+    expect(result).toEqual({
+      name: 'owner/repo/path/to/workflow.yml',
+      type: 'reusable-workflow',
+      file: 'workflow.yml',
+      version: 'v2.5.0',
+      line: 20,
+    })
+  })
+
+  it('distinguishes action from reusable workflow', () => {
+    let action = parseActionReference('actions/checkout@v3', 'workflow.yml', 5)
+    expect(action?.type).toBe('external')
+
+    let workflow = parseActionReference(
+      'org/repo/.github/workflows/test.yml@v1',
+      'workflow.yml',
+      10,
+    )
+    expect(workflow?.type).toBe('reusable-workflow')
+  })
+
+  it('parses reusable workflow with SHA reference', () => {
+    let result = parseActionReference(
+      'org/repo/.github/workflows/reusable.yml@a1b2c3d4e5f6789012345678901234567890abcd',
+      'workflow.yml',
+      25,
+    )
+    expect(result).toEqual({
+      version: 'a1b2c3d4e5f6789012345678901234567890abcd',
+      name: 'org/repo/.github/workflows/reusable.yml',
+      type: 'reusable-workflow',
+      file: 'workflow.yml',
+      line: 25,
+    })
+  })
+
+  it('does not classify action with subpath as reusable workflow', () => {
+    let result = parseActionReference(
+      'owner/repo/path/to/action@v1',
+      'workflow.yml',
+      30,
+    )
+    expect(result?.type).toBe('external')
+  })
 })

@@ -2,6 +2,8 @@
 
 .claude/
 .serena/
+.crush/
+*crush.json
 
 # Build
 
@@ -18,6 +20,11 @@ dist/
 .pnpm_store/
 node_modules/
 .nvmrc
+
+# Mise
+
+mise.local.toml
+mise.*.local.toml
 
 # Test
 

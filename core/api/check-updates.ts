@@ -18,8 +18,10 @@ export async function checkUpdates(
 ): Promise<ActionUpdate[]> {
   let client = createGitHubClient(token)
 
-  /** Filter only external actions. */
-  let externalActions = actions.filter(action => action.type === 'external')
+  /** Filter external actions and reusable workflows. */
+  let externalActions = actions.filter(
+    action => action.type === 'external' || action.type === 'reusable-workflow',
+  )
 
   if (externalActions.length === 0) {
     return []

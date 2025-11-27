@@ -86,8 +86,12 @@ export function parseActionReference(
     }
   }
 
+  /** Detect Reusable Workflows by checking for .yml/.yaml extensions. */
+  let isReusableWorkflow =
+    segs.length > 2 && (namePart.endsWith('.yml') || namePart.endsWith('.yaml'))
+
   return {
-    type: 'external',
+    type: isReusableWorkflow ? 'reusable-workflow' : 'external',
     name: namePart,
     version,
     file,

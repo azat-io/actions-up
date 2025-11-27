@@ -19,6 +19,7 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 ## Features
 
 - **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml`)
+- **Reusable Workflows**: Detects and updates reusable workflow calls at the job level
 - **SHA pinning**: Updates actions to use commit SHA instead of tags for better security
 - **Batch Updates**: Update multiple actions at once
 - **Interactive Selection**: Choose which actions to update
@@ -379,6 +380,8 @@ jobs:
 
 ## Example
 
+### Regular Actions
+
 ```yaml
 # Before
 - uses: actions/checkout@v3
@@ -387,6 +390,26 @@ jobs:
 # After running actions-up
 - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+```
+
+### Reusable Workflows
+
+Actions Up also detects and updates reusable workflow calls:
+
+```yaml
+# Before
+jobs:
+  call-workflow:
+    uses: org/repo/.github/workflows/ci.yml@v1.0.0
+    with:
+      config: production
+
+# After running actions-up
+jobs:
+  call-workflow:
+    uses: org/repo/.github/workflows/ci.yml@a1b2c3d4e5f6 # v2.0.0
+    with:
+      config: production
 ```
 
 ## Advanced Usage
