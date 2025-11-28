@@ -4,7 +4,7 @@ import type { ActionUpdate } from '../../../types/action-update'
 
 import { applyUpdates } from '../../../core/ast/update/apply-updates'
 
-vi.mock('node:fs/promises', () => ({
+vi.mock(import('node:fs/promises'), () => ({
   writeFile: vi.fn(),
   readFile: vi.fn(),
 }))

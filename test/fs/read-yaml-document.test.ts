@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { readYamlDocument } from '../../core/fs/read-yaml-document'
 
-vi.mock('node:fs/promises', () => ({
+vi.mock(import('node:fs/promises'), () => ({
   readFile: vi.fn(),
 }))
 
-vi.mock('yaml', () => ({
+vi.mock(import('yaml'), () => ({
   parseDocument: vi.fn(),
 }))
 

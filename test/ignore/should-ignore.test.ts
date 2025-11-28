@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { shouldIgnore } from '../../core/ignore/should-ignore'
 
-vi.mock('node:fs/promises', () => ({
+vi.mock(import('node:fs/promises'), () => ({
   readFile: vi.fn(),
 }))
 

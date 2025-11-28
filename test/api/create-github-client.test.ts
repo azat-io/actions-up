@@ -12,9 +12,8 @@ describe('createGitHubClient', () => {
   })
 
   it('exposes rate limit helpers', async () => {
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient('token')
     let status = client.getRateLimitStatus()
     expect(status.remaining).toBe(5000)
@@ -24,9 +23,8 @@ describe('createGitHubClient', () => {
 
   it('uses GITHUB_TOKEN from env when no token passed', async () => {
     process.env['GITHUB_TOKEN'] = 'env-token'
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient()
     expect(client.getRateLimitStatus().remaining).toBe(5000)
   })
@@ -37,9 +35,8 @@ describe('createGitHubClient', () => {
     vi.doMock('../../core/api/resolve-github-token-sync', () => ({
       resolveGitHubTokenSync: () => {},
     }))
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient()
     expect(client.getRateLimitStatus().remaining).toBe(60)
   })
@@ -49,9 +46,8 @@ describe('createGitHubClient', () => {
     vi.doMock('../../core/api/get-latest-release', () => ({
       getLatestRelease: getLatestReleaseMock,
     }))
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getLatestRelease('owner', 'repo')
     expect(getLatestReleaseMock).toHaveBeenCalledOnce()
@@ -66,9 +62,8 @@ describe('createGitHubClient', () => {
     vi.doMock('../../core/api/get-reference-type', () => ({
       getReferenceType: getReferenceTypeMock,
     }))
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     let result = await client.getRefType('owner', 'repo', 'ref')
     expect(result).toBe('tag')
@@ -83,9 +78,8 @@ describe('createGitHubClient', () => {
     vi.doMock('../../core/api/get-all-releases', () => ({
       getAllReleases: getAllReleasesMock,
     }))
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getAllReleases('owner', 'repo', 42)
     expect(getAllReleasesMock).toHaveBeenCalledOnce()
@@ -99,9 +93,8 @@ describe('createGitHubClient', () => {
     vi.doMock('../../core/api/get-all-tags', () => ({
       getAllTags: getAllTagsMock,
     }))
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getAllTags('owner', 'repo', 7)
     expect(getAllTagsMock).toHaveBeenCalledOnce()
@@ -115,9 +108,8 @@ describe('createGitHubClient', () => {
     vi.doMock('../../core/api/get-tag-info', () => ({
       getTagInfo: getTagInfoMock,
     }))
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getTagInfo('owner', 'repo', 'v1.2.3')
     expect(getTagInfoMock).toHaveBeenCalledOnce()
@@ -131,9 +123,8 @@ describe('createGitHubClient', () => {
     vi.doMock('../../core/api/get-tag-sha', () => ({
       getTagSha: getTagShaMock,
     }))
-    let { createGitHubClient } = await import(
-      '../../core/api/create-github-client'
-    )
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     let result = await client.getTagSha('owner', 'repo', 'v1.2.3')
     expect(result).toBe('sha')

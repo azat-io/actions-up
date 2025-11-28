@@ -1,4 +1,6 @@
+import type * as FsPromises from 'node:fs/promises'
 import type { MockInstance } from 'vitest'
+import type Enquirer from 'enquirer'
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
@@ -42,10 +44,6 @@ interface RenderChoiceItem {
   name: string
 }
 
-type EnquirerPrompt = (
-  options: PromptOptionsForTest,
-) => Promise<{ selected: string[] }>
-
 interface RenderChoiceSeparator {
   role: 'separator'
   message: string
@@ -82,60 +80,67 @@ let nextSelected: string[] = []
 let capturedOptions: PromptOptionsForTest | undefined
 let promptError: Error | null = null
 
-vi.mock('enquirer', () => {
-  let prompt: EnquirerPrompt = async (options: PromptOptionsForTest) => {
-    capturedOptions = options
+vi.mock(
+  import('enquirer'),
+  () =>
+    ({
+      default: {
+        prompt: async (options: PromptOptionsForTest) => {
+          capturedOptions = options
 
-    try {
-      if (typeof options.indicator === 'function') {
-        options.indicator(
-          {},
-          {
-            choices: [{ message: 'row', enabled: true, value: '0', name: '0' }],
-            isGroupLabel: true,
-          },
-        )
-        options.indicator(
-          {},
-          {
-            choices: [
-              { message: 'rowA', enabled: true, value: '0', name: '0' },
-              { message: 'rowB', enabled: false, value: '1', name: '1' },
-            ],
-            isGroupLabel: true,
-          },
-        )
-        options.indicator({}, { isGroupLabel: true })
-        options.indicator({}, { enabled: true })
-        options.indicator({}, { enabled: false })
-      }
-      if (typeof options.j === 'function') {
-        options.down = () => Promise.resolve(['down'])
-        await options.j.bind(options)()
-        delete options.down
-        await options.j.bind(options)()
-      }
-      if (typeof options.k === 'function') {
-        options.up = () => Promise.resolve(['up'])
-        await options.k.bind(options)()
-        delete options.up
-        await options.k.bind(options)()
-      }
-    } catch {}
+          try {
+            if (typeof options.indicator === 'function') {
+              options.indicator(
+                {},
+                {
+                  choices: [
+                    { message: 'row', enabled: true, value: '0', name: '0' },
+                  ],
+                  isGroupLabel: true,
+                },
+              )
+              options.indicator(
+                {},
+                {
+                  choices: [
+                    { message: 'rowA', enabled: true, value: '0', name: '0' },
+                    { message: 'rowB', enabled: false, value: '1', name: '1' },
+                  ],
+                  isGroupLabel: true,
+                },
+              )
+              options.indicator({}, { isGroupLabel: true })
+              options.indicator({}, { enabled: true })
+              options.indicator({}, { enabled: false })
+            }
+            if (typeof options.j === 'function') {
+              options.down = () => Promise.resolve(['down'])
+              await options.j.bind(options)()
+              delete options.down
+              await options.j.bind(options)()
+            }
+            if (typeof options.k === 'function') {
+              options.up = () => Promise.resolve(['up'])
+              await options.k.bind(options)()
+              delete options.up
+              await options.k.bind(options)()
+            }
+          } catch {}
 
-    if (promptError) {
-      let error = promptError
-      promptError = null
-      throw error
-    }
+          if (promptError) {
+            let error = promptError
+            promptError = null
+            throw error
+          }
 
-    let nameKey = options.name as 'selected'
-    return { [nameKey]: nextSelected }
-  }
-  return { default: { prompt } }
-})
+          let nameKey = options.name as 'selected'
+          return { [nameKey]: nextSelected }
+        },
+      },
+    }) as unknown as { default: typeof Enquirer },
+)
 
-vi.mock('node:fs/promises', () => {
+vi.mock(import('node:fs/promises'), () => {
   let withCommentPath = '/repo/.github/workflows/ci.yml'
   let noCommentPath = '/repo/.github/workflows/no-comment.yml'
   let errorPath = '/repo/.github/workflows/error.yml'
@@ -169,7 +174,7 @@ vi.mock('node:fs/promises', () => {
       }
       return Promise.resolve('')
     }),
-  }
+  } as unknown as typeof FsPromises
 })
 
 describe('promptUpdateSelection', () => {

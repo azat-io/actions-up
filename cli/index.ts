@@ -90,9 +90,8 @@ export function run(): void {
           .filter(Boolean)
 
         if (normalizedExcludes.length > 0) {
-          let { parseExcludePatterns } = await import(
-            '../core/filters/parse-exclude-patterns'
-          )
+          let { parseExcludePatterns } =
+            await import('../core/filters/parse-exclude-patterns')
           let regexes = parseExcludePatterns(normalizedExcludes)
           if (regexes.length > 0) {
             actionsToCheck = actionsToCheck.filter(action => {

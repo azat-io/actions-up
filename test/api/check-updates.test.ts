@@ -6,7 +6,7 @@ import type { GitHubClient } from '../../types/github-client'
 import { createGitHubClient } from '../../core/api/create-github-client'
 import { checkUpdates } from '../../core/api/check-updates'
 
-vi.mock('../../core/api/create-github-client')
+vi.mock(import('../../core/api/create-github-client'))
 
 describe('checkUpdates', () => {
   beforeEach(() => {

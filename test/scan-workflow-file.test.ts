@@ -4,13 +4,13 @@ import { parseDocument } from 'yaml'
 
 import { scanWorkflowFile } from '../core/scan-workflow-file'
 
-vi.mock('node:fs/promises', () => ({
+vi.mock(import('node:fs/promises'), () => ({
   readFile: vi.fn(),
   readdir: vi.fn(),
   stat: vi.fn(),
 }))
 
-vi.mock('yaml', () => ({
+vi.mock(import('yaml'), () => ({
   parseDocument: vi.fn(),
 }))
 
