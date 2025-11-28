@@ -462,6 +462,17 @@ npx actions-up --exclude ".*/internal-.*" --exclude "/^acme\/.+$/i"
 npx actions-up --exclude "my-org/.*, .*/internal-.*"
 ```
 
+#### Filtering by Release Age
+
+By default, Actions Up shows all available updates. You can filter out recently released updates to avoid updating to versions that haven't been battle-tested yet:
+
+```bash
+# Only show updates released at least 7 days ago
+npx actions-up --min-age 7
+```
+
+When `--min-age` is set, an "Age" column appears showing how long ago each release was published (e.g., `3d`, `1w 2d`).
+
 #### Ignore Comments
 
 You can skip specific actions or files using YAML comments. Ignored items are hidden in dry-run and interactive modes and are not updated with `--yes`.

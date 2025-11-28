@@ -116,6 +116,29 @@ interface TableRow {
 
   /** Job name rendered in the second column. */
   job: string
+
+  /** Age of the release (e.g., "2d", "3w"). */
+  age: string
+}
+
+interface FormatTableRowOptions {
+  /** Width for current version column. */
+  currentWidth: number
+
+  /** Width for action column. */
+  actionWidth: number
+
+  /** Width for target column. */
+  targetWidth: number
+
+  /** Width for job column. */
+  jobWidth: number
+
+  /** Width for age column (0 to hide). */
+  ageWidth: number
+
+  /** Row data to format. */
+  row: TableRow
 }
 
 /** Non-selectable visual row (e.g., table header or blank line). */
@@ -130,24 +153,15 @@ interface ChoiceSeparator {
   name?: string
 }
 
-interface FormatTableRowOptions {
-  /** Width for current version column. */
-  currentWidth: number
-
-  /** Width for action column. */
-  actionWidth: number
-
-  /** Width for job column. */
-  jobWidth: number
-
-  /** Row data to format. */
-  row: TableRow
-}
-
 /** Result shape returned by enquirer for the multiselect prompt. */
 interface PromptResult {
   /** Selected values (indexes or label keys) as strings. */
   selected: string[]
+}
+
+interface PromptUpdateSelectionOptions {
+  /** Whether to show the Age column. */
+  showAge?: boolean
 }
 
 type PromptOptions = Extract<
@@ -157,7 +171,10 @@ type PromptOptions = Extract<
 
 export async function promptUpdateSelection(
   updates: ActionUpdate[],
+  options: PromptUpdateSelectionOptions = {},
 ): Promise<ActionUpdate[] | null> {
+  let { showAge = false } = options
+
   if (updates.length === 0) {
     return null
   }
@@ -234,6 +251,7 @@ export async function promptUpdateSelection(
   let maxCurrentLength = stripAnsi('Current').length
   let maxJobLength = stripAnsi('Job').length
   let maxVersionLength = 0
+  let hasAnyAge = false
 
   for (let [index, update] of outdated.entries()) {
     let actionNameRaw = update.action.name
@@ -257,12 +275,17 @@ export async function promptUpdateSelection(
         stripAnsi(versionFromComment).length,
       )
     }
+    if (update.publishedAt) {
+      hasAnyAge = true
+    }
   }
 
   let globalActionWidth = Math.max(maxActionLength, MIN_ACTION_WIDTH)
   let globalCurrentWidth = Math.max(maxCurrentLength, MIN_CURRENT_WIDTH)
   let globalJobWidth = Math.max(maxJobLength, MIN_JOB_WIDTH)
   let globalVersionWidth = Math.min(maxVersionLength, MAX_VERSION_WIDTH)
+  let globalTargetWidth = globalVersionWidth + 1 + 9
+  let globalAgeWidth = showAge && hasAnyAge ? 6 : 0
 
   let sortedFiles = [...groups.keys()].toSorted()
 
@@ -283,6 +306,7 @@ export async function promptUpdateSelection(
       target: 'Target',
       arrow: '❯',
       job: 'Job',
+      age: 'Age',
     })
 
     for (let { update, index } of groupOrder) {
@@ -310,8 +334,10 @@ export async function promptUpdateSelection(
       }
 
       let jobName = update.action.job ?? '–'
+      let age = formatAge(update.publishedAt)
       tableRows.push({
         job: hasSha ? jobName : pc.gray(jobName),
+        age: hasSha ? age : pc.gray(age),
         action: actionName,
         target: latest,
         arrow: '❯',
@@ -327,8 +353,10 @@ export async function promptUpdateSelection(
     for (let [i, row] of tableRows.entries()) {
       let isHeader = i === 0
       let formattedRow = formatTableRow({
+        targetWidth: globalTargetWidth,
         currentWidth: maxCurrentWidth,
         actionWidth: maxActionWidth,
+        ageWidth: globalAgeWidth,
         jobWidth: maxJobWidth,
         row,
       })
@@ -522,20 +550,55 @@ async function tryReadInlineVersionComment(
 }
 
 /**
+ * Format age of a release in human-readable format.
+ *
+ * @param publishedAt - Publication date.
+ * @returns Formatted age string (e.g., "2h", "3d", "1w 3d").
+ */
+function formatAge(publishedAt: Date | null): string {
+  if (!publishedAt) {
+    return ''
+  }
+
+  let now = Date.now()
+  let ageMs = now - publishedAt.getTime()
+  let hours = Math.floor(ageMs / (1000 * 60 * 60))
+  let days = Math.floor(hours / 24)
+  let weeks = Math.floor(days / 7)
+  let remainingDays = days % 7
+
+  if (weeks >= 1) {
+    if (remainingDays > 0) {
+      return `${weeks}w ${remainingDays}d`
+    }
+    return `${weeks}w`
+  }
+  if (days >= 1) {
+    return `${days}d`
+  }
+  return `${hours}h`
+}
+
+/**
  * Format a table row with proper spacing.
  *
  * @param options - Formatting options.
  * @returns Formatted row string.
  */
 function formatTableRow(options: FormatTableRowOptions): string {
-  let { currentWidth, actionWidth, jobWidth, row } = options
+  let { currentWidth, actionWidth, targetWidth, jobWidth, ageWidth, row } =
+    options
   let parts = [
     padString(row.action, actionWidth),
     padString(row.job, jobWidth),
     padString(row.current, currentWidth),
     row.arrow,
-    row.target,
+    padString(row.target, targetWidth),
   ]
+
+  if (ageWidth > 0) {
+    parts.push(row.age)
+  }
 
   let line = parts.join('  ')
   return line.replace(/\s+$/u, '')

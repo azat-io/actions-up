@@ -5,6 +5,18 @@ import type { ActionUpdate } from '../../types/action-update'
 
 import { createGitHubClient } from './create-github-client'
 
+/** Information about the latest version of an action. */
+interface LatestInfo {
+  /** Publication date of the latest version. */
+  publishedAt: Date | null
+
+  /** Latest version string. */
+  version: string | null
+
+  /** SHA hash of the latest version. */
+  sha: string | null
+}
+
 /**
  * Check for updates for GitHub Actions.
  *
@@ -48,18 +60,27 @@ export async function checkUpdates(
       promise.then(async results => {
         /** Skip remaining if rate limit hit. */
         if (sharedState.rateLimitHit) {
-          return [...results, { version: null, actionName, sha: null }]
+          return [
+            ...results,
+            { publishedAt: null, version: null, actionName, sha: null },
+          ]
         }
 
         /** Parse owner/repo from actionName, which may include path. */
         let segments = actionName.split('/')
         if (segments.length < 2) {
-          return [...results, { version: null, actionName, sha: null }]
+          return [
+            ...results,
+            { publishedAt: null, version: null, actionName, sha: null },
+          ]
         }
         let [owner, repo] = segments
 
         if (!owner || !repo) {
-          return [...results, { version: null, actionName, sha: null }]
+          return [
+            ...results,
+            { publishedAt: null, version: null, actionName, sha: null },
+          ]
         }
 
         try {
@@ -81,7 +102,10 @@ export async function checkUpdates(
             )
             if (referenceType === 'branch') {
               /** Skip update check for branch references. */
-              return [...results, { version: null, actionName, sha: null }]
+              return [
+                ...results,
+                { publishedAt: null, version: null, actionName, sha: null },
+              ]
             }
           }
 
@@ -102,7 +126,7 @@ export async function checkUpdates(
            * tags to find a more specific highest semver.
            */
           if (release) {
-            let { version, sha } = release
+            let { publishedAt, version, sha } = release
             let considerTags = false
             {
               /**
@@ -162,7 +186,12 @@ export async function checkUpdates(
                     }
                     return [
                       ...results,
-                      { version: tagVersion, sha: tagSha, actionName },
+                      {
+                        version: tagVersion,
+                        publishedAt: null,
+                        sha: tagSha,
+                        actionName,
+                      },
                     ]
                   }
                 }
@@ -176,7 +205,7 @@ export async function checkUpdates(
                 /** Ignore SHA fetch errors. */
               }
             }
-            return [...results, { actionName, version, sha }]
+            return [...results, { publishedAt, actionName, version, sha }]
           }
 
           /** No releases found: fetch tags and choose the best semver tag. */
@@ -221,25 +250,35 @@ export async function checkUpdates(
                 /** Ignore SHA fetch errors. */
               }
             }
-            return [...results, { actionName, version, sha }]
+            return [...results, { publishedAt: null, actionName, version, sha }]
           }
 
-          return [...results, { version: null, actionName, sha: null }]
+          return [
+            ...results,
+            { publishedAt: null, version: null, actionName, sha: null },
+          ]
         } catch (error: unknown) {
           /** Handle rate limit errors specially. */
           if (error instanceof Error && error.name === 'GitHubRateLimitError') {
             sharedState.rateLimitHit = true
             sharedState.rateLimitError = error
             /** Don't log individual rate limit errors. */
-            return [...results, { version: null, actionName, sha: null }]
+            return [
+              ...results,
+              { publishedAt: null, version: null, actionName, sha: null },
+            ]
           }
           /** Log other failures per action. */
           console.warn(`Failed to check ${actionName}:`, error)
-          return [...results, { version: null, actionName, sha: null }]
+          return [
+            ...results,
+            { publishedAt: null, version: null, actionName, sha: null },
+          ]
         }
       }),
     Promise.resolve(
       [] as {
+        publishedAt: Date | null
         version: string | null
         actionName: string
         sha: string | null
@@ -265,9 +304,13 @@ export async function checkUpdates(
   }
 
   /** Create cache from results. */
-  let cache = new Map<string, { version: string | null; sha: string | null }>()
+  let cache = new Map<
+    string,
+    { publishedAt: Date | null; version: string | null; sha: string | null }
+  >()
   for (let result of releaseResults) {
     cache.set(result.actionName, {
+      publishedAt: result.publishedAt,
       version: result.version,
       sha: result.sha,
     })
@@ -279,9 +322,17 @@ export async function checkUpdates(
   for (let action of externalActions) {
     let cached = cache.get(action.name)
     if (cached) {
-      updates.push(createUpdate(action, cached.version, cached.sha))
+      updates.push(
+        createUpdate(action, {
+          publishedAt: cached.publishedAt,
+          version: cached.version,
+          sha: cached.sha,
+        }),
+      )
     } else {
-      updates.push(createUpdate(action, null, null))
+      updates.push(
+        createUpdate(action, { publishedAt: null, version: null, sha: null }),
+      )
     }
   }
 
@@ -292,15 +343,11 @@ export async function checkUpdates(
  * Create update information for an action.
  *
  * @param action - GitHub Action to check.
- * @param latestVersion - Latest available version.
- * @param latestSha - SHA hash of the latest version.
+ * @param latest - Latest version info.
  * @returns Update information.
  */
-function createUpdate(
-  action: GitHubAction,
-  latestVersion: string | null,
-  latestSha: string | null,
-): ActionUpdate {
+function createUpdate(action: GitHubAction, latest: LatestInfo): ActionUpdate {
+  let { version: latestVersion, sha: latestSha, publishedAt } = latest
   let currentVersion = normalizeVersion(action.version ?? '')
   let normalized = latestVersion ? normalizeVersion(latestVersion) : null
 
@@ -314,15 +361,15 @@ function createUpdate(
       hasUpdate = true
     }
   } else if (currentVersion && normalized) {
-    let current = semver.valid(currentVersion)
-    let latest = semver.valid(normalized)
+    let currentSemver = semver.valid(currentVersion)
+    let latestSemver = semver.valid(normalized)
 
-    if (current && latest) {
-      hasUpdate = semver.lt(current, latest)
+    if (currentSemver && latestSemver) {
+      hasUpdate = semver.lt(currentSemver, latestSemver)
 
       if (hasUpdate) {
-        let currentMajor = semver.major(current)
-        let latestMajor = semver.major(latest)
+        let currentMajor = semver.major(currentSemver)
+        let latestMajor = semver.major(latestSemver)
         isBreaking = latestMajor > currentMajor
       }
       /**
@@ -331,7 +378,7 @@ function createUpdate(
        */
       if (
         !hasUpdate &&
-        semver.eq(current, latest) &&
+        semver.eq(currentSemver, latestSemver) &&
         !isSha(action.version) &&
         latestSha
       ) {
@@ -346,6 +393,7 @@ function createUpdate(
   return {
     currentVersion: action.version ?? 'unknown',
     latestVersion,
+    publishedAt,
     isBreaking,
     latestSha,
     hasUpdate,

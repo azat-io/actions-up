@@ -208,6 +208,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4.1.0',
         latestVersion: 'v4.1.0',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: false,
       },
     ]
@@ -235,6 +236,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4',
         latestSha: 'sha-a',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
       {
@@ -246,6 +248,7 @@ describe('promptUpdateSelection', () => {
         },
         latestVersion: 'v5.0.0',
         currentVersion: 'v4',
+        publishedAt: null,
         isBreaking: true,
         latestSha: null,
         hasUpdate: true,
@@ -261,6 +264,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4',
         latestSha: 'sha-b',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -286,6 +290,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4',
         latestSha: 'sha-a',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
       {
@@ -297,6 +302,7 @@ describe('promptUpdateSelection', () => {
         },
         latestVersion: 'v5.0.0',
         currentVersion: 'v4',
+        publishedAt: null,
         isBreaking: true,
         latestSha: null,
         hasUpdate: true,
@@ -323,6 +329,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4',
         latestSha: 'sha-a',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -348,6 +355,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v1.0.0',
         latestVersion: 'v1.1.0',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -373,6 +381,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4',
         latestSha: 'sha-b',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -410,6 +419,7 @@ describe('promptUpdateSelection', () => {
         latestVersion: 'v4.2.4',
         currentVersion: 'v4',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -439,6 +449,7 @@ describe('promptUpdateSelection', () => {
         latestVersion: 'v4.1.0',
         currentVersion: 'v4',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -468,6 +479,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4.0.0',
         latestVersion: 'v4.2.0',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -493,6 +505,7 @@ describe('promptUpdateSelection', () => {
         latestSha: '0400d5faaaabbbbbccccccddddeeefff11122233',
         latestVersion: 'v4.2.4',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -520,6 +533,7 @@ describe('promptUpdateSelection', () => {
         latestSha: '0400d5faaaabbbbbccccccddddeeefff11122233',
         latestVersion: 'v4.2.4',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -548,6 +562,7 @@ describe('promptUpdateSelection', () => {
         latestSha: '0400d5faaaabbbbbccccccddddeeefff11122233',
         latestVersion: 'v4.2.4',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -575,6 +590,7 @@ describe('promptUpdateSelection', () => {
         latestSha: '0400d5faaaabbbbbccccccddddeeefff11122233',
         latestVersion: 'v4.2.4',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -600,6 +616,7 @@ describe('promptUpdateSelection', () => {
         latestVersion: 'v3.2.1',
         currentVersion: null,
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -627,6 +644,7 @@ describe('promptUpdateSelection', () => {
         latestSha: '08c6903cd8c0fde910a37f88322edcfb5dd907a8',
         latestVersion: 'v4.0.1',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -654,6 +672,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4.1.0',
         latestVersion: 'v4.2.0',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -685,6 +704,7 @@ describe('promptUpdateSelection', () => {
         currentVersion: 'v4.1.0',
         latestVersion: 'v4.2.0',
         isBreaking: false,
+        publishedAt: null,
         hasUpdate: true,
       },
     ]
@@ -696,5 +716,110 @@ describe('promptUpdateSelection', () => {
 
     expect(errorSpy).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
     errorSpy.mockRestore()
+  })
+
+  it('displays Age column when publishedAt is available', async () => {
+    let now = Date.now()
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/age.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'deadbeefcafebabe1234567890abcdef12345678',
+        publishedAt: new Date(now - 3 * 24 * 60 * 60 * 1000),
+        currentVersion: 'v4.1.0',
+        latestVersion: 'v4.2.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates, { showAge: true })
+
+    let message = getFirstRenderedRowMessage(capturedOptions!)
+    expect(message).toMatch(/3d/u)
+  })
+
+  it('formats age as hours when less than a day old', async () => {
+    let now = Date.now()
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/age-hours.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'deadbeefcafebabe1234567890abcdef12345678',
+        publishedAt: new Date(now - 5 * 60 * 60 * 1000),
+        currentVersion: 'v4.1.0',
+        latestVersion: 'v4.2.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates, { showAge: true })
+
+    let message = getFirstRenderedRowMessage(capturedOptions!)
+    expect(message).toMatch(/5h/u)
+  })
+
+  it('formats age as weeks and days when more than 7 days old', async () => {
+    let now = Date.now()
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/age-weeks.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'deadbeefcafebabe1234567890abcdef12345678',
+        publishedAt: new Date(now - 10 * 24 * 60 * 60 * 1000),
+        currentVersion: 'v4.1.0',
+        latestVersion: 'v4.2.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates, { showAge: true })
+
+    let message = getFirstRenderedRowMessage(capturedOptions!)
+    expect(message).toMatch(/1w 3d/u)
+  })
+
+  it('formats age as weeks only when exactly divisible by 7', async () => {
+    let now = Date.now()
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/age-exact-weeks.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'deadbeefcafebabe1234567890abcdef12345678',
+        publishedAt: new Date(now - 14 * 24 * 60 * 60 * 1000),
+        currentVersion: 'v4.1.0',
+        latestVersion: 'v4.2.0',
+        isBreaking: false,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    await promptUpdateSelection(updates, { showAge: true })
+
+    let message = getFirstRenderedRowMessage(capturedOptions!)
+    expect(message).toMatch(/2w\b/u)
+    expect(message).not.toMatch(/2w \d+d/u)
   })
 })

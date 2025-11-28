@@ -18,6 +18,9 @@ interface CLIOptions {
   /** Preview changes without applying them. */
   dryRun: boolean
 
+  /** Minimum age in days for updates. */
+  minAge: number
+
   /** Custom directory name (e.g., '.gitea' instead of '.github'). */
   dir?: string
 
@@ -35,6 +38,13 @@ export function run(): void {
     .option('--dir <directory>', 'Custom directory name (default: .github)')
     .option('--dry-run', 'Preview changes without applying them')
     .option('--exclude <regex>', 'Exclude actions by regex (repeatable)')
+    .option(
+      '--min-age <days>',
+      'Minimum age in days for updates (default: 0)',
+      {
+        default: 0,
+      },
+    )
     .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
     .action(async (options: CLIOptions) => {
@@ -127,6 +137,18 @@ export function run(): void {
 
         /** Filter outdated actions. */
         let outdated = filtered.filter(update => update.hasUpdate)
+
+        /** Filter by minimum age if publishedAt is available. */
+        let minAgeMs = options.minAge * 24 * 60 * 60 * 1000
+        let now = Date.now()
+        outdated = outdated.filter(update => {
+          if (!update.publishedAt) {
+            return true
+          }
+          let age = now - update.publishedAt.getTime()
+          return age >= minAgeMs
+        })
+
         let breaking = outdated.filter(update => update.isBreaking)
 
         if (outdated.length === 0) {
@@ -181,7 +203,9 @@ export function run(): void {
 
           console.info(pc.green('\n✓ Updates applied successfully!'))
         } else {
-          let selected = await promptUpdateSelection(filtered)
+          let selected = await promptUpdateSelection(filtered, {
+            showAge: options.minAge > 0,
+          })
 
           if (!selected || selected.length === 0) {
             console.info(pc.gray('\nNo updates applied'))

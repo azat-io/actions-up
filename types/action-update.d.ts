@@ -11,6 +11,9 @@ export interface ActionUpdate {
   /** SHA hash of the latest version. */
   latestSha: string | null
 
+  /** Publication date of the latest version (null if unknown). */
+  publishedAt: Date | null
+
   /** The original action from scanning. */
   action: GitHubAction
 
