@@ -1,7 +1,7 @@
 /** Represents a GitHub Action used in workflows or composite actions. */
 export interface GitHubAction {
   /** Type of the GitHub Action. */
-  type: 'composite' | 'external' | 'docker' | 'local'
+  type: 'reusable-workflow' | 'composite' | 'external' | 'docker' | 'local'
 
   /** Version or tag of the action (e.g., 'v1', 'main', commit SHA). */
   version?: string | null
