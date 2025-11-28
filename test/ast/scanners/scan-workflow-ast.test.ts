@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseDocument } from 'yaml'
 
 import { scanWorkflowAst } from '../../../core/ast/scanners/scan-workflow-ast'
@@ -23,10 +23,12 @@ describe('scanWorkflowAst', () => {
       type: 'external',
       file: filePath,
       version: 'v4',
+      job: 'build',
     })
     expect(actions[1]).toMatchObject({
       name: './.github/actions/test',
       type: 'local',
+      job: 'build',
     })
   })
 
@@ -35,6 +37,44 @@ describe('scanWorkflowAst', () => {
     let document_ = parseDocument(content)
     let actions = scanWorkflowAst(document_, content, 'file.yml')
     expect(actions).toEqual([])
+  })
+
+  it('extracts job name for each action', () => {
+    let content = `${[
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  build:',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '  test:',
+      '    steps:',
+      '      - uses: actions/setup-node@v4',
+    ].join('\n')}\n`
+    let filePath = '.github/workflows/ci.yml'
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(document_, content, filePath)
+    expect(actions).toHaveLength(2)
+    expect(actions[0]?.job).toBe('build')
+    expect(actions[1]?.job).toBe('test')
+  })
+
+  it('handles non-scalar job key gracefully', () => {
+    let warnSpy = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    let content = `${[
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  ? [complex, key]',
+      '  : steps:',
+      '      - uses: actions/checkout@v4',
+    ].join('\n')}\n`
+    let filePath = '.github/workflows/ci.yml'
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(document_, content, filePath)
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.job).toBeUndefined()
+    warnSpy.mockRestore()
   })
 
   it('detects job-level uses for reusable workflows', () => {
@@ -54,6 +94,7 @@ describe('scanWorkflowAst', () => {
     expect(actions[0]).toMatchObject({
       name: 'org/repo/.github/workflows/reusable.yml',
       type: 'reusable-workflow',
+      job: 'call-workflow',
       version: 'v1.0.0',
       file: filePath,
     })
@@ -82,15 +123,18 @@ describe('scanWorkflowAst', () => {
       name: 'actions/checkout',
       type: 'external',
       version: 'v3',
+      job: 'build',
     })
     expect(actions[1]).toMatchObject({
       name: 'actions/setup-node',
       type: 'external',
       version: 'v4',
+      job: 'build',
     })
     expect(actions[2]).toMatchObject({
       name: 'org/repo/.github/workflows/ci.yml',
       type: 'reusable-workflow',
+      job: 'call-workflow',
       version: 'v2.0.0',
     })
   })
@@ -114,17 +158,20 @@ describe('scanWorkflowAst', () => {
     expect(actions[0]).toMatchObject({
       name: 'org/repo/.github/workflows/lint.yml',
       type: 'reusable-workflow',
+      job: 'call-lint',
       version: 'v1',
     })
     expect(actions[1]).toMatchObject({
       name: 'org/repo/.github/workflows/test.yaml',
       type: 'reusable-workflow',
+      job: 'call-test',
       version: 'main',
     })
     expect(actions[2]).toMatchObject({
       name: 'another/repo/.github/workflows/build.yml',
       type: 'reusable-workflow',
       version: 'v2.1.0',
+      job: 'call-build',
     })
   })
 
@@ -147,6 +194,7 @@ describe('scanWorkflowAst', () => {
       name: 'org/repo/.github/workflows/deploy.yml',
       type: 'reusable-workflow',
       version: 'v3.0.0',
+      job: 'deploy',
     })
   })
 
@@ -165,6 +213,7 @@ describe('scanWorkflowAst', () => {
     expect(actions[0]).toMatchObject({
       name: './.github/workflows/local.yml',
       version: undefined,
+      job: 'call-local',
       type: 'local',
     })
   })
@@ -192,18 +241,22 @@ describe('scanWorkflowAst', () => {
     expect(actions).toHaveLength(4)
     expect(actions[0]).toMatchObject({
       name: 'actions/checkout',
+      job: 'regular-job',
       type: 'external',
     })
     expect(actions[1]).toMatchObject({
       name: 'docker://node:20',
+      job: 'regular-job',
       type: 'docker',
     })
     expect(actions[2]).toMatchObject({
       name: 'org/repo/.github/workflows/test.yml',
+      job: 'reusable-workflow-job',
       type: 'reusable-workflow',
     })
     expect(actions[3]).toMatchObject({
       name: './.github/actions/custom',
+      job: 'another-regular-job',
       type: 'local',
     })
   })

@@ -58,5 +58,9 @@ export function scanCompositeActionAst(
     return []
   }
 
-  return extractUsesFromSteps(stepsPair.value, filePath, content)
+  return extractUsesFromSteps({
+    stepsNode: stepsPair.value,
+    filePath,
+    content,
+  })
 }

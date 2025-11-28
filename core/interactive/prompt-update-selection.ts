@@ -14,7 +14,10 @@ import { stripAnsi } from './strip-ansi'
 import { padString } from './pad-string'
 
 /** Global minimum widths for the action and current version columns. */
-const MIN_ACTION_WIDTH = 56
+const MIN_ACTION_WIDTH = 40
+
+/** Global minimum width for the job column. */
+const MIN_JOB_WIDTH = 10
 
 /** Global minimum width for the current version column. */
 const MIN_CURRENT_WIDTH = 16
@@ -96,7 +99,7 @@ interface ChoiceItem {
 
 /** Intermediate representation for a row in the table before formatting. */
 interface TableRow {
-  /** Current version rendered in the second column. */
+  /** Current version rendered in the third column. */
   current: string
 
   /** Action name rendered in the first column. */
@@ -107,6 +110,9 @@ interface TableRow {
 
   /** Arrow glyph placed between versions. */
   arrow: string
+
+  /** Job name rendered in the second column. */
+  job: string
 }
 
 /** Non-selectable visual row (e.g., table header or blank line). */
@@ -119,6 +125,20 @@ interface ChoiceSeparator {
 
   /** Optional name to satisfy enquirer's `Choice` typing. */
   name?: string
+}
+
+interface FormatTableRowOptions {
+  /** Width for current version column. */
+  currentWidth: number
+
+  /** Width for action column. */
+  actionWidth: number
+
+  /** Width for job column. */
+  jobWidth: number
+
+  /** Row data to format. */
+  row: TableRow
 }
 
 /** Result shape returned by enquirer for the multiselect prompt. */
@@ -207,16 +227,20 @@ export async function promptUpdateSelection(
 
   let maxActionLength = stripAnsi('Action').length
   let maxCurrentLength = stripAnsi('Current').length
+  let maxJobLength = stripAnsi('Job').length
 
   for (let [index, update] of outdated.entries()) {
     let actionNameRaw = update.action.name
     let currentRaw = currentComputedByIndex[index]!.display
+    let jobRaw = update.action.job ?? '–'
     maxActionLength = Math.max(maxActionLength, actionNameRaw.length)
     maxCurrentLength = Math.max(maxCurrentLength, stripAnsi(currentRaw).length)
+    maxJobLength = Math.max(maxJobLength, jobRaw.length)
   }
 
   let globalActionWidth = Math.max(maxActionLength, MIN_ACTION_WIDTH)
   let globalCurrentWidth = Math.max(maxCurrentLength, MIN_CURRENT_WIDTH)
+  let globalJobWidth = Math.max(maxJobLength, MIN_JOB_WIDTH)
 
   let sortedFiles = [...groups.keys()].toSorted()
 
@@ -236,6 +260,7 @@ export async function promptUpdateSelection(
       action: 'Action',
       target: 'Target',
       arrow: '❯',
+      job: 'Job',
     })
 
     for (let { update, index } of groupOrder) {
@@ -258,7 +283,9 @@ export async function promptUpdateSelection(
         actionName = pc.gray(actionName)
       }
 
+      let jobName = update.action.job ?? '–'
       tableRows.push({
+        job: hasSha ? jobName : pc.gray(jobName),
         action: actionName,
         target: latest,
         arrow: '❯',
@@ -268,11 +295,17 @@ export async function promptUpdateSelection(
 
     let maxActionWidth = Math.max(globalActionWidth, MIN_ACTION_WIDTH)
     let maxCurrentWidth = Math.max(globalCurrentWidth, MIN_CURRENT_WIDTH)
+    let maxJobWidth = Math.max(globalJobWidth, MIN_JOB_WIDTH)
 
     let groupChildren: (ChoiceSeparator | ChoiceItem)[] = []
     for (let [i, row] of tableRows.entries()) {
       let isHeader = i === 0
-      let formattedRow = formatTableRow(row, maxActionWidth, maxCurrentWidth)
+      let formattedRow = formatTableRow({
+        currentWidth: maxCurrentWidth,
+        actionWidth: maxActionWidth,
+        jobWidth: maxJobWidth,
+        row,
+      })
       if (isHeader) {
         groupChildren.push({
           message: pc.gray(` ○ ${formattedRow}`),
@@ -465,18 +498,14 @@ async function tryReadInlineVersionComment(
 /**
  * Format a table row with proper spacing.
  *
- * @param row - Row data.
- * @param actionWidth - Width for action column.
- * @param currentWidth - Width for current version column.
+ * @param options - Formatting options.
  * @returns Formatted row string.
  */
-function formatTableRow(
-  row: TableRow,
-  actionWidth: number,
-  currentWidth: number,
-): string {
+function formatTableRow(options: FormatTableRowOptions): string {
+  let { currentWidth, actionWidth, jobWidth, row } = options
   let parts = [
     padString(row.action, actionWidth),
+    padString(row.job, jobWidth),
     padString(row.current, currentWidth),
     row.arrow,
     row.target,

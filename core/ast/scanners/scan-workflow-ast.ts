@@ -53,6 +53,8 @@ export function scanWorkflowAst(
       continue
     }
 
+    let jobName = isScalar(jobNode.key) ? String(jobNode.key.value) : undefined
+
     /** Check for Reusable Workflows. */
     let usesPair = findMapPair(jobNode.value, 'uses')
     if (usesPair?.value && usesPair.key && isScalar(usesPair.value)) {
@@ -60,15 +62,26 @@ export function scanWorkflowAst(
       let lineNumber = getLineNumberForKey(content, usesPair.key)
       let action = parseActionReference(usesValue, filePath, lineNumber)
       if (action) {
+        if (jobName) {
+          action.job = jobName
+        }
         actions.push(action)
       }
     }
 
-    /** Check for Github Actions. */
     let stepsPair = findMapPair(jobNode.value, 'steps')
-    if (stepsPair?.value) {
-      actions.push(...extractUsesFromSteps(stepsPair.value, filePath, content))
+    if (!stepsPair?.value) {
+      continue
     }
+
+    actions.push(
+      ...extractUsesFromSteps({
+        stepsNode: stepsPair.value,
+        filePath,
+        content,
+        jobName,
+      }),
+    )
   }
 
   return actions
