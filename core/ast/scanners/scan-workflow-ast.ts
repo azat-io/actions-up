@@ -6,6 +6,7 @@ import { isWorkflowStructure } from '../../schema/workflow/is-workflow-structure
 import { extractUsesFromSteps } from '../utils/extract-uses-from-steps'
 import { findMapPair } from '../utils/find-map-pair'
 import { isYAMLMap } from '../guards/is-yaml-map'
+import { isScalar } from '../guards/is-scalar'
 import { isPair } from '../guards/is-pair'
 import { isNode } from '../guards/is-node'
 
@@ -54,7 +55,15 @@ export function scanWorkflowAst(
       continue
     }
 
-    actions.push(...extractUsesFromSteps(stepsPair.value, filePath, content))
+    let jobName = isScalar(jobNode.key) ? String(jobNode.key.value) : undefined
+    actions.push(
+      ...extractUsesFromSteps({
+        stepsNode: stepsPair.value,
+        filePath,
+        content,
+        jobName,
+      }),
+    )
   }
 
   return actions

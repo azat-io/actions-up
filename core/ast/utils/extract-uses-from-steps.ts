@@ -10,22 +10,33 @@ import { isScalar } from '../guards/is-scalar'
 import { isNode } from '../guards/is-node'
 import { isPair } from '../guards/is-pair'
 
+interface ExtractUsesOptions {
+  /** YAML sequence node containing workflow/action steps. */
+  stepsNode: unknown
+
+  /** Path of the file being scanned (for metadata). */
+  filePath: string
+
+  /** Name of the job containing these steps (for workflows). */
+  jobName?: string
+
+  /** Original YAML file content (for line number calculation). */
+  content: string
+}
+
 /**
  * Extracts GitHub Action references from a steps YAML sequence.
  *
  * Uses the AST to locate the 'uses' key for precise line numbers and the JSON
  * representation to validate the presence and type of the 'uses' field.
  *
- * @param stepsNode - YAML sequence node containing workflow/action steps.
- * @param filePath - Path of the file being scanned (for metadata).
- * @param content - Original YAML file content (for line number calculation).
+ * @param options - Options for extraction.
  * @returns List of discovered GitHub actions.
  */
 export function extractUsesFromSteps(
-  stepsNode: unknown,
-  filePath: string,
-  content: string,
+  options: ExtractUsesOptions,
 ): GitHubAction[] {
+  let { stepsNode, filePath, content, jobName } = options
   if (!isYAMLSequence(stepsNode)) {
     return []
   }
@@ -57,6 +68,9 @@ export function extractUsesFromSteps(
       : 0
     let action = parseActionReference(stepObject['uses'], filePath, lineNumber)
     if (action) {
+      if (jobName) {
+        action.job = jobName
+      }
       actions.push(action)
     }
   }

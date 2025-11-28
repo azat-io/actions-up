@@ -20,7 +20,11 @@ describe('extractUsesFromSteps', () => {
     let steps = build?.value ? findMapPair(build.value, 'steps') : null
     expect(steps?.value).toBeTruthy()
 
-    let actions = extractUsesFromSteps(steps!.value, filePath, content)
+    let actions = extractUsesFromSteps({
+      stepsNode: steps!.value,
+      filePath,
+      content,
+    })
     expect(actions).toHaveLength(1)
     expect(actions[0]).toMatchObject({
       name: 'actions/checkout',
@@ -32,7 +36,11 @@ describe('extractUsesFromSteps', () => {
   })
 
   it('returns empty when steps node is not a YAML sequence', () => {
-    let actions = extractUsesFromSteps({}, 'file.yml', 'content')
+    let actions = extractUsesFromSteps({
+      filePath: 'file.yml',
+      content: 'content',
+      stepsNode: {},
+    })
     expect(actions).toEqual([])
   })
 })

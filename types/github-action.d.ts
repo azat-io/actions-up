@@ -15,6 +15,9 @@ export interface GitHubAction {
   /** Original `uses` string from workflow, if available. */
   uses?: string
 
+  /** Name of the job where this action is used (for workflows). */
+  job?: string
+
   /** Full name of the action (e.g., 'actions/checkout'). */
   name: string
 
