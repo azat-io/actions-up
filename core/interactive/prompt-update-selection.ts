@@ -17,10 +17,13 @@ import { padString } from './pad-string'
 const MIN_ACTION_WIDTH = 40
 
 /** Global minimum width for the job column. */
-const MIN_JOB_WIDTH = 10
+const MIN_JOB_WIDTH = 4
 
 /** Global minimum width for the current version column. */
 const MIN_CURRENT_WIDTH = 16
+
+/** Maximum width for version padding before SHA hash. */
+const MAX_VERSION_WIDTH = 7
 
 /** Minimal prompt options shape we use to avoid Enquirer union pitfalls. */
 interface PromptOptionsLike {
@@ -202,9 +205,11 @@ export async function promptUpdateSelection(
       let display = formatVersionOrSha(update.currentVersion)
       let effectiveForDiff: undefined | string =
         update.currentVersion ?? undefined
+      let versionForPadding: string | null = null
+      let shortSha: string | null = null
 
       if (!update.currentVersion || !isSha(update.currentVersion)) {
-        return { effectiveForDiff, display }
+        return { versionForPadding, effectiveForDiff, shortSha, display }
       }
 
       let versionFromComment = await tryReadInlineVersionComment(
@@ -213,13 +218,13 @@ export async function promptUpdateSelection(
       )
 
       if (versionFromComment) {
-        let shortSha = update.currentVersion.slice(0, 7)
-        let version = formatVersionOrSha(versionFromComment)
-        display = `${version} ${pc.gray(`(${shortSha})`)}`
+        shortSha = update.currentVersion.slice(0, 7)
+        versionForPadding = formatVersionOrSha(versionFromComment)
+        display = versionForPadding
         effectiveForDiff = versionFromComment
       }
 
-      return { effectiveForDiff, display }
+      return { versionForPadding, effectiveForDiff, shortSha, display }
     }),
   )
 
@@ -228,6 +233,7 @@ export async function promptUpdateSelection(
   let maxActionLength = stripAnsi('Action').length
   let maxCurrentLength = stripAnsi('Current').length
   let maxJobLength = stripAnsi('Job').length
+  let maxVersionLength = 0
 
   for (let [index, update] of outdated.entries()) {
     let actionNameRaw = update.action.name
@@ -236,11 +242,27 @@ export async function promptUpdateSelection(
     maxActionLength = Math.max(maxActionLength, actionNameRaw.length)
     maxCurrentLength = Math.max(maxCurrentLength, stripAnsi(currentRaw).length)
     maxJobLength = Math.max(maxJobLength, jobRaw.length)
+    if (update.latestVersion) {
+      let formatted = formatVersion(
+        update.latestVersion,
+        currentComputedByIndex[index]?.effectiveForDiff ??
+          update.currentVersion,
+      )
+      maxVersionLength = Math.max(maxVersionLength, stripAnsi(formatted).length)
+    }
+    let versionFromComment = currentComputedByIndex[index]?.versionForPadding
+    if (versionFromComment) {
+      maxVersionLength = Math.max(
+        maxVersionLength,
+        stripAnsi(versionFromComment).length,
+      )
+    }
   }
 
   let globalActionWidth = Math.max(maxActionLength, MIN_ACTION_WIDTH)
   let globalCurrentWidth = Math.max(maxCurrentLength, MIN_CURRENT_WIDTH)
   let globalJobWidth = Math.max(maxJobLength, MIN_JOB_WIDTH)
+  let globalVersionWidth = Math.min(maxVersionLength, MAX_VERSION_WIDTH)
 
   let sortedFiles = [...groups.keys()].toSorted()
 
@@ -266,15 +288,19 @@ export async function promptUpdateSelection(
     for (let { update, index } of groupOrder) {
       let hasSha = Boolean(update.latestSha)
 
-      let current = currentComputedByIndex[index]!.display
+      let currentComputed = currentComputedByIndex[index]!
+      let current = currentComputed.display
+      if (currentComputed.versionForPadding && currentComputed.shortSha) {
+        current = `${padString(currentComputed.versionForPadding, globalVersionWidth + 1)}${pc.gray(`(${currentComputed.shortSha})`)}`
+      }
       let effectiveCurrentForDiff =
-        currentComputedByIndex[index]?.effectiveForDiff ?? update.currentVersion
+        currentComputed.effectiveForDiff ?? update.currentVersion
       let latest = formatVersion(update.latestVersion, effectiveCurrentForDiff)
       let actionName = update.action.name
 
       if (update.latestSha) {
         let shortSha = update.latestSha.slice(0, 7)
-        latest = `${latest} ${pc.gray(`(${shortSha})`)}`
+        latest = `${padString(latest, globalVersionWidth + 1)}${pc.gray(`(${shortSha})`)}`
       }
 
       if (!hasSha) {

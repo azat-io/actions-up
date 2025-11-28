@@ -502,8 +502,8 @@ describe('promptUpdateSelection', () => {
 
     let message = getFirstRenderedRowMessage(capturedOptions!)
 
-    expect(message).toContain('4.2.4 (e2c02d0)')
-    expect(message).toMatch(/\s❯\s.*4\.2\.4 .*\(0400d5f\)/u)
+    expect(message).toMatch(/4\.2\.4\s+\(e2c02d0\)/u)
+    expect(message).toMatch(/\s❯\s.*4\.2\.4\s+\(0400d5f\)/u)
   })
 
   it('falls back to short SHA in Current and keeps v-prefix in Target when no inline version comment', async () => {
