@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.6.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.5.0...v1.6.0)
+
+### 🚀 Features
+
+- Show job name in action update list ([4854644](https://github.com/azat-io/actions-up/commit/4854644))
+- Add reusable workflow support ([8ef9215](https://github.com/azat-io/actions-up/commit/8ef9215))
+- Align version columns in update selection table ([02b34b2](https://github.com/azat-io/actions-up/commit/02b34b2))
+- Filter updates by release age ([8a77b91](https://github.com/azat-io/actions-up/commit/8a77b91))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+- James Smith <james@smithjw.me>
+
 ## v1.5.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.4.2...v1.5.0)
