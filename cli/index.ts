@@ -15,6 +15,9 @@ interface CLIOptions {
   /** Regex patterns to exclude actions by name (repeatable). */
   exclude?: string[] | string
 
+  /** Whether to include branch references in update checks. */
+  includeBranches?: boolean
+
   /** Preview changes without applying them. */
   dryRun: boolean
 
@@ -38,6 +41,10 @@ export function run(): void {
     .option('--dir <directory>', 'Custom directory name (default: .github)')
     .option('--dry-run', 'Preview changes without applying them')
     .option('--exclude <regex>', 'Exclude actions by regex (repeatable)')
+    .option(
+      '--include-branches',
+      'Also check actions pinned to branches (default: false)',
+    )
     .option(
       '--min-age <days>',
       'Minimum age in days for updates (default: 0)',
@@ -115,9 +122,14 @@ export function run(): void {
           return
         }
 
+        let includeBranches = options.includeBranches ?? false
+
         let updates = await checkUpdates(
           actionsToCheck,
           process.env['GITHUB_TOKEN'],
+          {
+            includeBranches,
+          },
         )
 
         /** Apply ignore comments (file/block/next-line/inline). */
@@ -133,6 +145,9 @@ export function run(): void {
             }
           }),
         )
+
+        /** Skipped entries that should trigger a warning (e.g., branches). */
+        let skipped = filtered.filter(update => update.status === 'skipped')
 
         /** Filter outdated actions. */
         let outdated = filtered.filter(update => update.hasUpdate)
@@ -152,6 +167,9 @@ export function run(): void {
 
         if (outdated.length === 0) {
           spinner.success('All actions are up to date!')
+          if (skipped.length > 0) {
+            printSkippedWarning(skipped, includeBranches)
+          }
           console.info(
             pc.green('\n✨ Everything is already at the latest version!\n'),
           )
@@ -165,6 +183,10 @@ export function run(): void {
               : ''
           }`,
         )
+
+        if (skipped.length > 0) {
+          printSkippedWarning(skipped, includeBranches)
+        }
 
         if (options.dryRun) {
           console.info(pc.yellow('\n📋 Dry Run - No changes will be made\n'))
@@ -240,4 +262,36 @@ export function run(): void {
     })
 
   cli.parse()
+}
+
+/**
+ * Render a warning block listing actions skipped due to branch references.
+ *
+ * @param skipped - Actions that were skipped.
+ * @param includeBranches - Whether branch refs were opted-in for checking.
+ */
+function printSkippedWarning(
+  skipped: {
+    action: { version?: string | null; uses?: string; name: string }
+    currentVersion: string | null
+  }[],
+  includeBranches: boolean,
+): void {
+  let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
+  let form = pluralRules.select(skipped.length)
+  let noun = form === 'one' ? 'action' : 'actions'
+
+  let hint = includeBranches ? '' : ' (use --include-branches to check them)'
+  console.info(
+    pc.yellow(
+      `\n⚠️  Skipped ${skipped.length} ${noun} pinned to branches${hint}`,
+    ),
+  )
+  for (let update of skipped) {
+    let identifier =
+      update.action.uses ??
+      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
+    console.info(pc.gray(`   • ${identifier}`))
+  }
+  console.info('')
 }

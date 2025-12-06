@@ -2,11 +2,17 @@ import type { GitHubAction } from './github-action'
 
 /** Update information for a GitHub Action. */
 export interface ActionUpdate {
+  /** Reason for skipping the update check. */
+  skipReason?: 'unknown' | 'branch'
+
   /** Current version string. */
   currentVersion: string | null
 
   /** Latest available version. */
   latestVersion: string | null
+
+  /** Status of the check for this action. */
+  status?: 'skipped' | 'ok'
 
   /** SHA hash of the latest version. */
   latestSha: string | null

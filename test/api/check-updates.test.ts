@@ -139,8 +139,56 @@ describe('checkUpdates', () => {
       },
     ]
     let result = await checkUpdates(actions)
-    expect(result[0]).toMatchObject({ latestVersion: null, hasUpdate: false })
+    expect(result[0]).toMatchObject({
+      skipReason: 'branch',
+      latestVersion: null,
+      status: 'skipped',
+      hasUpdate: false,
+    })
     expect(client.getLatestRelease).not.toHaveBeenCalled()
+  })
+
+  it('includes branch references when explicitly enabled', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v1.2.3',
+        /* Cspell:disable-next-line */
+        sha: 'branchsha',
+        name: 'v1.2.3',
+        url: 'u',
+      }),
+      getRefType: vi.fn().mockResolvedValue('branch'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@release/v1',
+        ref: 'owner/repo@release/v1',
+        version: 'release/v1',
+        name: 'owner/repo',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions, undefined, {
+      includeBranches: true,
+    })
+    expect(client.getLatestRelease).toHaveBeenCalledOnce()
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v1.2.3',
+      hasUpdate: true,
+      status: 'ok',
+    })
   })
 
   it('handles action name without owner/repo gracefully', async () => {

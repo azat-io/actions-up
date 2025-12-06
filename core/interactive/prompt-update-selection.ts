@@ -255,10 +255,22 @@ export async function promptUpdateSelection(
 
   for (let [index, update] of outdated.entries()) {
     let actionNameRaw = update.action.name
-    let currentRaw = currentComputedByIndex[index]!.display
+    let currentComputed = currentComputedByIndex[index]!
+    let currentRaw = currentComputed.display
     let jobRaw = update.action.job ?? '–'
     maxActionLength = Math.max(maxActionLength, actionNameRaw.length)
-    maxCurrentLength = Math.max(maxCurrentLength, stripAnsi(currentRaw).length)
+    maxCurrentLength = Math.max(
+      maxCurrentLength,
+      stripAnsi(currentRaw).length,
+      currentComputed.versionForPadding && currentComputed.shortSha
+        ? stripAnsi(
+            `${padString(
+              currentComputed.versionForPadding,
+              maxVersionLength + 1,
+            )}${pc.gray(`(${currentComputed.shortSha})`)}`,
+          ).length
+        : 0,
+    )
     maxJobLength = Math.max(maxJobLength, jobRaw.length)
     if (update.latestVersion) {
       let formatted = formatVersion(

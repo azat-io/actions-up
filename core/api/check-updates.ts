@@ -5,6 +5,18 @@ import type { ActionUpdate } from '../../types/action-update'
 
 import { createGitHubClient } from './create-github-client'
 
+/** Internal result for a single release/tag lookup, enriched with status info. */
+interface ReleaseCheckResult extends LatestInfo {
+  /** Whether lookup succeeded or was skipped (e.g., branch ref). */
+  status?: 'skipped' | 'ok'
+
+  /** Reason why lookup was skipped, if applicable. */
+  skipReason?: 'branch'
+
+  /** Action name this result belongs to. */
+  actionName: string
+}
+
 /** Information about the latest version of an action. */
 interface LatestInfo {
   /** Publication date of the latest version. */
@@ -22,13 +34,16 @@ interface LatestInfo {
  *
  * @param actions - Array of GitHub Actions to check.
  * @param token - Optional GitHub token for authentication.
+ * @param options - Additional options (e.g., include branch refs).
  * @returns Array of update information.
  */
 export async function checkUpdates(
   actions: GitHubAction[],
   token?: string,
+  options?: { includeBranches?: boolean },
 ): Promise<ActionUpdate[]> {
   let client = createGitHubClient(token)
+  let includeBranches = options?.includeBranches ?? false
 
   /** Filter external actions and reusable workflows. */
   let externalActions = actions.filter(
@@ -62,7 +77,12 @@ export async function checkUpdates(
         if (sharedState.rateLimitHit) {
           return [
             ...results,
-            { publishedAt: null, version: null, actionName, sha: null },
+            {
+              publishedAt: null,
+              version: null,
+              actionName,
+              sha: null,
+            },
           ]
         }
 
@@ -86,7 +106,7 @@ export async function checkUpdates(
         try {
           /**
            * First check if current versions are branches - if so, skip update
-           * check.
+           * check unless explicitly allowed.
            */
           let currentVersions = uniqueActions.get(actionName)!
           let firstVersion = currentVersions[0]?.version
@@ -100,11 +120,18 @@ export async function checkUpdates(
               repo,
               firstVersion,
             )
-            if (referenceType === 'branch') {
+            if (referenceType === 'branch' && !includeBranches) {
               /** Skip update check for branch references. */
               return [
                 ...results,
-                { publishedAt: null, version: null, actionName, sha: null },
+                {
+                  skipReason: 'branch' as const,
+                  status: 'skipped' as const,
+                  publishedAt: null,
+                  version: null,
+                  actionName,
+                  sha: null,
+                },
               ]
             }
           }
@@ -205,7 +232,10 @@ export async function checkUpdates(
                 /** Ignore SHA fetch errors. */
               }
             }
-            return [...results, { publishedAt, actionName, version, sha }]
+            return [
+              ...results,
+              { status: 'ok' as const, publishedAt, actionName, version, sha },
+            ]
           }
 
           /** No releases found: fetch tags and choose the best semver tag. */
@@ -250,7 +280,16 @@ export async function checkUpdates(
                 /** Ignore SHA fetch errors. */
               }
             }
-            return [...results, { publishedAt: null, actionName, version, sha }]
+            return [
+              ...results,
+              {
+                status: 'ok' as const,
+                publishedAt: null,
+                actionName,
+                version,
+                sha,
+              },
+            ]
           }
 
           return [
@@ -276,14 +315,7 @@ export async function checkUpdates(
           ]
         }
       }),
-    Promise.resolve(
-      [] as {
-        publishedAt: Date | null
-        version: string | null
-        actionName: string
-        sha: string | null
-      }[],
-    ),
+    Promise.resolve([] as ReleaseCheckResult[]),
   )
 
   /** If rate limit was hit, throw a user-friendly error. */
@@ -304,14 +336,14 @@ export async function checkUpdates(
   }
 
   /** Create cache from results. */
-  let cache = new Map<
-    string,
-    { publishedAt: Date | null; version: string | null; sha: string | null }
-  >()
+  let cache = new Map<string, ReleaseCheckResult>()
   for (let result of releaseResults) {
     cache.set(result.actionName, {
       publishedAt: result.publishedAt,
+      actionName: result.actionName,
+      skipReason: result.skipReason,
       version: result.version,
+      status: result.status,
       sha: result.sha,
     })
   }
@@ -323,11 +355,15 @@ export async function checkUpdates(
     let cached = cache.get(action.name)
     if (cached) {
       updates.push(
-        createUpdate(action, {
-          publishedAt: cached.publishedAt,
-          version: cached.version,
-          sha: cached.sha,
-        }),
+        createUpdate(
+          action,
+          {
+            publishedAt: cached.publishedAt,
+            version: cached.version,
+            sha: cached.sha,
+          },
+          { skipReason: cached.skipReason, status: cached.status },
+        ),
       )
     } else {
       updates.push(
@@ -344,15 +380,42 @@ export async function checkUpdates(
  *
  * @param action - GitHub Action to check.
  * @param latest - Latest version info.
+ * @param meta - Additional metadata (e.g., skip status/reason).
  * @returns Update information.
  */
-function createUpdate(action: GitHubAction, latest: LatestInfo): ActionUpdate {
+function createUpdate(
+  action: GitHubAction,
+  latest: LatestInfo,
+  meta: {
+    skipReason?: ActionUpdate['skipReason']
+    status?: ActionUpdate['status']
+  } = {},
+): ActionUpdate {
   let { version: latestVersion, sha: latestSha, publishedAt } = latest
-  let currentVersion = normalizeVersion(action.version ?? '')
+  let currentVersionRaw = action.version ?? 'unknown'
+  let currentVersion = normalizeVersion(currentVersionRaw)
   let normalized = latestVersion ? normalizeVersion(latestVersion) : null
+
+  /** Default status is ok unless explicitly marked skipped. */
+  let status: ActionUpdate['status'] = meta.status ?? 'ok'
+  let skipReason: ActionUpdate['skipReason'] = meta.skipReason
 
   let hasUpdate = false
   let isBreaking = false
+
+  if (status === 'skipped') {
+    return {
+      currentVersion: currentVersionRaw,
+      isBreaking: false,
+      hasUpdate: false,
+      latestVersion,
+      publishedAt,
+      skipReason,
+      latestSha,
+      action,
+      status,
+    }
+  }
 
   if (currentVersion && isSha(currentVersion)) {
     if (latestSha) {
@@ -391,13 +454,15 @@ function createUpdate(action: GitHubAction, latest: LatestInfo): ActionUpdate {
   }
 
   return {
-    currentVersion: action.version ?? 'unknown',
+    currentVersion: currentVersionRaw,
     latestVersion,
     publishedAt,
     isBreaking,
+    skipReason,
     latestSha,
     hasUpdate,
     action,
+    status,
   }
 }
 

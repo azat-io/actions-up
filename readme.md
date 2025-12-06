@@ -131,6 +131,10 @@ By default, Actions Up scans the `.github` directory. You can specify a differen
 npx actions-up --dir .gitea
 ```
 
+### Branch References
+
+By default, actions pinned to branch refs (e.g., `@main`, `@release/v1`) are skipped to avoid changing intentionally floating references. Skipped entries are listed in the output. To include them in update checks, pass `--include-branches`.
+
 ## GitHub Actions Integration
 
 ### Automated PR Checks
