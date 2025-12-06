@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.7.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.6.0...v1.7.0)
+
+### 🚀 Features
+
+- Warn about skipped branch refs and add opt-in to check ([52ea4b4](https://github.com/azat-io/actions-up/commit/52ea4b4))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.6.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.5.0...v1.6.0)
