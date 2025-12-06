@@ -210,7 +210,7 @@ describe('scanWorkflowFile', () => {
 
     await expect(
       scanWorkflowFile('.github/workflows/invalid.yml'),
-    ).rejects.toThrow('Invalid YAML')
+    ).rejects.toThrowError('Invalid YAML')
   })
 
   it('throws error when file read fails', async () => {
@@ -218,7 +218,7 @@ describe('scanWorkflowFile', () => {
 
     await expect(
       scanWorkflowFile('.github/workflows/missing.yml'),
-    ).rejects.toThrow('File not found')
+    ).rejects.toThrowError('File not found')
   })
 
   it('returns empty array for null workflow content', async () => {

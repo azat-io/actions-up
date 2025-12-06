@@ -32,7 +32,7 @@ describe('readYamlDocument', () => {
   it('propagates read errors', async () => {
     let { readFile } = await import('node:fs/promises')
     vi.mocked(readFile).mockRejectedValue(new Error('File not found'))
-    await expect(readYamlDocument('missing.yml')).rejects.toThrow(
+    await expect(readYamlDocument('missing.yml')).rejects.toThrowError(
       'File not found',
     )
   })

@@ -117,7 +117,7 @@ describe('scanGitHubActions', () => {
   })
 
   it('throws when ci directory traverses outside root', async () => {
-    await expect(scanGitHubActions('.', '../outside')).rejects.toThrow(
+    await expect(scanGitHubActions('.', '../outside')).rejects.toThrowError(
       'Invalid path',
     )
   })

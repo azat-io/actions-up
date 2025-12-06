@@ -209,7 +209,7 @@ describe('scanActionFile', () => {
 
     await expect(
       scanActionFile('.github/actions/invalid/action.yml'),
-    ).rejects.toThrow('Invalid YAML')
+    ).rejects.toThrowError('Invalid YAML')
   })
 
   it('throws error when file read fails', async () => {
@@ -217,7 +217,7 @@ describe('scanActionFile', () => {
 
     await expect(
       scanActionFile('.github/actions/missing/action.yml'),
-    ).rejects.toThrow('File not found')
+    ).rejects.toThrowError('File not found')
   })
 
   it('returns empty array for null action content', async () => {

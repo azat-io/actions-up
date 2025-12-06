@@ -900,7 +900,7 @@ describe('getTagInfo', () => {
 
     await expect(
       getTagInfo(context, { tag: 'v6.0.0', owner: 'o', repo: 'r' }),
-    ).rejects.toThrow('fatal')
+    ).rejects.toThrowError('fatal')
   })
 })
 

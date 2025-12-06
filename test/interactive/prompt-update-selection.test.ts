@@ -717,7 +717,9 @@ describe('promptUpdateSelection', () => {
     promptError = new Error('fatal error')
     let errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    await expect(promptUpdateSelection(updates)).rejects.toThrow('fatal error')
+    await expect(promptUpdateSelection(updates)).rejects.toThrowError(
+      'fatal error',
+    )
 
     expect(errorSpy).toHaveBeenCalledWith(expect.any(String), expect.any(Error))
     errorSpy.mockRestore()
