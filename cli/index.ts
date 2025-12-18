@@ -224,7 +224,7 @@ export function run(): void {
 
           console.info(pc.green('\n✓ Updates applied successfully!'))
         } else {
-          let selected = await promptUpdateSelection(filtered, {
+          let selected = await promptUpdateSelection(outdated, {
             showAge: options.minAge > 0,
           })
 
