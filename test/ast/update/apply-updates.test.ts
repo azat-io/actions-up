@@ -257,6 +257,158 @@ describe('applyUpdates', () => {
     )
   })
 
+  it('updates flow-style JSON blocks with quoted uses keys and keeps delimiters', async () => {
+    let filePath = '/repo/.github/workflows/json-block.yml'
+    let original = [
+      '# flow-style steps',
+      'steps:',
+      "  - { 'uses': 'actions/checkout@v4' }",
+      "  - { 'uses': 'actions/setup-node@v4' }",
+      '',
+    ].join('\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        typeof path === 'string' && path === filePath ? original : '',
+      ),
+    )
+
+    let checkoutSha = '1111111111111111111111111111111111111111'
+    let setupSha = '2222222222222222222222222222222222222222'
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+        },
+        latestVersion: 'v6.0.1',
+        latestSha: checkoutSha,
+        currentVersion: 'v4',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+      {
+        action: {
+          name: 'actions/setup-node',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+        },
+        latestVersion: 'v5.2.0',
+        currentVersion: 'v4',
+        latestSha: setupSha,
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+
+    expect(content).toContain(
+      `{ 'uses': 'actions/checkout@${checkoutSha}' } # v6.0.1`,
+    )
+    expect(content).toContain(
+      `{ 'uses': 'actions/setup-node@${setupSha}' } # v5.2.0`,
+    )
+  })
+
+  it('does not inject comment when more content follows on the same line', async () => {
+    let filePath = '/repo/.github/workflows/json-inline.yml'
+    let original =
+      "steps: [ { 'uses': 'actions/checkout@v4', 'name': 'Checkout' } ]"
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+        },
+        latestSha: '3333333333333333333333333333333333333333',
+        latestVersion: 'v6.0.1',
+        currentVersion: 'v4',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+
+    expect(content).toContain(
+      `{ 'uses': 'actions/checkout@3333333333333333333333333333333333333333', 'name': 'Checkout' }`,
+    )
+    expect(content).not.toMatch(/#\s*v6\.0\.1/u)
+  })
+
+  it('updates multiple uses on the same line in flow-style arrays', async () => {
+    let filePath = '/repo/.github/workflows/multi-uses.yml'
+    let original =
+      "steps: [ { 'uses': 'actions/checkout@v4' }, { 'uses': 'actions/setup-node@v4' } ]"
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let checkoutSha = '1111111111111111111111111111111111111111'
+    let setupSha = '2222222222222222222222222222222222222222'
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+        },
+        latestVersion: 'v6.0.1',
+        latestSha: checkoutSha,
+        currentVersion: 'v4',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+      {
+        action: {
+          name: 'actions/setup-node',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+        },
+        latestVersion: 'v5.2.0',
+        currentVersion: 'v4',
+        latestSha: setupSha,
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+
+    expect(content).toContain(`'actions/checkout@${checkoutSha}'`)
+    expect(content).toContain(`'actions/setup-node@${setupSha}'`)
+  })
+
   it('handles actions with overlapping version prefixes without duplicating suffix in comment', async () => {
     let filePath = '/repo/.github/workflows/prefix.yml'
     let original = [
