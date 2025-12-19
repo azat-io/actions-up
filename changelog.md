@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.8.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.7.0...v1.8.0)
+
+### 🚀 Features
+
+- Support json-style yaml workflow files ([fd2cabd](https://github.com/azat-io/actions-up/commit/fd2cabd))
+
+### 🐞 Bug Fixes
+
+- Apply min-age filter in interactive mode ([d39eaaa](https://github.com/azat-io/actions-up/commit/d39eaaa))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.7.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.6.0...v1.7.0)
