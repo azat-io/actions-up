@@ -2,6 +2,30 @@ import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
 
+/** Regex capture groups for parsing `uses:` lines in YAML files. */
+interface MatchGroups {
+  /** Optional inline comment after the action reference. */
+  comment?: string
+
+  /**
+   * Context before the `uses:` value, including indentation, dash, key, and
+   * spaces.
+   */
+  prefix: string
+
+  /**
+   * Quote character around the action value or empty string for unquoted
+   * values.
+   */
+  quote: string
+
+  /** Trailing delimiters and spaces after the action reference. */
+  after: string
+
+  /** GitHub Action name before the `@` symbol in `owner/repo` format. */
+  name: string
+}
+
 /**
  * Apply updates using SHA with version in comment for readability.
  *
@@ -84,41 +108,38 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
           'gm',
         )
 
-        interface MatchGroups {
-          comment?: string
-          prefix: string
-          quote: string
-          after: string
-          name: string
-        }
+        content = content.replace(
+          pattern,
+          (matched: string, ...captures: unknown[]) => {
+            let offset = captures.at(-3) as number
+            let source = captures.at(-2) as string
+            let groups = captures.at(-1) as MatchGroups
+            let nextLineBreak = source.indexOf('\n', offset + matched.length)
+            let restOfLine =
+              nextLineBreak === -1
+                ? source.slice(offset + matched.length)
+                : source.slice(offset + matched.length, nextLineBreak)
 
-        content = content.replace(pattern, (...captures) => {
-          let [matched] = captures
-          let offset = captures.at(-3) as number
-          let source = captures.at(-2) as string
-          let groups = captures.at(-1) as MatchGroups
-          let nextLineBreak = source.indexOf('\n', offset + matched.length)
-          let restOfLine =
-            nextLineBreak === -1
-              ? source.slice(offset + matched.length)
-              : source.slice(offset + matched.length, nextLineBreak)
+            /**
+             * Avoid inserting a comment mid-line when more content follows.
+             * Exception: when currentVersion is missing, trailing content may
+             * be the original unparsed version suffix — allow comment in that
+             * case.
+             */
+            let hasTrailingContent = restOfLine.trim().length > 0
+            let spacer = groups.after.endsWith(' ') ? '' : ' '
+            let skipComment =
+              hasTrailingContent && !groups.comment && escapedVersion !== ''
+            let comment = skipComment
+              ? ''
+              : `${spacer}# ${update.latestVersion}`
 
-          /**
-           * Avoid inserting a comment mid-line when more content follows.
-           * Exception: when currentVersion is missing, trailing content may be
-           * the original unparsed version suffix — allow comment in that case.
-           */
-          let hasTrailingContent = restOfLine.trim().length > 0
-          let spacer = groups.after.endsWith(' ') ? '' : ' '
-          let skipComment =
-            hasTrailingContent && !groups.comment && escapedVersion !== ''
-          let comment = skipComment ? '' : `${spacer}# ${update.latestVersion}`
+            let action = `${groups.prefix}${groups.quote}${groups.name}`
+            let version = `${update.latestSha}${groups.quote}${groups.after}${comment}`
 
-          let action = `${groups.prefix}${groups.quote}${groups.name}`
-          let version = `${update.latestSha}${groups.quote}${groups.after}${comment}`
-
-          return `${action}@${version}`
-        })
+            return `${action}@${version}`
+          },
+        )
       }
 
       await writeFile(filePath, content, 'utf8')
