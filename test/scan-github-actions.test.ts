@@ -1082,4 +1082,100 @@ describe('scanGitHubActions', () => {
     expect(result.workflows.has('.gitea/workflows/ci.yml')).toBeTruthy()
     expect(result.compositeActions.get('build')).toBe('.gitea/actions/build')
   })
+
+  it('handles same-repo composite action with empty nested actions', async () => {
+    process.env['GITHUB_REPOSITORY'] = 'test/repo'
+
+    vi.mocked(stat).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('.github/workflows')) {
+        return Promise.resolve({ isDirectory: () => true } as Stats)
+      }
+      if (currentPath.endsWith('.github/actions')) {
+        return Promise.resolve({ isDirectory: () => false } as Stats)
+      }
+      if (currentPath.endsWith('empty-action/action.yml')) {
+        return Promise.resolve({
+          isDirectory: () => false,
+          isFile: () => true,
+        } as unknown as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readdir).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('.github/workflows')) {
+        return Promise.resolve(['test.yml']) as unknown as ReturnType<
+          typeof readdir
+        >
+      }
+      return Promise.resolve([]) as unknown as ReturnType<typeof readdir>
+    })
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('test.yml')) {
+        return Promise.resolve('workflow') as unknown as ReturnType<
+          typeof readFile
+        >
+      }
+      if (currentPath.endsWith('empty-action/action.yml')) {
+        return Promise.resolve('action') as unknown as ReturnType<
+          typeof readFile
+        >
+      }
+      return Promise.reject(new Error('not found'))
+    })
+
+    vi.mocked(parseDocument).mockImplementation((content: string) => {
+      if (content === 'workflow') {
+        return createMockDocument({
+          jobs: {
+            test: {
+              steps: [{ uses: 'test/repo/empty-action@v1' }],
+            },
+          },
+        }) as unknown as ReturnType<typeof parseDocument>
+      }
+      if (content === 'action') {
+        return createMockDocument({
+          runs: {
+            using: 'composite',
+            steps: [],
+          },
+        }) as unknown as ReturnType<typeof parseDocument>
+      }
+      return createMockDocument({}) as unknown as ReturnType<
+        typeof parseDocument
+      >
+    })
+
+    let result = await scanGitHubActions('.')
+    expect(result.workflows.size).toBe(1)
+    expect(result.actions).toHaveLength(1)
+
+    delete process.env['GITHUB_REPOSITORY']
+  })
+
+  it('handles git config url without groups match', async () => {
+    delete process.env['GITHUB_REPOSITORY']
+
+    vi.mocked(stat).mockRejectedValue(new Error('ENOENT'))
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      let currentPath = String(path)
+      if (currentPath.endsWith('.git/config')) {
+        return Promise.resolve(
+          '[remote "origin"]\n' +
+            '    url = invalid-url-format\n' +
+            '    fetch = +refs/heads/*:refs/remotes/origin/*\n',
+        ) as unknown as ReturnType<typeof readFile>
+      }
+      return Promise.reject(new Error('not used'))
+    })
+
+    let result = await scanGitHubActions('.')
+    expect(result.actions).toEqual([])
+  })
 })

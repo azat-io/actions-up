@@ -92,4 +92,53 @@ describe('resolveGitHubTokenSync', () => {
       await import('../../core/api/resolve-github-token-sync')
     expect(resolveGitHubTokenSync()).toBeUndefined()
   })
+
+  it('parses oauth-token from github section', async () => {
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(() => {
+        throw new Error('no cli')
+      }),
+    }))
+    vi.doMock('node:fs', () => ({
+      readFileSync: vi.fn(() => '[github]\n    oauth-token = oauth\n'),
+    }))
+    let { resolveGitHubTokenSync } =
+      await import('../../core/api/resolve-github-token-sync')
+    expect(resolveGitHubTokenSync()).toBe('oauth')
+  })
+
+  it('trims whitespace from token values', async () => {
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(() => {
+        throw new Error('no cli')
+      }),
+    }))
+    vi.doMock('node:fs', () => ({
+      readFileSync: vi.fn(() => '[hub]\n    oauthtoken = trimmed-token   \n'),
+    }))
+    let { resolveGitHubTokenSync } =
+      await import('../../core/api/resolve-github-token-sync')
+    expect(resolveGitHubTokenSync()).toBe('trimmed-token')
+  })
+
+  it('ignores empty tokens in github and hub sections', async () => {
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(() => {
+        throw new Error('no cli')
+      }),
+    }))
+    vi.doMock('node:fs', () => ({
+      readFileSync: vi.fn(
+        () =>
+          '[github]\n' +
+          '    token = \n' +
+          '    oauth-token =\n' +
+          '[hub]\n' +
+          '    oauthtoken =\n',
+      ),
+    }))
+    let { resolveGitHubTokenSync } =
+      await import('../../core/api/resolve-github-token-sync')
+    expect(resolveGitHubTokenSync()).toBeUndefined()
+  })
 })

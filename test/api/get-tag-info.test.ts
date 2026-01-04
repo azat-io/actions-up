@@ -902,6 +902,157 @@ describe('getTagInfo', () => {
       getTagInfo(context, { tag: 'v6.0.0', owner: 'o', repo: 'r' }),
     ).rejects.toThrowError('fatal')
   })
+
+  it('enriches missing date from commit when release has body but no date', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v5.0.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              target_commitish: null,
+              body: 'Release notes',
+              published_at: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v5.0.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { sha: 'commit456', type: 'commit' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/commits/commit456')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              author: { date: '2024-04-01T00:00:00Z' },
+              message: 'Commit msg',
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v5.0.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-04-01T00:00:00Z'),
+      message: 'Release notes',
+      sha: 'commit456',
+      tag: 'v5.0.0',
+    })
+  })
+
+  it('enriches missing message from commit when release has date but no body', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v5.1.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-04-02T00:00:00Z',
+              target_commitish: null,
+              body: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v5.1.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { sha: 'commit789', type: 'commit' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/commits/commit789')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              author: { date: '2024-04-03T00:00:00Z' },
+              message: 'Commit description',
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v5.1.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-04-02T00:00:00Z'),
+      message: 'Commit description',
+      sha: 'commit789',
+      tag: 'v5.1.0',
+    })
+  })
+
+  it('keeps release info when ref sha is empty', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/releases/tags/v5.2.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              published_at: '2024-04-04T00:00:00Z',
+              body: 'Release summary',
+              target_commitish: null,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      if (urlString.endsWith('/git/refs/tags/v5.2.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { type: 'commit', sha: '' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v5.2.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      date: new Date('2024-04-04T00:00:00Z'),
+      message: 'Release summary',
+      tag: 'v5.2.0',
+      sha: null,
+    })
+  })
 })
 
 /* eslint-enable camelcase */

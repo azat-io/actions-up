@@ -829,4 +829,78 @@ describe('promptUpdateSelection', () => {
     expect(message).toMatch(/2w\b/u)
     expect(message).not.toMatch(/2w \d+d/u)
   })
+
+  it('handles invalid numeric selections gracefully', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/test.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v3',
+        },
+        latestVersion: 'v4.1.0',
+        currentVersion: 'v3',
+        latestSha: 'sha123',
+        publishedAt: null,
+        isBreaking: true,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['not-a-number', 'invalid']
+    let selected = await promptUpdateSelection(updates)
+
+    expect(selected).toBeNull()
+  })
+
+  it('computes max version length when latestVersion exists', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/version.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v1',
+        },
+        latestVersion: 'v123.456.789',
+        currentVersion: 'v1',
+        publishedAt: null,
+        latestSha: 'sha',
+        isBreaking: true,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['0']
+    let selected = await promptUpdateSelection(updates)
+
+    expect(selected).toHaveLength(1)
+    expect(capturedOptions).toBeDefined()
+  })
+
+  it('skips latestVersion formatting when no latestVersion is provided', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/no-latest.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v1',
+        },
+        currentVersion: 'v1',
+        latestVersion: null,
+        publishedAt: null,
+        isBreaking: false,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = []
+    let selected = await promptUpdateSelection(updates)
+
+    expect(selected).toBeNull()
+    expect(capturedOptions).toBeDefined()
+  })
 })

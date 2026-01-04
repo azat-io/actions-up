@@ -41,4 +41,10 @@ describe('getLineNumberForKey', () => {
     expect(pair).toBeTruthy()
     expect(getLineNumberForKey(content, { value: 'name' })).toBe(0)
   })
+
+  it('returns 0 when offset is not a finite number', () => {
+    let content = 'test: value\n'
+    let keyNode = { range: [Number.NaN, 0, 0] }
+    expect(getLineNumberForKey(content, keyNode)).toBe(0)
+  })
 })

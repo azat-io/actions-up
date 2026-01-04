@@ -274,4 +274,22 @@ describe('scanWorkflowAst', () => {
     let actions = scanWorkflowAst(document_, content, filePath)
     expect(actions).toEqual([])
   })
+
+  it('handles reusable workflow with non-scalar job key', () => {
+    let warnSpy = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    let content = `${[
+      'name: Complex Key',
+      'on: push',
+      'jobs:',
+      '  ? [complex, job]',
+      '  : uses: org/repo/.github/workflows/test.yml@v1',
+    ].join('\n')}\n`
+    let filePath = '.github/workflows/complex.yml'
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(document_, content, filePath)
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.job).toBeUndefined()
+    expect(actions[0]?.name).toBe('org/repo/.github/workflows/test.yml')
+    warnSpy.mockRestore()
+  })
 })

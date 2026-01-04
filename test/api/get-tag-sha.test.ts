@@ -191,4 +191,41 @@ describe('getTagSha', () => {
     expect(sha).toBeNull()
     expect(context.caches.tagSha.get('o/r#v9.9.9')).toBeNull()
   })
+
+  it('returns null when ref sha is empty', async () => {
+    let context = makeContext()
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ object: { type: 'commit', sha: '' } }), {
+        status: 200,
+      }),
+    )
+
+    let sha = await getTagSha(context, { tag: 'v4.0.0', owner: 'o', repo: 'r' })
+    expect(sha).toBeNull()
+    expect(context.caches.tagSha.get('o/r#v4.0.0')).toBeNull()
+  })
+
+  it('returns commit SHA directly when ref type is commit', async () => {
+    let context = makeContext()
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString =
+        typeof input === 'string' ? input : (input as URL).toString()
+      if (urlString.endsWith('/git/refs/tags/v3.0.0')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ object: { sha: 'directSha', type: 'commit' } }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
+
+    let sha = await getTagSha(context, { tag: 'v3.0.0', owner: 'o', repo: 'r' })
+    expect(sha).toBe('directSha')
+    expect(context.caches.tagSha.get('o/r#v3.0.0')).toBe('directSha')
+  })
 })

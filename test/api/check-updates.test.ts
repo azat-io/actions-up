@@ -1424,4 +1424,334 @@ describe('checkUpdates', () => {
       latestSha: 'validSha',
     })
   })
+
+  it('returns null results for actions skipped due to rate limit', async () => {
+    let callCount = 0
+    let rateLimitError = new Error('GitHub API rate limit exceeded.')
+    rateLimitError.name = 'GitHubRateLimitError'
+
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockImplementation(() => {
+        callCount += 1
+        if (callCount === 1) {
+          return Promise.resolve({
+            publishedAt: new Date('2024-01-01'),
+            isPrerelease: false,
+            description: null,
+            version: 'v1.0.0',
+            name: 'v1.0.0',
+            sha: 'abc',
+            url: 'u',
+          })
+        }
+        return Promise.reject(rateLimitError)
+      }),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/first@v1.0.0',
+        ref: 'owner/first@v1.0.0',
+        name: 'owner/first',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+      {
+        uses: 'owner/second@v1.0.0',
+        ref: 'owner/second@v1.0.0',
+        name: 'owner/second',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+      {
+        uses: 'owner/third@v1.0.0',
+        ref: 'owner/third@v1.0.0',
+        name: 'owner/third',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toMatchObject({
+      name: 'GitHubRateLimitError',
+    })
+  })
+
+  it('prefers best tag when release version is invalid semver', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        version: 'invalid-version',
+        name: 'invalid-version',
+        isPrerelease: false,
+        sha: 'release-sha',
+        description: null,
+        url: 'u',
+      }),
+      getAllTags: vi
+        .fn()
+        .mockResolvedValue([
+          { sha: 'tag-sha', tag: 'v2.0.0', message: null, date: null },
+        ]),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1.0.0',
+        ref: 'owner/repo@v1.0.0',
+        name: 'owner/repo',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v2.0.0',
+      latestSha: 'tag-sha',
+    })
+  })
+
+  it('keeps release when moving major tag is not more specific', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        sha: 'release-sha',
+        description: null,
+        version: 'v2',
+        name: 'v2',
+        url: 'u',
+      }),
+      getAllTags: vi.fn().mockResolvedValue([
+        { sha: 'tag-sha', message: null, date: null, tag: 'v2' },
+        { sha: 'tag-old', tag: 'v1.9.0', message: null, date: null },
+      ]),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v2',
+        ref: 'owner/repo@v2',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'v2',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(result[0]).toMatchObject({
+      latestSha: 'release-sha',
+      latestVersion: 'v2',
+    })
+  })
+
+  it('falls back to release when tags are not semver-like', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        sha: 'release-sha',
+        description: null,
+        version: 'v1',
+        name: 'v1',
+        url: 'u',
+      }),
+      getAllTags: vi.fn().mockResolvedValue([
+        { tag: 'latest', message: null, sha: 'tag-a', date: null },
+        { tag: 'release', message: null, sha: 'tag-b', date: null },
+      ]),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1',
+        ref: 'owner/repo@v1',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'v1',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(result[0]).toMatchObject({
+      latestSha: 'release-sha',
+      latestVersion: 'v1',
+    })
+  })
+
+  it('flags update when current version is a SHA and latest SHA is missing', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        version: 'v2.0.0',
+        description: null,
+        name: 'v2.0.0',
+        sha: null,
+        url: 'u',
+      }),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagSha: vi.fn().mockResolvedValue(null),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@abcdef1234567',
+        ref: 'owner/repo@abcdef1234567',
+        version: 'abcdef1234567',
+        name: 'owner/repo',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v2.0.0',
+      hasUpdate: true,
+      latestSha: null,
+    })
+  })
+
+  it('does not flag update when SHA has no latest version', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@abcdef1234567',
+        ref: 'owner/repo@abcdef1234567',
+        version: 'abcdef1234567',
+        name: 'owner/repo',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(result[0]).toMatchObject({
+      latestVersion: null,
+      hasUpdate: false,
+      latestSha: null,
+    })
+  })
+
+  it('flags update when non-semver versions differ', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        version: 'latest',
+        description: null,
+        name: 'latest',
+        sha: null,
+        url: 'u',
+      }),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagSha: vi.fn().mockResolvedValue(null),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@dev-build',
+        ref: 'owner/repo@dev-build',
+        version: 'dev-build',
+        name: 'owner/repo',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(result[0]).toMatchObject({
+      latestVersion: 'latest',
+      hasUpdate: true,
+    })
+  })
+
+  it('does not flag update when non-semver versions match', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        version: 'dev-build',
+        isPrerelease: false,
+        name: 'dev-build',
+        description: null,
+        sha: null,
+        url: 'u',
+      }),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagSha: vi.fn().mockResolvedValue(null),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@dev-build',
+        ref: 'owner/repo@dev-build',
+        version: 'dev-build',
+        name: 'owner/repo',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(result[0]).toMatchObject({
+      latestVersion: 'dev-build',
+      hasUpdate: false,
+    })
+  })
 })
