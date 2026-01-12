@@ -18,7 +18,7 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 
 ## Features
 
-- **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml`)
+- **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml` and root `action.yml`/`action.yaml`)
 - **Reusable Workflows**: Detects and updates reusable workflow calls at the job level
 - **SHA pinning**: Updates actions to use commit SHA instead of tags for better security
 - **Batch Updates**: Update multiple actions at once
@@ -100,7 +100,7 @@ npx actions-up
 
 This will:
 
-1. Scan all `.github/workflows/*.yml` and `.github/actions/*/action.yml` files
+1. Scan all `.github/workflows/*.yml` and `.github/actions/*/action.yml` files, plus root `action.yml`/`action.yaml`
 2. Check for available updates
 3. Show an interactive list to select updates
 4. Apply selected updates with SHA pinning

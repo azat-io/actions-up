@@ -71,6 +71,21 @@ export async function scanGitHubActions(
     return true
   }
 
+  /**
+   * Check if path is a file.
+   *
+   * @param path - The file path to check.
+   * @returns True if the path is a file, false otherwise.
+   */
+  async function isFile(path: string): Promise<boolean> {
+    try {
+      let info = await stat(path)
+      return typeof info.isFile === 'function' ? info.isFile() : false
+    } catch {
+      return false
+    }
+  }
+
   /** Scan workflows. */
   let workflowsPath = join(githubPath, WORKFLOWS_DIRECTORY)
 
@@ -124,6 +139,42 @@ export async function scanGitHubActions(
     }
   } catch {
     /** Workflows directory not found or inaccessible. */
+  }
+
+  /** Scan root action.yml/action.yaml for composite actions. */
+  try {
+    let rootActionYml = join(normalizedRoot, 'action.yml')
+    let rootActionYaml = join(normalizedRoot, 'action.yaml')
+    let rootActionFile: string | null = null
+    let actions: GitHubAction[] = []
+
+    if (await isFile(rootActionYml)) {
+      try {
+        actions = await scanActionFile(rootActionYml)
+        rootActionFile = rootActionYml
+      } catch {
+        rootActionFile = null
+      }
+    }
+
+    if (!rootActionFile && (await isFile(rootActionYaml))) {
+      try {
+        actions = await scanActionFile(rootActionYaml)
+        rootActionFile = rootActionYaml
+      } catch {
+        rootActionFile = null
+      }
+    }
+
+    if (rootActionFile) {
+      let relativePath = relative(normalizedRoot, rootActionFile)
+      result.compositeActions.set(relativePath, relativePath)
+      if (actions.length > 0) {
+        result.actions.push(...actions)
+      }
+    }
+  } catch {
+    /** Root action file not found or unreadable. */
   }
 
   /** Scan composite actions. */

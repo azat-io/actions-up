@@ -485,6 +485,159 @@ describe('scanGitHubActions', () => {
     expect(result.actions).toHaveLength(1)
   })
 
+  it('scans root action.yml composite actions', async () => {
+    vi.mocked(stat).mockImplementation((path: unknown) => {
+      let pathValue = String(path)
+      if (pathValue.endsWith('action.yml')) {
+        return Promise.resolve({ isFile: () => true } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('action.yml')) {
+        return Promise.resolve('action content') as ReturnType<typeof readFile>
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(parseDocument).mockReturnValue(
+      createMockDocument({
+        runs: {
+          steps: [{ uses: 'actions/setup-node@v5' }],
+          using: 'composite',
+        },
+      }) as unknown as ReturnType<typeof parseDocument>,
+    )
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.actions).toHaveLength(1)
+    expect(result.workflows.size).toBe(0)
+    expect(result.compositeActions.size).toBe(1)
+    expect(result.compositeActions.get('action.yml')).toBe('action.yml')
+  })
+
+  it('registers root action.yml when no steps are present', async () => {
+    vi.mocked(stat).mockImplementation((path: unknown) => {
+      let pathValue = String(path)
+      if (pathValue.endsWith('action.yml')) {
+        return Promise.resolve({ isFile: () => true } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('action.yml')) {
+        return Promise.resolve('action content') as ReturnType<typeof readFile>
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(parseDocument).mockReturnValue(
+      createMockDocument({
+        runs: {
+          using: 'composite',
+        },
+      }) as unknown as ReturnType<typeof parseDocument>,
+    )
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.actions).toHaveLength(0)
+    expect(result.workflows.size).toBe(0)
+    expect(result.compositeActions.size).toBe(1)
+    expect(result.compositeActions.get('action.yml')).toBe('action.yml')
+  })
+
+  it('scans root action.yaml composite actions', async () => {
+    vi.mocked(stat).mockImplementation((path: unknown) => {
+      let pathValue = String(path)
+      if (pathValue.endsWith('action.yml')) {
+        return Promise.reject(new Error('ENOENT'))
+      }
+      if (pathValue.endsWith('action.yaml')) {
+        return Promise.resolve({ isFile: () => true } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('action.yaml')) {
+        return Promise.resolve('action content') as ReturnType<typeof readFile>
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(parseDocument).mockReturnValue(
+      createMockDocument({
+        runs: {
+          steps: [{ uses: 'actions/setup-node@v5' }],
+          using: 'composite',
+        },
+      }) as unknown as ReturnType<typeof parseDocument>,
+    )
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.actions).toHaveLength(1)
+    expect(result.workflows.size).toBe(0)
+    expect(result.compositeActions.size).toBe(1)
+    expect(result.compositeActions.get('action.yaml')).toBe('action.yaml')
+  })
+
+  it('handles root action.yml scan errors', async () => {
+    vi.mocked(stat).mockImplementation((path: unknown) => {
+      let pathValue = String(path)
+      if (pathValue.endsWith('action.yml')) {
+        return Promise.resolve({ isFile: () => true } as Stats)
+      }
+      if (pathValue.endsWith('action.yaml')) {
+        return Promise.resolve({ isFile: () => false } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('action.yml')) {
+        return Promise.reject(new Error('Read error'))
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.actions).toHaveLength(0)
+    expect(result.workflows.size).toBe(0)
+    expect(result.compositeActions.size).toBe(0)
+  })
+
+  it('handles root action.yaml scan errors', async () => {
+    vi.mocked(stat).mockImplementation((path: unknown) => {
+      let pathValue = String(path)
+      if (pathValue.endsWith('action.yml')) {
+        return Promise.reject(new Error('ENOENT'))
+      }
+      if (pathValue.endsWith('action.yaml')) {
+        return Promise.resolve({ isFile: () => true } as Stats)
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    vi.mocked(readFile).mockImplementation((path: unknown) => {
+      if (typeof path === 'string' && path.endsWith('action.yaml')) {
+        return Promise.reject(new Error('Read error'))
+      }
+      return Promise.reject(new Error('ENOENT'))
+    })
+
+    let result = await scanGitHubActions('.')
+
+    expect(result.actions).toHaveLength(0)
+    expect(result.workflows.size).toBe(0)
+    expect(result.compositeActions.size).toBe(0)
+  })
+
   it('scans composite actions with action.yaml files', async () => {
     vi.mocked(stat).mockImplementation(
       (path: Parameters<typeof stat>[0]): ReturnType<typeof stat> =>
