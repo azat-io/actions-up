@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.9.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.8.0...v1.9.0)
+
+### 🚀 Features
+
+- Scan root action.yml composite actions ([ece7a1f](https://github.com/azat-io/actions-up/commit/ece7a1f))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.8.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.7.0...v1.8.0)
