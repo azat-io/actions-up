@@ -49,24 +49,25 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 
 ## Why
 
-### The Problem
-
-Keeping GitHub Actions updated is a critical but tedious task:
-
-- **Security Risk**: Using outdated actions with known vulnerabilities
-- **Manual Hell**: Checking dozens of actions across multiple workflows by hand
-- **Version Tags Are Mutable**: v1 or v2 tags can change without notice, breaking reproducibility
-- **Time Sink**: Hours spent on maintenance that could be used for actual development
-
-### The Solution
-
-Actions Up transforms a painful manual process into a delightful experience:
+Keeping GitHub Actions updated is critical and time-consuming. Actions Up scans all workflows, highlights available updates, and can pin actions to SHAs for reproducibility.
 
 | Without Actions Up             | With Actions Up                  |
 | :----------------------------- | :------------------------------- |
 | Check each action manually     | Scan all workflows in seconds    |
 | Risk using vulnerable versions | SHA pinning for maximum security |
 | 30+ minutes per repository     | Under 1 minute total             |
+
+### Security Motivation
+
+GitHub Actions run arbitrary code in your CI. If a job has secrets available, any action used in that job can read the environment and exfiltrate those secrets. A compromised action or a mutable version tag is a direct path to leakage.
+
+Actions Up reduces risk by:
+
+- Pinning actions to commit SHAs to prevent tag hijacking
+- Making outdated actions visible and showing exactly what runs in CI
+- Warning about major updates so you can review changes before applying them
+
+Note: secrets are available on `push`, `workflow_dispatch`, `schedule`, and `pull_request_target` triggers (and on fork PRs if explicitly enabled). Always scope workflow permissions to the minimum required.
 
 ## Installation
 
@@ -154,6 +155,10 @@ jobs:
   check-actions:
     name: Check for GHA updates
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -168,7 +173,10 @@ jobs:
 
       - name: Run actions-up check
         id: actions-check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           echo "## GitHub Actions Update Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -178,7 +186,7 @@ jobs:
 
           # Run actions-up and capture output
           echo "Running actions-up to check for updates..."
-          actions-up --dry-run > actions-up-raw.txt 2>&1 || true
+          actions-up --dry-run > actions-up-raw.txt 2>&1
 
           # Parse the output to detect updates
           if grep -q "→" actions-up-raw.txt; then
@@ -254,7 +262,7 @@ jobs:
           fi
 
       - name: Comment PR with updates
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
         with:
           script: |
@@ -354,34 +362,6 @@ jobs:
 
 </details>
 
-### Scheduled Checks
-
-You can also set up scheduled checks to stay informed about updates:
-
-```yaml
-name: Weekly Actions Update Check
-
-on:
-  schedule:
-    - cron: '0 9 * * 1' # Every Monday at 9 AM
-  workflow_dispatch: # Allow manual triggers
-
-jobs:
-  check-updates:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: npm install -g actions-up
-      - run: |
-          if actions-up --dry-run | grep -q "→"; then
-            echo "Updates available! Run 'npx actions-up' to update."
-            exit 1
-          fi
-```
-
 ## Example
 
 ### Regular Actions
@@ -418,20 +398,12 @@ jobs:
 
 ## Advanced Usage
 
-### Using GitHub Token for Higher Rate Limits
+### GitHub Token
 
-While Actions Up works without authentication, providing a GitHub token increases API rate limits from 60 to 5000 requests per hour, useful for large projects:
-
-[Create a GitHub Personal Access Token](https://github.com/settings/tokens/new?scopes=public_repo&description=actions-up).
-
-- For public repositories: Select `public_repo` scope
-- For private repositories: Select `repo` scope
-
-Set the token as an environment variable:
+Use `GITHUB_TOKEN` (or a PAT) to raise API rate limits from 60 to 5000 requests/hour.
 
 ```bash
-export GITHUB_TOKEN=your_token_here
-npx actions-up
+GITHUB_TOKEN=your_token_here npx actions-up
 ```
 
 Or in GitHub Actions:
@@ -445,48 +417,17 @@ Or in GitHub Actions:
 
 ### Skipping Updates
 
-Skip updates using CLI excludes and YAML ignore comments. Excludes run first, then ignore comments.
-
-#### CLI Excludes
-
-Skip actions by name using regular expressions. Patterns are matched against the full action name (`owner/repo[/path]`).
-
-- Repeatable flag: `--exclude <regex>` (can be used multiple times)
-- Comma-separated list is supported inside a single flag
-- Forms:
-  - Plain string compiled as case-insensitive regex: `my-org/.*`
-  - Literal with flags: `/^actions\/internal-.+$/i`
-
-Examples:
+Use CLI excludes or YAML ignore comments.
 
 ```bash
-npx actions-up --exclude "my-org/.*"
-npx actions-up --exclude ".*/internal-.*" --exclude "/^acme\/.+$/i"
-# or
-npx actions-up --exclude "my-org/.*, .*/internal-.*"
+npx actions-up --exclude "my-org/.*" --exclude ".*/internal-.*"
 ```
 
-#### Filtering by Release Age
-
-By default, Actions Up shows all available updates. You can filter out recently released updates to avoid updating to versions that haven't been battle-tested yet:
-
 ```bash
-# Only show updates released at least 7 days ago
 npx actions-up --min-age 7
 ```
 
-When `--min-age` is set, an "Age" column appears showing how long ago each release was published (e.g., `3d`, `1w 2d`).
-
-#### Ignore Comments
-
-You can skip specific actions or files using YAML comments. Ignored items are hidden in dry-run and interactive modes and are not updated with `--yes`.
-
-- Ignore whole file: `# actions-up-ignore-file`
-- Block ignore: `# actions-up-ignore-start` … `# actions-up-ignore-end`
-- Next line: `# actions-up-ignore-next-line`
-- Inline on the same line: append `# actions-up-ignore`
-
-Example:
+Ignore comments (file/block/next-line/inline):
 
 ```yaml
 # actions-up-ignore-file
@@ -500,24 +441,6 @@ Example:
 - uses: actions/cache@v3
 # actions-up-ignore-end
 ```
-
-## Security
-
-Actions Up promotes security best practices:
-
-- **SHA pinning**: Uses commit SHA instead of mutable tags
-- **Version comment**: Adds the released version next to the pinned SHA for readability
-- **No Auto-Updates**: Full control over what gets updated
-- **Breaking Change Warnings**: Alerts you to major version updates that may require configuration changes
-
-## CI/CD Best Practices
-
-When using Actions Up in your CI/CD pipeline:
-
-1. **Start with warnings**: Begin by running checks without failing builds to gauge the update frequency
-2. **Regular updates**: Schedule weekly or monthly update PRs rather than blocking every PR
-3. **Team education**: Ensure your team understands the security benefits of keeping actions updated
-4. **Gradual adoption**: Roll out to a few repositories first before organization-wide deployment
 
 ## Contributing
 

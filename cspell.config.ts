@@ -12,6 +12,7 @@ export default defineConfig({
     'nanospinner',
     'oauthtoken',
     'octocat',
+    'pipefail',
     'rcompare',
     'rolldown',
     'segs',
