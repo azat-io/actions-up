@@ -451,6 +451,15 @@ Ignore comments (file/block/next-line/inline):
 # actions-up-ignore-end
 ```
 
+## Why Actions Up?
+
+Interactive CLI for developers who want control over GitHub Actions updates.
+
+- **vs. Dependabot/Renovate:** Dependabot and Renovate update via pull requests; Actions Up is an interactive CLI with explicit SHA pinning.
+- **vs. pinact:** pinact is a CLI to pin and update Actions and reusable workflows; Actions Up adds interactive selection and major update warnings.
+- **Zero-config:** `npx actions-up` runs immediately.
+- **Breaking change warnings:** Major updates are flagged before applying.
+
 ## Contributing
 
 See [Contributing Guide](https://github.com/azat-io/actions-up/blob/main/contributing.md).

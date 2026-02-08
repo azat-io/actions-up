@@ -15,6 +15,7 @@ export default defineConfig({
     'premajor',
     'preminor',
     'prepatch',
+    'pinact',
     'pipefail',
     'rcompare',
     'rolldown',
