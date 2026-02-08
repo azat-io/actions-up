@@ -136,6 +136,15 @@ npx actions-up --dir .gitea
 
 By default, actions pinned to branch refs (e.g., `@main`, `@release/v1`) are skipped to avoid changing intentionally floating references. Skipped entries are listed in the output. To include them in update checks, pass `--include-branches`.
 
+### Update Mode
+
+By default, Actions Up allows major updates. Use `--mode` to limit updates:
+
+```bash
+npx actions-up --mode minor
+npx actions-up --mode patch
+```
+
 ## GitHub Actions Integration
 
 ### Automated PR Checks

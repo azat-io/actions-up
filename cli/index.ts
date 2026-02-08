@@ -3,11 +3,16 @@ import 'node:worker_threads'
 import pc from 'picocolors'
 import cac from 'cac'
 
+import type { UpdateMode } from '../types/update-mode'
+
+import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
+import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { shouldIgnore } from '../core/ignore/should-ignore'
 import { checkUpdates } from '../core/api/check-updates'
 import { scanGitHubActions } from '../core/index'
+import { isSha } from '../core/versions/is-sha'
 import { version } from '../package.json'
 
 /** CLI Options. */
@@ -17,6 +22,9 @@ interface CLIOptions {
 
   /** Whether to include branch references in update checks. */
   includeBranches?: boolean
+
+  /** Update mode (major, minor, patch). */
+  mode?: UpdateMode
 
   /** Preview changes without applying them. */
   dryRun: boolean
@@ -50,6 +58,13 @@ export function run(): void {
       'Minimum age in days for updates (default: 0)',
       {
         default: 0,
+      },
+    )
+    .option(
+      '--mode <mode>',
+      'Update mode: major, minor, or patch (default: major)',
+      {
+        default: 'major',
       },
     )
     .option('--yes, -y', 'Skip all confirmations')
@@ -163,12 +178,58 @@ export function run(): void {
           return age >= minAgeMs
         })
 
+        let mode = normalizeUpdateMode(options.mode)
+        let blockedByMode: typeof outdated = []
+        if (mode !== 'major') {
+          let fileCache = new Map<string, string>()
+          let decisions = await Promise.all(
+            outdated.map(async update => {
+              let effectiveCurrentVersion = update.currentVersion
+              if (isSha(update.currentVersion)) {
+                let inline = await readInlineVersionComment(
+                  update.action.file,
+                  update.action.line,
+                  fileCache,
+                )
+                if (inline) {
+                  effectiveCurrentVersion = inline
+                }
+              }
+
+              let level = getUpdateLevel(
+                effectiveCurrentVersion,
+                update.latestVersion,
+              )
+              let allowed =
+                mode === 'minor'
+                  ? level === 'minor' || level === 'patch' || level === 'none'
+                  : level === 'patch' || level === 'none'
+
+              return { allowed, update }
+            }),
+          )
+
+          let allowedByMode: typeof outdated = []
+          for (let decision of decisions) {
+            if (decision.allowed) {
+              allowedByMode.push(decision.update)
+            } else {
+              blockedByMode.push(decision.update)
+            }
+          }
+
+          outdated = allowedByMode
+        }
+
         let breaking = outdated.filter(update => update.isBreaking)
 
         if (outdated.length === 0) {
           spinner.success('All actions are up to date!')
           if (skipped.length > 0) {
             printSkippedWarning(skipped, includeBranches)
+          }
+          if (blockedByMode.length > 0) {
+            printModeWarning(blockedByMode, mode)
           }
           console.info(
             pc.green('\n✨ Everything is already at the latest version!\n'),
@@ -186,6 +247,9 @@ export function run(): void {
 
         if (skipped.length > 0) {
           printSkippedWarning(skipped, includeBranches)
+        }
+        if (blockedByMode.length > 0) {
+          printModeWarning(blockedByMode, mode)
         }
 
         if (options.dryRun) {
@@ -224,6 +288,10 @@ export function run(): void {
 
           console.info(pc.green('\n✓ Updates applied successfully!'))
         } else {
+          if (skipped.length > 0 || blockedByMode.length > 0) {
+            console.info('')
+          }
+
           let selected = await promptUpdateSelection(outdated, {
             showAge: options.minAge > 0,
           })
@@ -265,6 +333,41 @@ export function run(): void {
 }
 
 /**
+ * Render a warning block listing actions skipped due to update mode.
+ *
+ * @param blocked - Actions blocked by mode.
+ * @param mode - Selected update mode.
+ */
+function printModeWarning(
+  blocked: {
+    action: { version?: string | null; uses?: string; name: string }
+    currentVersion: string | null
+  }[],
+  mode: UpdateMode,
+): void {
+  if (blocked.length === 0) {
+    return
+  }
+
+  let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
+  let form = pluralRules.select(blocked.length)
+  let noun = form === 'one' ? 'action' : 'actions'
+  let label = mode === 'minor' ? 'major' : 'major/minor'
+
+  console.info(
+    pc.yellow(
+      `\n⚠️  Skipped ${blocked.length} ${noun} due to ${label} updates`,
+    ),
+  )
+  for (let update of blocked) {
+    let identifier =
+      update.action.uses ??
+      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
+    console.info(pc.gray(`   • ${identifier}`))
+  }
+}
+
+/**
  * Render a warning block listing actions skipped due to branch references.
  *
  * @param skipped - Actions that were skipped.
@@ -293,5 +396,24 @@ function printSkippedWarning(
       `${update.action.name}@${update.currentVersion ?? 'unknown'}`
     console.info(pc.gray(`   • ${identifier}`))
   }
-  console.info('')
+}
+
+/**
+ * Normalize and validate update mode option.
+ *
+ * @param mode - Raw mode option.
+ * @returns Normalized update mode.
+ */
+function normalizeUpdateMode(mode: undefined | string): UpdateMode {
+  let normalized = (mode ?? 'major').toLowerCase()
+  if (
+    normalized === 'major' ||
+    normalized === 'minor' ||
+    normalized === 'patch'
+  ) {
+    return normalized
+  }
+  throw new Error(
+    `Invalid mode "${mode}". Expected "major", "minor", or "patch".`,
+  )
 }

@@ -1,6 +1,5 @@
 import type Enquirer from 'enquirer'
 
-import { readFile } from 'node:fs/promises'
 import enquirer from 'enquirer'
 import 'node:worker_threads'
 import path from 'node:path'
@@ -8,8 +7,10 @@ import pc from 'picocolors'
 
 import type { ActionUpdate } from '../../types/action-update'
 
+import { readInlineVersionComment } from '../versions/read-inline-version-comment'
 import { formatVersion } from './format-version'
 import { GITHUB_DIRECTORY } from '../constants'
+import { isSha } from '../versions/is-sha'
 import { stripAnsi } from './strip-ansi'
 import { padString } from './pad-string'
 
@@ -229,7 +230,7 @@ export async function promptUpdateSelection(
         return { versionForPadding, effectiveForDiff, shortSha, display }
       }
 
-      let versionFromComment = await tryReadInlineVersionComment(
+      let versionFromComment = await readInlineVersionComment(
         update.action.file,
         update.action.line,
       )
@@ -522,46 +523,6 @@ export async function promptUpdateSelection(
 }
 
 /**
- * Best-effort extraction of version number from an inline comment on the same
- * line as `uses:`. Expected shape after update is, for example: `uses:
- * actions/checkout@<sha> # v5.0.0`.
- *
- * Only used when the current reference is a SHA. Returns null if not found.
- *
- * @param filePath - Absolute path to the YAML file.
- * @param lineNumber - 1-based line number of the `uses:` key.
- * @returns Extracted version (e.g., `v5.0.0`) or null when not present.
- */
-async function tryReadInlineVersionComment(
-  filePath: undefined | string,
-  lineNumber: undefined | number,
-): Promise<string | null> {
-  try {
-    if (!filePath || !lineNumber || lineNumber <= 0) {
-      return null
-    }
-
-    let content = await readFile(filePath, 'utf8')
-    let lines = content.split('\n')
-    let index = lineNumber - 1
-    if (index < 0 || index >= lines.length) {
-      return null
-    }
-
-    let line = lines[index]!
-    let match = line.match(
-      /#\s*(?<version>[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?)/u,
-    )
-    if (match?.groups?.['version']) {
-      return match.groups['version']
-    }
-  } catch {
-    /** Ignore errors - simply fall back to SHA display. */
-  }
-  return null
-}
-
-/**
  * Format age of a release in human-readable format.
  *
  * @param publishedAt - Publication date.
@@ -614,20 +575,6 @@ function formatTableRow(options: FormatTableRowOptions): string {
 
   let line = parts.join('  ')
   return line.replace(/\s+$/u, '')
-}
-
-/**
- * Check if a string is a Git SHA hash.
- *
- * @param value - String to check.
- * @returns True if the string is a SHA hash.
- */
-function isSha(value: string): boolean {
-  /** Remove 'v' prefix if present. */
-  let normalized = value.replace(/^v/u, '')
-
-  /** Check if it matches SHA pattern (7-40 hex characters). */
-  return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }
 
 /**
