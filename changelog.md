@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.10.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.9.0...v1.10.0)
+
+### 🚀 Features
+
+- Add update mode filtering ([f18546f](https://github.com/azat-io/actions-up/commit/f18546f))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.9.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.8.0...v1.9.0)
