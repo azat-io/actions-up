@@ -1,7 +1,7 @@
 import semver from 'semver'
 
 /** Update level for a version change. */
-export type UpdateLevel = 'unknown' | 'major' | 'minor' | 'patch' | 'none'
+type UpdateLevel = 'unknown' | 'major' | 'minor' | 'patch' | 'none'
 
 /**
  * Determine the update level between two version strings.
