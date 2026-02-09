@@ -89,6 +89,12 @@ Per-project
 npm install --save-dev actions-up
 ```
 
+Alternatively, you can install Actions Up with [Homebrew](https://brew.sh)
+
+```bash
+brew install actions-up
+```
+
 ## Usage
 
 ### Interactive Mode (Default)
@@ -228,7 +234,7 @@ jobs:
               # See the raw output above for details.
               echo "### How to Update"
               echo ""
-              echo "You have several options to update these actions:"
+              echo "Choose from several ways to update these actions:"
               echo ""
               echo "#### Option 1: Automatic Update (Recommended)"
               echo '```bash'
