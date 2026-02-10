@@ -167,7 +167,8 @@ export async function checkUpdates(
               let hasVersion = Boolean(version && version.trim() !== '')
               let majorOnly = hasVersion && /^v?\d+$/u.test(version.trim())
               let valid = semver.valid(normalized)
-              considerTags = !hasVersion || majorOnly || !valid
+              considerTags =
+                !hasVersion || majorOnly || !valid || !isSemverLike(version)
             }
 
             if (considerTags) {

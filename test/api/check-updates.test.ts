@@ -1754,4 +1754,53 @@ describe('checkUpdates', () => {
       hasUpdate: false,
     })
   })
+
+  it('falls back to tags when release tag is not semver-like', async () => {
+    let client: GitHubClient = {
+      getAllTags: vi.fn().mockResolvedValue([
+        { tag: 'v4.33.0', sha: 'new-sha', message: null, date: null },
+        { tag: 'v4.32.0', sha: 'old-sha', message: null, date: null },
+        {
+          tag: 'release-bundle-v2.5.0',
+          sha: 'bundle-sha',
+          message: null,
+          date: null,
+        },
+      ]),
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-06-01'),
+        version: 'release-bundle-v2.5.0',
+        name: 'Release Bundle v2.5.0',
+        isPrerelease: false,
+        sha: 'bundle-sha',
+        description: null,
+        url: 'u',
+      }),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v4.32.0',
+        ref: 'owner/repo@v4.32.0',
+        name: 'owner/repo',
+        version: 'v4.32.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v4.33.0',
+      latestSha: 'new-sha',
+      hasUpdate: true,
+    })
+  })
 })
