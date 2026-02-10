@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.10.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.10.0...v1.10.1)
+
+### 🐞 Bug Fixes
+
+- Fall back to tags when release tag is not semver-like ([595fa30](https://github.com/azat-io/actions-up/commit/595fa30))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.10.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.9.0...v1.10.0)

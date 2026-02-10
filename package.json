@@ -1,6 +1,6 @@
 {
   "name": "actions-up",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "Interactive CLI tool to update GitHub Actions to latest versions with SHA pinning",
   "keywords": [
     "github-actions",
