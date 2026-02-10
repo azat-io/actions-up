@@ -68,12 +68,12 @@
     "yaml": "^2.8.2"
   },
   "devDependencies": {
-    "@azat-io/eslint-config": "^2.67.0",
+    "@azat-io/eslint-config": "^2.68.0",
     "@azat-io/typescript-config": "^1.1.1",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@commitlint/types": "^20.4.0",
-    "@types/node": "^25.2.2",
+    "@types/node": "^25.2.3",
     "@types/semver": "^7.7.1",
     "@vitest/coverage-v8": "^4.0.18",
     "changelogen": "^0.6.2",
