@@ -162,6 +162,10 @@ npx actions-up --mode minor
 npx actions-up --mode patch
 ```
 
+In `minor` and `patch` modes, Actions Up tries to find the newest compatible
+tag first (for example, from `@v4` in `minor` mode it will choose the latest
+`v4.x.y`). If no compatible version exists, that action is skipped.
+
 ## GitHub Actions Integration
 
 ### Automated PR Checks

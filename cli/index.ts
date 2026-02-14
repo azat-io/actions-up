@@ -9,6 +9,8 @@ import type { UpdateMode } from '../types/update-mode'
 
 import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
+import { getCompatibleUpdate } from '../core/api/get-compatible-update'
+import { createGitHubClient } from '../core/api/create-github-client'
 import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { shouldIgnore } from '../core/ignore/should-ignore'
@@ -174,15 +176,14 @@ export function run(): void {
           return
         }
 
+        let token = process.env['GITHUB_TOKEN']
+        let githubClient = createGitHubClient(token)
         let includeBranches = options.includeBranches ?? false
 
-        let updates = await checkUpdates(
-          actionsToCheck,
-          process.env['GITHUB_TOKEN'],
-          {
-            includeBranches,
-          },
-        )
+        let updates = await checkUpdates(actionsToCheck, token, {
+          client: githubClient,
+          includeBranches,
+        })
 
         /** Apply ignore comments (file/block/next-line/inline). */
         let filtered: typeof updates = []
@@ -218,6 +219,11 @@ export function run(): void {
         let mode = normalizeUpdateMode(options.mode)
         let blockedByMode: typeof outdated = []
         if (mode !== 'major') {
+          let tagsCache = new Map<
+            string,
+            Awaited<ReturnType<typeof githubClient.getAllTags>>
+          >()
+          let shaCache = new Map<string, string | null>()
           let fileCache = new Map<string, string>()
           let decisions = await Promise.all(
             outdated.map(async update => {
@@ -242,17 +248,48 @@ export function run(): void {
                   ? level === 'minor' || level === 'patch' || level === 'none'
                   : level === 'patch' || level === 'none'
 
-              return { allowed, update }
+              return { effectiveCurrentVersion, allowed, update }
             }),
           )
 
           let allowedByMode: typeof outdated = []
-          for (let decision of decisions) {
-            if (decision.allowed) {
+          let compatibleFallbacks = await Promise.all(
+            decisions.map(async decision => {
+              if (decision.allowed) {
+                return { update: decision.update }
+              }
+
+              let compatible = await getCompatibleUpdate(githubClient, {
+                currentVersion: decision.effectiveCurrentVersion,
+                actionName: decision.update.action.name,
+                tagsCache,
+                shaCache,
+                mode,
+              })
+
+              if (!compatible) {
+                return { blocked: decision.update }
+              }
+
+              return {
+                update: {
+                  ...decision.update,
+                  latestVersion: compatible.version,
+                  latestSha: compatible.sha,
+                  isBreaking: false,
+                  hasUpdate: true,
+                },
+              }
+            }),
+          )
+
+          for (let decision of compatibleFallbacks) {
+            if (decision.update) {
               allowedByMode.push(decision.update)
-            } else {
-              blockedByMode.push(decision.update)
+              continue
             }
+
+            blockedByMode.push(decision.blocked)
           }
 
           outdated = allowedByMode

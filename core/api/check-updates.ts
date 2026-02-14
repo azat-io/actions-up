@@ -1,9 +1,12 @@
 import semver from 'semver'
 
+import type { GitHubClient } from '../../types/github-client'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
 
+import { normalizeVersion } from '../versions/normalize-version'
 import { createGitHubClient } from './create-github-client'
+import { isSemverLike } from '../versions/is-semver-like'
 
 /** Internal result for a single release/tag lookup, enriched with status info. */
 interface ReleaseCheckResult extends LatestInfo {
@@ -34,15 +37,16 @@ interface LatestInfo {
  *
  * @param actions - Array of GitHub Actions to check.
  * @param token - Optional GitHub token for authentication.
- * @param options - Additional options (e.g., include branch refs).
+ * @param options - Additional options (e.g., include branch refs, shared
+ *   client).
  * @returns Array of update information.
  */
 export async function checkUpdates(
   actions: GitHubAction[],
   token?: string,
-  options?: { includeBranches?: boolean },
+  options?: { includeBranches?: boolean; client?: GitHubClient },
 ): Promise<ActionUpdate[]> {
-  let client = createGitHubClient(token)
+  let client = options?.client ?? createGitHubClient(token)
   let includeBranches = options?.includeBranches ?? false
 
   /** Filter external actions and reusable workflows. */
@@ -495,32 +499,6 @@ function compareSha(sha1: string, sha2: string): boolean {
 }
 
 /**
- * Normalize version string.
- *
- * @param version - Version string to normalize.
- * @returns Normalized version or null if empty.
- */
-function normalizeVersion(version: string): string | null {
-  if (!version) {
-    return null
-  }
-
-  let normalized = version.replace(/^v/u, '')
-
-  if (/^[0-9a-f]{7,40}$/iu.test(normalized)) {
-    return version
-  }
-
-  /** Try to coerce to semver. */
-  let coerced = semver.coerce(normalized)
-  if (coerced) {
-    return coerced.version
-  }
-
-  return version
-}
-
-/**
  * Check if a string is a Git SHA hash.
  *
  * @param value - String to check.
@@ -536,19 +514,4 @@ function isSha(value: undefined | string | null): boolean {
 
   /** Check if it matches SHA pattern (7-40 hex characters). */
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
-}
-
-/**
- * Check if a string looks like a semver-like tag (with optional leading 'v').
- * Examples: v1, v2.3, 3.4.5.
- *
- * @param value - String to test for semver-like pattern.
- * @returns True if the value matches a simple semver-like pattern.
- */
-function isSemverLike(value: undefined | string | null): boolean {
-  if (!value) {
-    return false
-  }
-  let normalized = value.trim()
-  return /^v?\d+(?:\.\d+){0,2}$/u.test(normalized)
 }

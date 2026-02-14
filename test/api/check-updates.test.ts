@@ -55,6 +55,45 @@ describe('checkUpdates', () => {
     expect(client.getLatestRelease).toHaveBeenCalledOnce()
   })
 
+  it('uses provided client when passed in options', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01T00:00:00Z'),
+        isPrerelease: false,
+        description: null,
+        version: 'v1.0.0',
+        name: 'v1.0.0',
+        sha: 'abc',
+        url: 'u',
+      }),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockImplementation(() => {
+      throw new Error('createGitHubClient should not be called')
+    })
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'actions/checkout@v1',
+        ref: 'actions/checkout@v1',
+        name: 'actions/checkout',
+        type: 'external',
+        version: 'v1',
+      },
+    ]
+
+    let result = await checkUpdates(actions, undefined, { client })
+    expect(result).toHaveLength(1)
+    expect(client.getLatestRelease).toHaveBeenCalledOnce()
+    expect(createGitHubClient).not.toHaveBeenCalled()
+  })
+
   it('returns empty array when no external actions provided', async () => {
     let client: GitHubClient = {
       shouldWaitForRateLimit: vi.fn(),
