@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.11.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.10.1...v1.11.0)
+
+### 🚀 Features
+
+- Support multiple dir flags and recursive scanning ([9a50261](https://github.com/azat-io/actions-up/commit/9a50261))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.10.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.10.0...v1.10.1)
