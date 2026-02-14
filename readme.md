@@ -132,10 +132,21 @@ npx actions-up --dry-run
 
 ### Custom Directory
 
-By default, Actions Up scans the `.github` directory. You can specify a different directory (e.g., for Gitea):
+By default, Actions Up scans `.github`.
+
+Use `--dir` to choose another directory, and pass it multiple times to scan several directories:
 
 ```bash
 npx actions-up --dir .gitea
+npx actions-up --dir .github --dir ./other/.github
+```
+
+### Recursive Scanning
+
+Use `--recursive` (`-r`) to scan YAML workflow/composite-action files recursively in the selected directories:
+
+```bash
+npx actions-up --dir ./gh-repo-defaults -r
 ```
 
 ### Branch References

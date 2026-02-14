@@ -1,8 +1,10 @@
+import { relative, resolve } from 'node:path'
 import { createSpinner } from 'nanospinner'
 import 'node:worker_threads'
 import pc from 'picocolors'
 import cac from 'cac'
 
+import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
 
 import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
@@ -11,6 +13,8 @@ import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { shouldIgnore } from '../core/ignore/should-ignore'
 import { checkUpdates } from '../core/api/check-updates'
+import { scanRecursive } from '../core/scan-recursive'
+import { GITHUB_DIRECTORY } from '../core/constants'
 import { scanGitHubActions } from '../core/index'
 import { isSha } from '../core/versions/is-sha'
 import { version } from '../package.json'
@@ -23,6 +27,12 @@ interface CLIOptions {
   /** Whether to include branch references in update checks. */
   includeBranches?: boolean
 
+  /** Custom directory name (e.g., '.gitea' instead of '.github'). */
+  dir?: string[] | string
+
+  /** Recursively scan directories for YAML files. */
+  recursive?: boolean
+
   /** Update mode (major, minor, patch). */
   mode?: UpdateMode
 
@@ -31,9 +41,6 @@ interface CLIOptions {
 
   /** Minimum age in days for updates. */
   minAge: number
-
-  /** Custom directory name (e.g., '.gitea' instead of '.github'). */
-  dir?: string
 
   /** Skip all confirmations. */
   yes: boolean
@@ -67,6 +74,7 @@ export function run(): void {
         default: 'major',
       },
     )
+    .option('--recursive, -r', 'Recursively scan directories for YAML files')
     .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
     .action(async (options: CLIOptions) => {
@@ -74,9 +82,38 @@ export function run(): void {
 
       let spinner = createSpinner('Scanning GitHub Actions...').start()
 
+      let rawDirectories: string[] = []
+      if (Array.isArray(options.dir)) {
+        rawDirectories.push(...options.dir)
+      } else if (typeof options.dir === 'string') {
+        rawDirectories.push(options.dir)
+      } else {
+        rawDirectories.push(GITHUB_DIRECTORY)
+      }
+
+      let directories = [
+        ...new Set(
+          rawDirectories.map(value => {
+            let cwd = process.cwd()
+            return relative(cwd, resolve(cwd, value)) || '.'
+          }),
+        ),
+      ]
+
       try {
         /** Scan for GitHub Actions in the repository. */
-        let scanResult = await scanGitHubActions(process.cwd(), options.dir)
+        let scanResults = options.recursive
+          ? await Promise.all(
+              directories.map(directory =>
+                scanRecursive(process.cwd(), directory),
+              ),
+            )
+          : await Promise.all(
+              directories.map(directory =>
+                scanGitHubActions(process.cwd(), directory),
+              ),
+            )
+        let scanResult = mergeScanResults(scanResults)
 
         let totalActions = scanResult.actions.length
         let totalWorkflows = scanResult.workflows.size
@@ -330,6 +367,42 @@ export function run(): void {
     })
 
   cli.parse()
+}
+
+/**
+ * Merge multiple scan results into one.
+ *
+ * @param results - Array of scan results.
+ * @returns Merged scan result.
+ */
+function mergeScanResults(results: ScanResult[]): ScanResult {
+  let merged: ScanResult = {
+    compositeActions: new Map(),
+    workflows: new Map(),
+    actions: [],
+  }
+  for (let result of results) {
+    for (let [key, value] of result.workflows) {
+      merged.workflows.set(key, value)
+    }
+    for (let [, value] of result.compositeActions) {
+      merged.compositeActions.set(value, value)
+    }
+    merged.actions.push(...result.actions)
+  }
+
+  /** Deduplicate actions that appear in multiple scan results. */
+  let seen = new Set<string>()
+  merged.actions = merged.actions.filter(action => {
+    let key = `${action.file}:${action.line}:${action.name}:${action.version}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
+
+  return merged
 }
 
 /**
