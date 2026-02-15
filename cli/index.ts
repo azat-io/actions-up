@@ -1,4 +1,3 @@
-import { relative, resolve } from 'node:path'
 import { createSpinner } from 'nanospinner'
 import 'node:worker_threads'
 import pc from 'picocolors'
@@ -11,12 +10,12 @@ import { readInlineVersionComment } from '../core/versions/read-inline-version-c
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
 import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { createGitHubClient } from '../core/api/create-github-client'
+import { resolveScanDirectories } from './resolve-scan-directories'
 import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { shouldIgnore } from '../core/ignore/should-ignore'
 import { checkUpdates } from '../core/api/check-updates'
 import { scanRecursive } from '../core/scan-recursive'
-import { GITHUB_DIRECTORY } from '../core/constants'
 import { scanGitHubActions } from '../core/index'
 import { isSha } from '../core/versions/is-sha'
 import { version } from '../package.json'
@@ -55,7 +54,10 @@ export function run(): void {
   cli
     .help()
     .version(version)
-    .option('--dir <directory>', 'Custom directory name (default: .github)')
+    .option(
+      '--dir <directory>',
+      'Directory to scan (repeatable). Default: .github, or . with --recursive',
+    )
     .option('--dry-run', 'Preview changes without applying them')
     .option('--exclude <regex>', 'Exclude actions by regex (repeatable)')
     .option(
@@ -84,23 +86,11 @@ export function run(): void {
 
       let spinner = createSpinner('Scanning GitHub Actions...').start()
 
-      let rawDirectories: string[] = []
-      if (Array.isArray(options.dir)) {
-        rawDirectories.push(...options.dir)
-      } else if (typeof options.dir === 'string') {
-        rawDirectories.push(options.dir)
-      } else {
-        rawDirectories.push(GITHUB_DIRECTORY)
-      }
-
-      let directories = [
-        ...new Set(
-          rawDirectories.map(value => {
-            let cwd = process.cwd()
-            return relative(cwd, resolve(cwd, value)) || '.'
-          }),
-        ),
-      ]
+      let directories = resolveScanDirectories({
+        recursive: options.recursive,
+        cwd: process.cwd(),
+        dir: options.dir,
+      })
 
       try {
         /** Scan for GitHub Actions in the repository. */

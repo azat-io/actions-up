@@ -146,8 +146,11 @@ npx actions-up --dir .github --dir ./other/.github
 Use `--recursive` (`-r`) to scan YAML workflow/composite-action files recursively in the selected directories:
 
 ```bash
+npx actions-up -r
 npx actions-up --dir ./gh-repo-defaults -r
 ```
+
+When `--recursive` is used without `--dir`, Actions Up scans from the current directory (`.`).
 
 ### Branch References
 
