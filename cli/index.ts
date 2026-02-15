@@ -3,7 +3,6 @@ import 'node:worker_threads'
 import pc from 'picocolors'
 import cac from 'cac'
 
-import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
 
 import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
@@ -13,8 +12,12 @@ import { createGitHubClient } from '../core/api/create-github-client'
 import { resolveScanDirectories } from './resolve-scan-directories'
 import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
+import { printSkippedWarning } from './print-skipped-warning'
+import { normalizeUpdateMode } from './normalize-update-mode'
 import { shouldIgnore } from '../core/ignore/should-ignore'
 import { checkUpdates } from '../core/api/check-updates'
+import { mergeScanResults } from './merge-scan-results'
+import { printModeWarning } from './print-mode-warning'
 import { scanRecursive } from '../core/scan-recursive'
 import { scanGitHubActions } from '../core/index'
 import { isSha } from '../core/versions/is-sha'
@@ -390,126 +393,4 @@ export function run(): void {
     })
 
   cli.parse()
-}
-
-/**
- * Merge multiple scan results into one.
- *
- * @param results - Array of scan results.
- * @returns Merged scan result.
- */
-function mergeScanResults(results: ScanResult[]): ScanResult {
-  let merged: ScanResult = {
-    compositeActions: new Map(),
-    workflows: new Map(),
-    actions: [],
-  }
-  for (let [index, result] of results.entries()) {
-    for (let [key, value] of result.workflows) {
-      merged.workflows.set(`${index}:${key}`, value)
-    }
-    for (let [, value] of result.compositeActions) {
-      merged.compositeActions.set(`${index}:${value}`, value)
-    }
-    merged.actions.push(...result.actions)
-  }
-
-  /** Deduplicate actions that appear in multiple scan results. */
-  let seen = new Set<string>()
-  merged.actions = merged.actions.filter(action => {
-    let key = `${action.file}:${action.line}:${action.name}:${action.version}`
-    if (seen.has(key)) {
-      return false
-    }
-    seen.add(key)
-    return true
-  })
-
-  return merged
-}
-
-/**
- * Render a warning block listing actions skipped due to update mode.
- *
- * @param blocked - Actions blocked by mode.
- * @param mode - Selected update mode.
- */
-function printModeWarning(
-  blocked: {
-    action: { version?: string | null; uses?: string; name: string }
-    currentVersion: string | null
-  }[],
-  mode: UpdateMode,
-): void {
-  if (blocked.length === 0) {
-    return
-  }
-
-  let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
-  let form = pluralRules.select(blocked.length)
-  let noun = form === 'one' ? 'action' : 'actions'
-  let label = mode === 'minor' ? 'major' : 'major/minor'
-
-  console.info(
-    pc.yellow(
-      `\n⚠️  Skipped ${blocked.length} ${noun} due to ${label} updates`,
-    ),
-  )
-  for (let update of blocked) {
-    let identifier =
-      update.action.uses ??
-      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
-    console.info(pc.gray(`   • ${identifier}`))
-  }
-}
-
-/**
- * Render a warning block listing actions skipped due to branch references.
- *
- * @param skipped - Actions that were skipped.
- * @param includeBranches - Whether branch refs were opted-in for checking.
- */
-function printSkippedWarning(
-  skipped: {
-    action: { version?: string | null; uses?: string; name: string }
-    currentVersion: string | null
-  }[],
-  includeBranches: boolean,
-): void {
-  let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
-  let form = pluralRules.select(skipped.length)
-  let noun = form === 'one' ? 'action' : 'actions'
-
-  let hint = includeBranches ? '' : ' (use --include-branches to check them)'
-  console.info(
-    pc.yellow(
-      `\n⚠️  Skipped ${skipped.length} ${noun} pinned to branches${hint}`,
-    ),
-  )
-  for (let update of skipped) {
-    let identifier =
-      update.action.uses ??
-      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
-    console.info(pc.gray(`   • ${identifier}`))
-  }
-}
-
-/**
- * Normalize and validate update mode option.
- *
- * @param mode - Raw mode option.
- * @returns Normalized update mode.
- */
-function normalizeUpdateMode(mode: undefined | string): UpdateMode {
-  let normalized = (mode ?? 'major').toLowerCase()
-  if (
-    normalized === 'major' ||
-    normalized === 'minor' ||
-    normalized === 'patch'
-  ) {
-    return normalized
-  }
-  throw new Error(
-    `Invalid mode "${mode}". Expected "major", "minor", or "patch".`,
-  )
 }
