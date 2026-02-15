@@ -53,10 +53,6 @@ export async function scanGitHubActions(
 
   let githubPath = join(normalizedRoot, ciDirectory)
 
-  if (!isWithin(normalizedRoot, githubPath)) {
-    throw new Error('Invalid path: detected path traversal attempt')
-  }
-
   /**
    * Helper function to validate names for path traversal.
    *

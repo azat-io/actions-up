@@ -99,10 +99,14 @@ describe('scanRecursive', () => {
     vi.clearAllMocks()
   })
 
-  it('throws when directory traverses outside root', async () => {
-    await expect(scanRecursive('.', '../outside')).rejects.toThrowError(
-      'Invalid path',
-    )
+  it('works with absolute root and dot directory', async () => {
+    vi.mocked(lstat).mockRejectedValue(new Error('ENOENT'))
+
+    let result = await scanRecursive('/some/absolute/path', '.')
+
+    expect(result.workflows.size).toBe(0)
+    expect(result.compositeActions.size).toBe(0)
+    expect(result.actions).toHaveLength(0)
   })
 
   it('scans workflow files recursively', async () => {

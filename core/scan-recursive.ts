@@ -1,4 +1,4 @@
-import { isAbsolute, relative, dirname, resolve } from 'node:path'
+import { relative, dirname, resolve } from 'node:path'
 
 import type { ScanResult } from '../types/scan-result'
 
@@ -29,14 +29,6 @@ export async function scanRecursive(
 
   let normalizedRoot = resolve(rootPath)
   let targetPath = resolve(normalizedRoot, directory)
-
-  let relativePath = relative(normalizedRoot, targetPath)
-  if (
-    relativePath !== '' &&
-    (relativePath.startsWith('..') || isAbsolute(relativePath))
-  ) {
-    throw new Error('Invalid path: detected path traversal attempt')
-  }
 
   let yamlFiles: string[]
   try {

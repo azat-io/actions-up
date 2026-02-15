@@ -96,14 +96,10 @@ export function run(): void {
         /** Scan for GitHub Actions in the repository. */
         let scanResults = options.recursive
           ? await Promise.all(
-              directories.map(directory =>
-                scanRecursive(process.cwd(), directory),
-              ),
+              directories.map(({ root, dir }) => scanRecursive(root, dir)),
             )
           : await Promise.all(
-              directories.map(directory =>
-                scanGitHubActions(process.cwd(), directory),
-              ),
+              directories.map(({ root, dir }) => scanGitHubActions(root, dir)),
             )
         let scanResult = mergeScanResults(scanResults)
 
@@ -408,12 +404,12 @@ function mergeScanResults(results: ScanResult[]): ScanResult {
     workflows: new Map(),
     actions: [],
   }
-  for (let result of results) {
+  for (let [index, result] of results.entries()) {
     for (let [key, value] of result.workflows) {
-      merged.workflows.set(key, value)
+      merged.workflows.set(`${index}:${key}`, value)
     }
     for (let [, value] of result.compositeActions) {
-      merged.compositeActions.set(value, value)
+      merged.compositeActions.set(`${index}:${value}`, value)
     }
     merged.actions.push(...result.actions)
   }

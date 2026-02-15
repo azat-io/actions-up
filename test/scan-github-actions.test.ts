@@ -116,10 +116,14 @@ describe('scanGitHubActions', () => {
     vi.clearAllMocks()
   })
 
-  it('throws when ci directory traverses outside root', async () => {
-    await expect(scanGitHubActions('.', '../outside')).rejects.toThrowError(
-      'Invalid path',
-    )
+  it('handles ci directory without traversal check', async () => {
+    vi.mocked(stat).mockRejectedValue(new Error('ENOENT'))
+
+    let result = await scanGitHubActions('/some/root', '.github')
+
+    expect(result.workflows.size).toBe(0)
+    expect(result.compositeActions.size).toBe(0)
+    expect(result.actions).toHaveLength(0)
   })
 
   it('scans workflows and composite actions successfully', async () => {
