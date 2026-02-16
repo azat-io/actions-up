@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.12.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.11.0...v1.12.0)
+
+### 🚀 Features
+
+- Resolve compatible updates for mode-blocked actions ([ee799ba](https://github.com/azat-io/actions-up/commit/ee799ba))
+- Use current directory as default in recursive mode ([7f6ee1d](https://github.com/azat-io/actions-up/commit/7f6ee1d))
+
+### 🐞 Bug Fixes
+
+- Support scanning from parent and external directories ([abb8c26](https://github.com/azat-io/actions-up/commit/abb8c26))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.11.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.10.1...v1.11.0)
