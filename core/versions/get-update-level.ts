@@ -1,6 +1,8 @@
 import semver from 'semver'
 
-/** Update level for a version change. */
+/**
+ * Update level for a version change.
+ */
 type UpdateLevel = 'unknown' | 'major' | 'minor' | 'patch' | 'none'
 
 /**

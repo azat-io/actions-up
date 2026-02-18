@@ -55,7 +55,9 @@ export function scanWorkflowAst(
 
     let jobName = isScalar(jobNode.key) ? String(jobNode.key.value) : undefined
 
-    /** Check for Reusable Workflows. */
+    /**
+     * Check for Reusable Workflows.
+     */
     let usesPair = findMapPair(jobNode.value, 'uses')
     if (usesPair?.value && usesPair.key && isScalar(usesPair.value)) {
       let usesValue = String(usesPair.value.value)

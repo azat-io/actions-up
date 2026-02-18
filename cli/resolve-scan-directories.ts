@@ -2,14 +2,18 @@ import { isAbsolute, basename, relative, dirname, resolve } from 'node:path'
 
 import { GITHUB_DIRECTORY } from '../core/constants'
 
-/** Options for resolving scan directories from CLI flags. */
+/**
+ * Options for resolving scan directories from CLI flags.
+ */
 interface ResolveScanDirectoriesOptions {
   dir?: string[] | string
   recursive?: boolean
   cwd: string
 }
 
-/** Resolved directory with root and relative directory. */
+/**
+ * Resolved directory with root and relative directory.
+ */
 interface ResolvedDirectory {
   root: string
   dir: string

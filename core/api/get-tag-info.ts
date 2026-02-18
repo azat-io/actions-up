@@ -38,9 +38,8 @@ export async function getTagInfo(
         published_at: string | null
         body: string | null
       }
-      let date: Date | null = releaseData.published_at
-        ? new Date(releaseData.published_at)
-        : null
+      let date: Date | null =
+        releaseData.published_at ? new Date(releaseData.published_at) : null
       let message: string | null = releaseData.body ?? null
       let sha: string | null = null
 
@@ -148,9 +147,8 @@ export async function getTagInfo(
               message?: string | null
             }
             message = commitData.message ?? null
-            date = commitData.author.date
-              ? new Date(commitData.author.date)
-              : null
+            date =
+              commitData.author.date ? new Date(commitData.author.date) : null
           } catch {
             /* Ignore commit fetch errors. */
           }

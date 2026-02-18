@@ -43,7 +43,9 @@ export async function readInlineVersionComment(
       return match.groups['version']
     }
   } catch {
-    /** Ignore errors - simply fall back to SHA display. */
+    /**
+     * Ignore errors - simply fall back to SHA display.
+     */
   }
   return null
 }

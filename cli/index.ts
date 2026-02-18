@@ -23,34 +23,54 @@ import { scanGitHubActions } from '../core/index'
 import { isSha } from '../core/versions/is-sha'
 import { version } from '../package.json'
 
-/** CLI Options. */
+/**
+ * CLI Options.
+ */
 interface CLIOptions {
-  /** Regex patterns to exclude actions by name (repeatable). */
+  /**
+   * Regex patterns to exclude actions by name (repeatable).
+   */
   exclude?: string[] | string
 
-  /** Whether to include branch references in update checks. */
+  /**
+   * Whether to include branch references in update checks.
+   */
   includeBranches?: boolean
 
-  /** Custom directory name (e.g., '.gitea' instead of '.github'). */
+  /**
+   * Custom directory name (e.g., '.gitea' instead of '.github').
+   */
   dir?: string[] | string
 
-  /** Recursively scan directories for YAML files. */
+  /**
+   * Recursively scan directories for YAML files.
+   */
   recursive?: boolean
 
-  /** Update mode (major, minor, patch). */
+  /**
+   * Update mode (major, minor, patch).
+   */
   mode?: UpdateMode
 
-  /** Preview changes without applying them. */
+  /**
+   * Preview changes without applying them.
+   */
   dryRun: boolean
 
-  /** Minimum age in days for updates. */
+  /**
+   * Minimum age in days for updates.
+   */
   minAge: number
 
-  /** Skip all confirmations. */
+  /**
+   * Skip all confirmations.
+   */
   yes: boolean
 }
 
-/** Run the CLI. */
+/**
+ * Run the CLI.
+ */
 export function run(): void {
   let cli = cac('actions-up')
 
@@ -96,9 +116,12 @@ export function run(): void {
       })
 
       try {
-        /** Scan for GitHub Actions in the repository. */
-        let scanResults = options.recursive
-          ? await Promise.all(
+        /**
+         * Scan for GitHub Actions in the repository.
+         */
+        let scanResults =
+          options.recursive ?
+            await Promise.all(
               directories.map(({ root, dir }) => scanRecursive(root, dir)),
             )
           : await Promise.all(
@@ -123,7 +146,9 @@ export function run(): void {
           return
         }
 
-        /** Prepare actions list and apply CLI excludes if provided. */
+        /**
+         * Prepare actions list and apply CLI excludes if provided.
+         */
         let actionsToCheck = scanResult.actions
 
         let rawExcludes: string[] = []
@@ -133,7 +158,9 @@ export function run(): void {
           rawExcludes.push(options.exclude)
         }
 
-        /** Support comma-separated lists inside a single flag. */
+        /**
+         * Support comma-separated lists inside a single flag.
+         */
         let normalizedExcludes = rawExcludes
           .flatMap(item => item.split(','))
           .map(item => item.trim())
@@ -156,7 +183,9 @@ export function run(): void {
           }
         }
 
-        /** Check for updates. */
+        /**
+         * Check for updates.
+         */
         spinner = createSpinner('Checking for updates...').start()
 
         if (actionsToCheck.length === 0) {
@@ -174,7 +203,9 @@ export function run(): void {
           includeBranches,
         })
 
-        /** Apply ignore comments (file/block/next-line/inline). */
+        /**
+         * Apply ignore comments (file/block/next-line/inline).
+         */
         let filtered: typeof updates = []
         await Promise.all(
           updates.map(async update => {
@@ -188,13 +219,19 @@ export function run(): void {
           }),
         )
 
-        /** Skipped entries that should trigger a warning (e.g., branches). */
+        /**
+         * Skipped entries that should trigger a warning (e.g., branches).
+         */
         let skipped = filtered.filter(update => update.status === 'skipped')
 
-        /** Filter outdated actions. */
+        /**
+         * Filter outdated actions.
+         */
         let outdated = filtered.filter(update => update.hasUpdate)
 
-        /** Filter by minimum age if publishedAt is available. */
+        /**
+         * Filter by minimum age if publishedAt is available.
+         */
         let minAgeMs = options.minAge * 24 * 60 * 60 * 1000
         let now = Date.now()
         outdated = outdated.filter(update => {
@@ -233,9 +270,9 @@ export function run(): void {
                 update.latestVersion,
               )
               let allowed =
-                mode === 'minor'
-                  ? level === 'minor' || level === 'patch' || level === 'none'
-                  : level === 'patch' || level === 'none'
+                mode === 'minor' ?
+                  level === 'minor' || level === 'patch' || level === 'none'
+                : level === 'patch' || level === 'none'
 
               return { effectiveCurrentVersion, allowed, update }
             }),
@@ -302,9 +339,9 @@ export function run(): void {
 
         spinner.success(
           `Found ${pc.yellow(outdated.length)} updates available${
-            breaking.length > 0
-              ? ` (${pc.redBright(breaking.length)} breaking)`
-              : ''
+            breaking.length > 0 ?
+              ` (${pc.redBright(breaking.length)} breaking)`
+            : ''
           }`,
         )
 
@@ -334,7 +371,9 @@ export function run(): void {
         }
 
         if (options.yes) {
-          /** Auto-update all actions with SHA. */
+          /**
+           * Auto-update all actions with SHA.
+           */
           let toUpdate = outdated.filter(update => update.latestSha)
           if (toUpdate.length === 0) {
             console.info(
@@ -375,7 +414,9 @@ export function run(): void {
       } catch (error) {
         spinner.error('Failed')
 
-        /** Handle rate limit errors with helpful message. */
+        /**
+         * Handle rate limit errors with helpful message.
+         */
         if (error instanceof Error && error.name === 'GitHubRateLimitError') {
           console.error(pc.yellow('\n⚠️ Rate Limit Exceeded\n'))
           console.error(error.message)

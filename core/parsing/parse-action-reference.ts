@@ -5,18 +5,22 @@ import type { GitHubAction } from '../../types/github-action'
  * object.
  *
  * @example
- *   const action = parseActionReference(
- *     'actions/checkout@v3',
- *     'workflow.yml',
- *     10,
- *   )
- *   // Returns: {
- *   //   type: 'external',
- *   //   name: 'actions/checkout',
- *   //   version: 'v3',
- *   //   file: 'workflow.yml',
- *   //   line: 10,
- *   // }
+ *
+ * ```ts
+ * const action = parseActionReference(
+ *   'actions/checkout@v3',
+ *   'workflow.yml',
+ *   10,
+ * )
+ * // Returns:
+ * // {
+ * //   type: 'external',
+ * //   name: 'actions/checkout',
+ * //   version: 'v3',
+ * //   file: 'workflow.yml',
+ * //   line: 10,
+ * // }
+ * ```
  *
  * @param reference - The action reference string to parse. Can be:
  *
@@ -37,7 +41,9 @@ export function parseActionReference(
     return null
   }
 
-  /** Handle docker actions. */
+  /**
+   * Handle docker actions.
+   */
   if (reference.startsWith('docker://')) {
     return {
       version: undefined,
@@ -48,7 +54,9 @@ export function parseActionReference(
     }
   }
 
-  /** Handle local actions. */
+  /**
+   * Handle local actions.
+   */
   if (reference.startsWith('./') || reference.startsWith('../')) {
     return {
       version: undefined,
@@ -59,7 +67,9 @@ export function parseActionReference(
     }
   }
 
-  /** Handle external actions, supporting owner/repo or owner/repo/path. */
+  /**
+   * Handle external actions, supporting owner/repo or owner/repo/path.
+   */
   let parts = reference.split('@')
   if (parts.length !== 2) {
     return null
@@ -70,7 +80,9 @@ export function parseActionReference(
     return null
   }
 
-  /** Validate owner/repo(/path...) format. */
+  /**
+   * Validate owner/repo(/path...) format.
+   */
   let segs = namePart.split('/')
   if (segs.length < 2) {
     return null
@@ -86,7 +98,9 @@ export function parseActionReference(
     }
   }
 
-  /** Detect Reusable Workflows by checking for .yml/.yaml extensions. */
+  /**
+   * Detect Reusable Workflows by checking for .yml/.yaml extensions.
+   */
   let isReusableWorkflow =
     segs.length > 2 && (namePart.endsWith('.yml') || namePart.endsWith('.yaml'))
 

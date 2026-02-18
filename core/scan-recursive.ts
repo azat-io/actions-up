@@ -54,7 +54,9 @@ export async function scanRecursive(
         return { type: 'action' as const, path: relativeFilePath, actions }
       }
     } catch {
-      /** Unreadable or unparsable file, skip. */
+      /**
+       * Unreadable or unparsable file, skip.
+       */
     }
 
     return null
@@ -73,9 +75,9 @@ export async function scanRecursive(
     } else {
       let actionDirectory = dirname(scanResult.path)
       let actionName =
-        actionDirectory === '.' || actionDirectory === ''
-          ? scanResult.path
-          : actionDirectory
+        actionDirectory === '.' || actionDirectory === '' ?
+          scanResult.path
+        : actionDirectory
       result.compositeActions.set(actionName, scanResult.path)
       result.actions.push(...scanResult.actions)
     }

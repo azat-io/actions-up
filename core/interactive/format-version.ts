@@ -17,9 +17,8 @@ export function formatVersion(
   }
 
   let latest = semver.parse(latestVersion)
-  let current = currentVersion
-    ? semver.parse(normalizeVersion(currentVersion))
-    : null
+  let current =
+    currentVersion ? semver.parse(normalizeVersion(currentVersion)) : null
 
   if (!current || !latest) {
     return latestVersion

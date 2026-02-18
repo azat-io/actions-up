@@ -12,15 +12,21 @@
 [![Code Coverage](https://img.shields.io/codecov/c/github/azat-io/actions-up.svg?color=fff&labelColor=4493f8)](https://codecov.io/gh/azat-io/actions-up)
 [![GitHub License](https://img.shields.io/badge/license-MIT-232428.svg?color=fff&labelColor=4493f8)](https://github.com/azat-io/actions-up/blob/main/license.md)
 
-Actions Up scans your workflows and composite actions to discover every referenced GitHub Action, then checks for newer releases.
+Actions Up scans your workflows and composite actions to discover every
+referenced GitHub Action, then checks for newer releases.
 
-Interactively upgrade and pin actions to exact commit SHAs for secure, reproducible CI and low-friction maintenance.
+Interactively upgrade and pin actions to exact commit SHAs for secure,
+reproducible CI and low-friction maintenance.
 
 ## Features
 
-- **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and composite actions (`.github/actions/*/action.yml` and root `action.yml`/`action.yaml`)
-- **Reusable Workflows**: Detects and updates reusable workflow calls at the job level
-- **SHA pinning**: Updates actions to use commit SHA instead of tags for better security
+- **Auto-discovery**: Scans all workflows (`.github/workflows/*.yml`) and
+  composite actions (`.github/actions/*/action.yml` and root
+  `action.yml`/`action.yaml`)
+- **Reusable Workflows**: Detects and updates reusable workflow calls at the job
+  level
+- **SHA pinning**: Updates actions to use commit SHA instead of tags for better
+  security
 - **Batch Updates**: Update multiple actions at once
 - **Interactive Selection**: Choose which actions to update
 - **Breaking Changes Detection**: Warns about major version updates
@@ -49,7 +55,9 @@ Interactively upgrade and pin actions to exact commit SHAs for secure, reproduci
 
 ## Why
 
-Keeping GitHub Actions updated is critical and time-consuming. Actions Up scans all workflows, highlights available updates, and can pin actions to SHAs for reproducibility.
+Keeping GitHub Actions updated is critical and time-consuming. Actions Up scans
+all workflows, highlights available updates, and can pin actions to SHAs for
+reproducibility.
 
 | Without Actions Up             | With Actions Up                  |
 | :----------------------------- | :------------------------------- |
@@ -59,7 +67,10 @@ Keeping GitHub Actions updated is critical and time-consuming. Actions Up scans 
 
 ### Security Motivation
 
-GitHub Actions run arbitrary code in your CI. If a job has secrets available, any action used in that job can read the environment and exfiltrate those secrets. A compromised action or a mutable version tag is a direct path to leakage.
+GitHub Actions run arbitrary code in your CI. If a job has secrets available,
+any action used in that job can read the environment and exfiltrate those
+secrets. A compromised action or a mutable version tag is a direct path to
+leakage.
 
 Actions Up reduces risk by:
 
@@ -67,7 +78,9 @@ Actions Up reduces risk by:
 - Making outdated actions visible and showing exactly what runs in CI
 - Warning about major updates so you can review changes before applying them
 
-Note: secrets are available on `push`, `workflow_dispatch`, `schedule`, and `pull_request_target` triggers (and on fork PRs if explicitly enabled). Always scope workflow permissions to the minimum required.
+Note: secrets are available on `push`, `workflow_dispatch`, `schedule`, and
+`pull_request_target` triggers (and on fork PRs if explicitly enabled). Always
+scope workflow permissions to the minimum required.
 
 ## Installation
 
@@ -107,7 +120,8 @@ npx actions-up
 
 This will:
 
-1. Scan all `.github/workflows/*.yml` and `.github/actions/*/action.yml` files, plus root `action.yml`/`action.yaml`
+1. Scan all `.github/workflows/*.yml` and `.github/actions/*/action.yml` files,
+   plus root `action.yml`/`action.yaml`
 2. Check for available updates
 3. Show an interactive list to select updates
 4. Apply selected updates with SHA pinning
@@ -134,7 +148,8 @@ npx actions-up --dry-run
 
 By default, Actions Up scans `.github`.
 
-Use `--dir` to choose another directory, and pass it multiple times to scan several directories:
+Use `--dir` to choose another directory, and pass it multiple times to scan
+several directories:
 
 ```bash
 npx actions-up --dir .gitea
@@ -143,18 +158,23 @@ npx actions-up --dir .github --dir ./other/.github
 
 ### Recursive Scanning
 
-Use `--recursive` (`-r`) to scan YAML workflow/composite-action files recursively in the selected directories:
+Use `--recursive` (`-r`) to scan YAML workflow/composite-action files
+recursively in the selected directories:
 
 ```bash
 npx actions-up -r
 npx actions-up --dir ./gh-repo-defaults -r
 ```
 
-When `--recursive` is used without `--dir`, Actions Up scans from the current directory (`.`).
+When `--recursive` is used without `--dir`, Actions Up scans from the current
+directory (`.`).
 
 ### Branch References
 
-By default, actions pinned to branch refs (e.g., `@main`, `@release/v1`) are skipped to avoid changing intentionally floating references. Skipped entries are listed in the output. To include them in update checks, pass `--include-branches`.
+By default, actions pinned to branch refs (e.g., `@main`, `@release/v1`) are
+skipped to avoid changing intentionally floating references. Skipped entries are
+listed in the output. To include them in update checks, pass
+`--include-branches`.
 
 ### Update Mode
 
@@ -165,15 +185,17 @@ npx actions-up --mode minor
 npx actions-up --mode patch
 ```
 
-In `minor` and `patch` modes, Actions Up tries to find the newest compatible
-tag first (for example, from `@v4` in `minor` mode it will choose the latest
+In `minor` and `patch` modes, Actions Up tries to find the newest compatible tag
+first (for example, from `@v4` in `minor` mode it will choose the latest
 `v4.x.y`). If no compatible version exists, that action is skipped.
 
 ## GitHub Actions Integration
 
 ### Automated PR Checks
 
-You can integrate Actions Up into your CI/CD pipeline to automatically check for outdated actions on every pull request. This helps maintain security and ensures your team stays aware of available updates.
+You can integrate Actions Up into your CI/CD pipeline to automatically check for
+outdated actions on every pull request. This helps maintain security and ensures
+your team stays aware of available updates.
 
 <details>
 <summary>Create <code>.github/workflows/check-actions-updates.yml</code>.</summary>
@@ -295,7 +317,9 @@ jobs:
           fi
 
       - name: Comment PR with updates
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if:
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
         with:
           script: |
@@ -433,7 +457,8 @@ jobs:
 
 ### GitHub Token
 
-Use `GITHUB_TOKEN` (or a PAT) to raise API rate limits from 60 to 5000 requests/hour.
+Use `GITHUB_TOKEN` (or a PAT) to raise API rate limits from 60 to 5000
+requests/hour.
 
 ```bash
 GITHUB_TOKEN=your_token_here npx actions-up
@@ -479,14 +504,17 @@ Ignore comments (file/block/next-line/inline):
 
 Interactive CLI for developers who want control over GitHub Actions updates.
 
-- **vs. Dependabot/Renovate:** Dependabot and Renovate update via pull requests; Actions Up is an interactive CLI with explicit SHA pinning.
-- **vs. pinact:** pinact is a CLI to pin and update Actions and reusable workflows; Actions Up adds interactive selection and major update warnings.
+- **vs. Dependabot/Renovate:** Dependabot and Renovate update via pull requests;
+  Actions Up is an interactive CLI with explicit SHA pinning.
+- **vs. pinact:** pinact is a CLI to pin and update Actions and reusable
+  workflows; Actions Up adds interactive selection and major update warnings.
 - **Zero-config:** `npx actions-up` runs immediately.
 - **Breaking change warnings:** Major updates are flagged before applying.
 
 ## Contributing
 
-See [Contributing Guide](https://github.com/azat-io/actions-up/blob/main/contributing.md).
+See
+[Contributing Guide](https://github.com/azat-io/actions-up/blob/main/contributing.md).
 
 ## License
 

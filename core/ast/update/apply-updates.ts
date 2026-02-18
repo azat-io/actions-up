@@ -2,9 +2,13 @@ import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
 
-/** Regex capture groups for parsing `uses:` lines in YAML files. */
+/**
+ * Regex capture groups for parsing `uses:` lines in YAML files.
+ */
 interface MatchGroups {
-  /** Optional inline comment after the action reference. */
+  /**
+   * Optional inline comment after the action reference.
+   */
   comment?: string
 
   /**
@@ -19,10 +23,14 @@ interface MatchGroups {
    */
   quote: string
 
-  /** Trailing delimiters and spaces after the action reference. */
+  /**
+   * Trailing delimiters and spaces after the action reference.
+   */
   after: string
 
-  /** GitHub Action name before the `@` symbol in `owner/repo` format. */
+  /**
+   * GitHub Action name before the `@` symbol in `owner/repo` format.
+   */
   name: string
 }
 
@@ -59,9 +67,8 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
         }
 
         let escapedName = escapeRegExp(update.action.name)
-        let escapedVersion = update.currentVersion
-          ? escapeRegExp(update.currentVersion)
-          : ''
+        let escapedVersion =
+          update.currentVersion ? escapeRegExp(update.currentVersion) : ''
 
         if (escapedName.includes('\n') || escapedName.includes('\r')) {
           console.error(`Invalid action name: ${update.action.name}`)
@@ -81,7 +88,9 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
           continue
         }
 
-        /** Matches `uses` key (optionally quoted for JSON-style YAML). */
+        /**
+         * Matches `uses` key (optionally quoted for JSON-style YAML).
+         */
         let usesKey = String.raw`['"]?\buses\b['"]?\s*:\s*`
 
         /**
@@ -93,17 +102,27 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
         let prefixPattern =
           String.raw`(?:^[^\S\n]*(?:-[^\S\n]*)?|[{\[,][^\S\n]*)` + usesKey
 
-        /** Match `uses:` + action@version (quoted/unquoted, flow or block). */
+        /**
+         * Match `uses:` + action@version (quoted/unquoted, flow or block).
+         */
         let pattern = new RegExp(
           String.raw`(?<prefix>${prefixPattern})` +
-            /** Optional quote around the ref. */
+            /**
+             * Optional quote around the ref.
+             */
             String.raw`(?<quote>['"]?)` +
-            /** Action name before @. */
+            /**
+             * Action name before @.
+             */
             String.raw`(?<name>${escapedName})@${escapedVersion}` +
             String.raw`\k<quote>` +
-            /** Trailing delimiters/spaces after the ref. */
+            /**
+             * Trailing delimiters/spaces after the ref.
+             */
             String.raw`(?<after>[ \t\]}{,]*)` +
-            /** Existing inline comment (if any). */
+            /**
+             * Existing inline comment (if any).
+             */
             String.raw`(?<comment>[^\S\r\n]*#[^\r\n]*)?`,
           'gm',
         )
@@ -116,9 +135,9 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
             let groups = captures.at(-1) as MatchGroups
             let nextLineBreak = source.indexOf('\n', offset + matched.length)
             let restOfLine =
-              nextLineBreak === -1
-                ? source.slice(offset + matched.length)
-                : source.slice(offset + matched.length, nextLineBreak)
+              nextLineBreak === -1 ?
+                source.slice(offset + matched.length)
+              : source.slice(offset + matched.length, nextLineBreak)
 
             /**
              * Avoid inserting a comment mid-line when more content follows.
@@ -130,9 +149,8 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
             let spacer = groups.after.endsWith(' ') ? '' : ' '
             let skipComment =
               hasTrailingContent && !groups.comment && escapedVersion !== ''
-            let comment = skipComment
-              ? ''
-              : `${spacer}# ${update.latestVersion}`
+            let comment =
+              skipComment ? '' : `${spacer}# ${update.latestVersion}`
 
             let action = `${groups.prefix}${groups.quote}${groups.name}`
             let version = `${update.latestSha}${groups.quote}${groups.after}${comment}`

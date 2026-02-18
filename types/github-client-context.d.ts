@@ -7,27 +7,43 @@ import type { TagInfo } from './tag-info'
  * number of API requests during a single run.
  */
 export interface GitHubClientContext {
-  /** Lightweight caches keyed by owner/repo (+ extra payload). */
+  /**
+   * Lightweight caches keyed by owner/repo (+ extra payload).
+   */
   caches: {
-    /** Cache of reference type detections (branch/tag/null). */
+    /**
+     * Cache of reference type detections (branch/tag/null).
+     */
     refType: Map<string, 'branch' | 'tag' | null>
 
-    /** Cache of resolved tag metadata (message/date/SHA). */
+    /**
+     * Cache of resolved tag metadata (message/date/SHA).
+     */
     tagInfo: Map<string, TagInfo | null>
 
-    /** Cache of resolved tag commit SHAs. */
+    /**
+     * Cache of resolved tag commit SHAs.
+     */
     tagSha: Map<string, string | null>
   }
 
-  /** Remaining requests available per current rate-limit window. */
+  /**
+   * Remaining requests available per current rate-limit window.
+   */
   rateLimitRemaining: number
 
-  /** GitHub token, if available. */
+  /**
+   * GitHub token, if available.
+   */
   token: undefined | string
 
-  /** Scheduled time when rate limit resets. */
+  /**
+   * Scheduled time when rate limit resets.
+   */
   rateLimitReset: Date
 
-  /** GitHub REST API base URL. */
+  /**
+   * GitHub REST API base URL.
+   */
   baseUrl: string
 }

@@ -6,19 +6,29 @@ import { findCompatibleTag } from '../versions/find-compatible-tag'
 import { isSemverLike } from '../versions/is-semver-like'
 
 interface GetCompatibleUpdateParameters {
-  /** Optional in-memory cache for resolved tag SHAs. */
+  /**
+   * Optional in-memory cache for resolved tag SHAs.
+   */
   shaCache?: Map<string, string | null>
 
-  /** Update mode that limits which tag can be selected. */
+  /**
+   * Update mode that limits which tag can be selected.
+   */
   mode: Exclude<UpdateMode, 'major'>
 
-  /** Optional in-memory cache for action tags. */
+  /**
+   * Optional in-memory cache for action tags.
+   */
   tagsCache?: Map<string, TagInfo[]>
 
-  /** Current action version used as compatibility baseline. */
+  /**
+   * Current action version used as compatibility baseline.
+   */
   currentVersion: string | null
 
-  /** Action name in `owner/repo` format (path suffix is allowed). */
+  /**
+   * Action name in `owner/repo` format (path suffix is allowed).
+   */
   actionName: string
 }
 

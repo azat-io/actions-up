@@ -1,4 +1,6 @@
-/** Constants for directory names used in the project. */
+/**
+ * Constants for directory names used in the project.
+ */
 
 export const GITHUB_DIRECTORY = '.github' as const
 

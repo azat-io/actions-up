@@ -36,9 +36,8 @@ export async function getLatestRelease(
       html_url: string
     }
 
-    let sha: string | null = isLikelySha(release.target_commitish)
-      ? release.target_commitish
-      : null
+    let sha: string | null =
+      isLikelySha(release.target_commitish) ? release.target_commitish : null
 
     return {
       publishedAt: new Date(release.published_at),

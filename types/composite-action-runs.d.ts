@@ -1,13 +1,21 @@
 import type { CompositeActionStep } from './composite-action-step'
 
-/** Represents the runs configuration for a composite action. */
+/**
+ * Represents the runs configuration for a composite action.
+ */
 export interface CompositeActionRuns {
-  /** Array of steps to execute. */
+  /**
+   * Array of steps to execute.
+   */
   steps?: CompositeActionStep[]
 
-  /** Allow additional properties. */
+  /**
+   * Allow additional properties.
+   */
   [key: string]: unknown
 
-  /** Must be 'composite' for composite actions. */
+  /**
+   * Must be 'composite' for composite actions.
+   */
   using?: string
 }

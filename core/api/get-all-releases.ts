@@ -42,8 +42,9 @@ export async function getAllReleases(
     for (let release of releases) {
       let sha: string | null = null
       if (i === 0 && release.tag_name) {
-        sha = isLikelySha(release.target_commitish)
-          ? release.target_commitish
+        sha =
+          isLikelySha(release.target_commitish) ?
+            release.target_commitish
           : null
       }
 

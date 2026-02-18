@@ -75,9 +75,9 @@ function createMockDocument(data: unknown): MockDocument {
   return {
     contents: {
       items: Object.entries(
-        typeof data === 'object' && data !== null
-          ? (data as Record<string, unknown>)
-          : {},
+        typeof data === 'object' && data !== null ?
+          (data as Record<string, unknown>)
+        : {},
       ).map(([entryKey, entryValue]) => createMockNode(entryKey, entryValue)),
     },
     toJSON: () => data,

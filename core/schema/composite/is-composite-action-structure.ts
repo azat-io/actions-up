@@ -14,7 +14,9 @@ export function isCompositeActionStructure(
     return false
   }
 
-  /** A composite action should have at least 'name', 'description', or 'runs'. */
+  /**
+   * A composite action should have at least 'name', 'description', or 'runs'.
+   */
   let object = value as Record<string, unknown>
   return 'name' in object || 'description' in object || 'runs' in object
 }

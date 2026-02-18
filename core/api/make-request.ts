@@ -7,22 +7,34 @@ import { updateRateLimitInfo } from './update-rate-limit-info'
  * Implementations (node, polyfills, test doubles) must provide these members.
  */
 interface FetchResponseLike {
-  /** Response headers iterator. */
+  /**
+   * Response headers iterator.
+   */
   headers: { entries(): IterableIterator<[string, string]> }
 
-  /** Parse body as JSON. */
+  /**
+   * Parse body as JSON.
+   */
   json(): Promise<unknown>
 
-  /** Read body as text (used to detect rate limit messages). */
+  /**
+   * Read body as text (used to detect rate limit messages).
+   */
   text(): Promise<string>
 
-  /** Status text provided by the server (e.g., "Forbidden"). */
+  /**
+   * Status text provided by the server (e.g., "Forbidden").
+   */
   statusText: string
 
-  /** Numeric HTTP status code. */
+  /**
+   * Numeric HTTP status code.
+   */
   status: number
 
-  /** True when HTTP status indicates success (2xx). */
+  /**
+   * True when HTTP status indicates success (2xx).
+   */
   ok: boolean
 }
 

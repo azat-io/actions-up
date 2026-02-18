@@ -14,64 +14,102 @@ import { isSha } from '../versions/is-sha'
 import { stripAnsi } from './strip-ansi'
 import { padString } from './pad-string'
 
-/** Global minimum widths for the action and current version columns. */
+/**
+ * Global minimum widths for the action and current version columns.
+ */
 const MIN_ACTION_WIDTH = 40
 
-/** Global minimum width for the job column. */
+/**
+ * Global minimum width for the job column.
+ */
 const MIN_JOB_WIDTH = 4
 
-/** Global minimum width for the current version column. */
+/**
+ * Global minimum width for the current version column.
+ */
 const MIN_CURRENT_WIDTH = 16
 
-/** Maximum width for version padding before SHA hash. */
+/**
+ * Maximum width for version padding before SHA hash.
+ */
 const MAX_VERSION_WIDTH = 7
 
-/** Minimal prompt options shape we use to avoid Enquirer union pitfalls. */
+/**
+ * Minimal prompt options shape we use to avoid Enquirer union pitfalls.
+ */
 interface PromptOptionsLike {
-  /** Renders selection marker for a choice. */
+  /**
+   * Renders selection marker for a choice.
+   */
   indicator(
     state: unknown,
     choice: (ChoiceSeparator | ChoiceItem) & { enabled?: boolean },
   ): string
 
-  /** Choices list: our items and separators. */
+  /**
+   * Choices list: our items and separators.
+   */
   choices: (ChoiceSeparator | ChoiceItem | string)[]
 
-  /** Alias to `down()` bound by enquirer. */
+  /**
+   * Alias to `down()` bound by enquirer.
+   */
   j(): Promise<string[]> | undefined
 
-  /** Alias to `up()` bound by enquirer. */
+  /**
+   * Alias to `up()` bound by enquirer.
+   */
   k(): Promise<string[]> | undefined
 
-  /** Style hooks from enquirer (we pass-through). */
+  /**
+   * Style hooks from enquirer (we pass-through).
+   */
   styles?: Record<string, unknown>
 
-  /** Moves focus down (provided by enquirer at runtime). */
+  /**
+   * Moves focus down (provided by enquirer at runtime).
+   */
   down?(): Promise<string[]>
 
-  /** Moves focus up (provided by enquirer at runtime). */
+  /**
+   * Moves focus up (provided by enquirer at runtime).
+   */
   up?(): Promise<string[]>
 
-  /** Prompt type. We only use multiselect. */
+  /**
+   * Prompt type. We only use multiselect.
+   */
   type: 'multiselect'
 
-  /** Pointer glyph for focused row. */
+  /**
+   * Pointer glyph for focused row.
+   */
   pointer?: string
 
-  /** The question text shown above the list. */
+  /**
+   * The question text shown above the list.
+   */
   message: string
 
-  /** Footer text under the list. */
+  /**
+   * Footer text under the list.
+   */
   footer?: string
 
-  /** Alias to `cancel()` bound by enquirer. */
+  /**
+   * Alias to `cancel()` bound by enquirer.
+   */
   cancel(): null
 
-  /** The name of the answer field returned by enquirer (holds selected). */
+  /**
+   * The name of the answer field returned by enquirer (holds selected).
+   */
   name: string
 }
 
-/** Selectable item displayed in the multiselect list. */
+/**
+ * Selectable item displayed in the multiselect list.
+ */
 interface ChoiceItem {
   /**
    * Optional nested choices (used for group labels to hold their rows).
@@ -79,89 +117,143 @@ interface ChoiceItem {
    */
   choices?: (ChoiceSeparator | ChoiceItem)[]
 
-  /** Whether this item is a focusable group label (file row). */
+  /**
+   * Whether this item is a focusable group label (file row).
+   */
   isGroupLabel?: boolean
 
-  /** Whether this item is disabled and cannot be toggled. */
+  /**
+   * Whether this item is disabled and cannot be toggled.
+   */
   disabled?: boolean
 
-  /** Whether this item is currently selected/enabled. */
+  /**
+   * Whether this item is currently selected/enabled.
+   */
   enabled?: boolean
 
-  /** Visible text rendered for this choice. */
+  /**
+   * Visible text rendered for this choice.
+   */
   message: string
 
-  /** Optional hint rendered by enquirer when disabled. */
+  /**
+   * Optional hint rendered by enquirer when disabled.
+   */
   hint?: string
 
-  /** Internal value returned by the prompt when selected. */
+  /**
+   * Internal value returned by the prompt when selected.
+   */
   value: string
 
-  /** Stable name used by enquirer to track the choice. */
+  /**
+   * Stable name used by enquirer to track the choice.
+   */
   name: string
 }
 
-/** Intermediate representation for a row in the table before formatting. */
+/**
+ * Intermediate representation for a row in the table before formatting.
+ */
 interface TableRow {
-  /** Current version rendered in the third column. */
+  /**
+   * Current version rendered in the third column.
+   */
   current: string
 
-  /** Action name rendered in the first column. */
+  /**
+   * Action name rendered in the first column.
+   */
   action: string
 
-  /** Target version rendered in the last column. */
+  /**
+   * Target version rendered in the last column.
+   */
   target: string
 
-  /** Arrow glyph placed between versions. */
+  /**
+   * Arrow glyph placed between versions.
+   */
   arrow: string
 
-  /** Job name rendered in the second column. */
+  /**
+   * Job name rendered in the second column.
+   */
   job: string
 
-  /** Age of the release (e.g., "2d", "3w"). */
+  /**
+   * Age of the release (e.g., "2d", "3w").
+   */
   age: string
 }
 
 interface FormatTableRowOptions {
-  /** Width for current version column. */
+  /**
+   * Width for current version column.
+   */
   currentWidth: number
 
-  /** Width for action column. */
+  /**
+   * Width for action column.
+   */
   actionWidth: number
 
-  /** Width for target column. */
+  /**
+   * Width for target column.
+   */
   targetWidth: number
 
-  /** Width for job column. */
+  /**
+   * Width for job column.
+   */
   jobWidth: number
 
-  /** Width for age column (0 to hide). */
+  /**
+   * Width for age column (0 to hide).
+   */
   ageWidth: number
 
-  /** Row data to format. */
+  /**
+   * Row data to format.
+   */
   row: TableRow
 }
 
-/** Non-selectable visual row (e.g., table header or blank line). */
+/**
+ * Non-selectable visual row (e.g., table header or blank line).
+ */
 interface ChoiceSeparator {
-  /** Enquirer role that marks this element as non-selectable. */
+  /**
+   * Enquirer role that marks this element as non-selectable.
+   */
   role: 'separator'
 
-  /** Visible text for the separator line. */
+  /**
+   * Visible text for the separator line.
+   */
   message: string
 
-  /** Optional name to satisfy enquirer's `Choice` typing. */
+  /**
+   * Optional name to satisfy enquirer's `Choice` typing.
+   */
   name?: string
 }
 
-/** Result shape returned by enquirer for the multiselect prompt. */
+/**
+ * Result shape returned by enquirer for the multiselect prompt.
+ */
 interface PromptResult {
-  /** Selected values (indexes or label keys) as strings. */
+  /**
+   * Selected values (indexes or label keys) as strings.
+   */
   selected: string[]
 }
 
 interface PromptUpdateSelectionOptions {
-  /** Whether to show the Age column. */
+  /**
+   * Whether to show the Age column.
+   */
   showAge?: boolean
 }
 
@@ -191,12 +283,16 @@ export async function promptUpdateSelection(
     return null
   }
 
-  /** Group by files for user convenience. */
+  /**
+   * Group by files for user convenience.
+   */
   let groups = new Map<string, { update: ActionUpdate; index: number }[]>()
 
   for (let [index, update] of outdated.entries()) {
     let originalFile = update.action.file ?? 'unknown file'
-    /** Show relative path without .github directory. */
+    /**
+     * Show relative path without .github directory.
+     */
     let file = path.relative(
       path.join(process.cwd(), GITHUB_DIRECTORY),
       originalFile,
@@ -263,14 +359,14 @@ export async function promptUpdateSelection(
     maxCurrentLength = Math.max(
       maxCurrentLength,
       stripAnsi(currentRaw).length,
-      currentComputed.versionForPadding && currentComputed.shortSha
-        ? stripAnsi(
-            `${padString(
-              currentComputed.versionForPadding,
-              maxVersionLength + 1,
-            )}${pc.gray(`(${currentComputed.shortSha})`)}`,
-          ).length
-        : 0,
+      currentComputed.versionForPadding && currentComputed.shortSha ?
+        stripAnsi(
+          `${padString(
+            currentComputed.versionForPadding,
+            maxVersionLength + 1,
+          )}${pc.gray(`(${currentComputed.shortSha})`)}`,
+        ).length
+      : 0,
     )
     maxJobLength = Math.max(maxJobLength, jobRaw.length)
     if (update.latestVersion) {
@@ -399,7 +495,9 @@ export async function promptUpdateSelection(
       }
     }
 
-    /** Push focusable group label with nested children. */
+    /**
+     * Push focusable group label with nested children.
+     */
     choices.push({
       message: pc.gray(file),
       value: `label|${file}`,
@@ -409,7 +507,9 @@ export async function promptUpdateSelection(
       enabled: false,
     } as unknown as ChoiceItem)
 
-    /** Add a blank separator line between groups for readability. */
+    /**
+     * Add a blank separator line between groups for readability.
+     */
     if (fileIndex < sortedFiles.length - 1) {
       choices.push({ role: 'separator', message: ' ', name: '' })
     }

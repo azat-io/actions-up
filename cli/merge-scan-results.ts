@@ -22,7 +22,9 @@ export function mergeScanResults(results: ScanResult[]): ScanResult {
     merged.actions.push(...result.actions)
   }
 
-  /** Deduplicate actions that appear in multiple scan results. */
+  /**
+   * Deduplicate actions that appear in multiple scan results.
+   */
   let seen = new Set<string>()
   merged.actions = merged.actions.filter(action => {
     let key = `${action.file}:${action.line}:${action.name}:${action.version}`

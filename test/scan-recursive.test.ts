@@ -84,9 +84,9 @@ function createMockDocument(data: unknown): MockDocument {
   return {
     contents: {
       items: Object.entries(
-        typeof data === 'object' && data !== null
-          ? (data as Record<string, unknown>)
-          : {},
+        typeof data === 'object' && data !== null ?
+          (data as Record<string, unknown>)
+        : {},
       ).map(([entryKey, entryValue]) => createMockNode(entryKey, entryValue)),
     },
     toJSON: () => data,
@@ -307,7 +307,9 @@ describe('scanRecursive', () => {
     let result = await scanRecursive('.', '')
 
     expect(result.compositeActions.size).toBe(1)
-    /** Root-level action.yml has '.' as parent, so path is used as key. */
+    /**
+     * Root-level action.yml has '.' as parent, so path is used as key.
+     */
     let [key] = [...result.compositeActions.keys()]
     expect(key).toBe('action.yml')
   })

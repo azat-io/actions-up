@@ -12,7 +12,9 @@ function external(id: string): boolean {
   return !id.startsWith('.') && !path.isAbsolute(id)
 }
 
-/** Vite configuration. */
+/**
+ * Vite configuration.
+ */
 export default defineConfig({
   build: {
     rolldownOptions: {

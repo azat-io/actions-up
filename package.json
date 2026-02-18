@@ -69,6 +69,7 @@
   },
   "devDependencies": {
     "@azat-io/eslint-config": "^2.68.0",
+    "@azat-io/prettier-config": "^1.1.1",
     "@azat-io/typescript-config": "^1.1.1",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
@@ -82,9 +83,8 @@
     "cross-env": "^10.1.0",
     "cspell": "^9.6.4",
     "eslint": "^9.39.2",
-    "knip": "^5.83.1",
+    "knip": "^5.84.0",
     "prettier": "^3.8.1",
-    "prettier-plugin-jsdoc": "^1.8.0",
     "rolldown-vite": "^7.3.1",
     "simple-git-hooks": "^2.13.1",
     "typescript": "^5.9.3",

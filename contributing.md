@@ -1,12 +1,14 @@
 # Contributing
 
-Thank you for your interest in contributing to Actions Up! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to Actions Up! This document
+provides guidelines and instructions for contributing to the project.
 
 ## How to Contribute
 
 ### Reporting Issues
 
-Before creating an issue, please check existing issues to avoid duplicates. When creating a new issue:
+Before creating an issue, please check existing issues to avoid duplicates. When
+creating a new issue:
 
 1. Use a clear and descriptive title
 2. Provide detailed description of the issue
@@ -138,7 +140,8 @@ pnpm test:packages  # Dependency dedupe check
 node bin/actions-up.js --help
 ```
 
-Note: A `dev` command is not used in this repo. Build, then run the CLI via `node bin/actions-up.js` for local testing.
+Note: A `dev` command is not used in this repo. Build, then run the CLI via
+`node bin/actions-up.js` for local testing.
 
 ## Testing Guidelines
 
@@ -219,5 +222,8 @@ No manual `npm publish` is needed locally.
 
 ## Tips
 
-- Commit messages follow Conventional Commits. A commit-msg hook is configured via `simple-git-hooks`. To enable hooks locally after install, run: `pnpm exec simple-git-hooks`.
-- Use `pnpm` v10 to ensure script features like regex runs (e.g. `pnpm run /^test:/`).
+- Commit messages follow Conventional Commits. A commit-msg hook is configured
+  via `simple-git-hooks`. To enable hooks locally after install, run:
+  `pnpm exec simple-git-hooks`.
+- Use `pnpm` v10 to ensure script features like regex runs (e.g.
+  `pnpm run /^test:/`).

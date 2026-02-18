@@ -214,7 +214,9 @@ describe('findYamlFilesRecursive', () => {
         return Promise.resolve(['sub']) as unknown as ReturnType<typeof readdir>
       }
       if (value === '/root/sub') {
-        /** '..' normalizes to '/root' which is already visited. */
+        /**
+         * '..' normalizes to '/root' which is already visited.
+         */
         return Promise.resolve(['..', 'test.yml']) as unknown as ReturnType<
           typeof readdir
         >

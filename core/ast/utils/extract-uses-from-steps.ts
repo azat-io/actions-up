@@ -11,16 +11,24 @@ import { isNode } from '../guards/is-node'
 import { isPair } from '../guards/is-pair'
 
 interface ExtractUsesOptions {
-  /** YAML sequence node containing workflow/action steps. */
+  /**
+   * YAML sequence node containing workflow/action steps.
+   */
   stepsNode: unknown
 
-  /** Path of the file being scanned (for metadata). */
+  /**
+   * Path of the file being scanned (for metadata).
+   */
   filePath: string
 
-  /** Name of the job containing these steps (for workflows). */
+  /**
+   * Name of the job containing these steps (for workflows).
+   */
   jobName?: string
 
-  /** Original YAML file content (for line number calculation). */
+  /**
+   * Original YAML file content (for line number calculation).
+   */
   content: string
 }
 
@@ -63,9 +71,8 @@ export function extractUsesFromSteps(
         isPair(item) && isScalar(item.key) && item.key.value === 'uses',
     )
 
-    let lineNumber = usesPair?.key
-      ? getLineNumberForKey(content, usesPair.key)
-      : 0
+    let lineNumber =
+      usesPair?.key ? getLineNumberForKey(content, usesPair.key) : 0
     let action = parseActionReference(stepObject['uses'], filePath, lineNumber)
     if (action) {
       if (jobName) {

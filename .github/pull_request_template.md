@@ -2,24 +2,16 @@
 
 ### Description
 
-<!-- Please insert your description here and provide especially info about the "what" this PR is solving -->
+<!-- What changed and why? e.g. fixes #123 -->
 
-### Additional context
+### Reviewer notes
 
-<!-- e.g. is there anything you'd like reviewers to focus on? -->
+<!-- Optional: where should reviewers focus? -->
 
 ---
 
-### What is the purpose of this pull request? <!-- (put an "X" next to an item) -->
+### Pre-merge checklist
 
-- [ ] Bug fix
-- [ ] New Feature
-- [ ] Documentation update
-- [ ] Other
-
-### Before submitting the PR, please make sure you do the following
-
-- [ ] Check that there isn't already a PR that solves the problem the same way to avoid creating a duplicate.
-- [ ] Provide a description in this PR that addresses **what** the PR is solving, or reference the issue that it solves (e.g. `fixes #123`).
-- [ ] Ideally, include relevant tests that fail without this PR but pass with it.
-- [ ] Read [contribution guidelines](https://github.com/azat-io/actions-up/blob/main/contributing.md).
+- [ ] No similar open PR exists
+- [ ] Description explains problem/solution or links an issue
+- [ ] Tests added/updated when needed

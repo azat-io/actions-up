@@ -44,7 +44,9 @@ export async function findYamlFilesRecursive(
           results.push(fullPath)
         }
       } catch {
-        /** Skip inaccessible entries. */
+        /**
+         * Skip inaccessible entries.
+         */
       }
     })
 
