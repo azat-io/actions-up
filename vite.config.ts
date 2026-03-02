@@ -27,21 +27,14 @@ export default defineConfig({
       external,
     },
     lib: {
-      entry: [
-        path.resolve(import.meta.dirname, 'cli/index.ts'),
-        path.resolve(import.meta.dirname, 'core/index.ts'),
-      ],
+      entry: ['cli/index.ts', 'core/index.ts'],
       formats: ['es'],
     },
     minify: true,
   },
   plugins: [
     dts({
-      include: [
-        path.resolve(import.meta.dirname, 'cli'),
-        path.resolve(import.meta.dirname, 'core'),
-        path.resolve(import.meta.dirname, 'types'),
-      ],
+      include: ['cli', 'core', 'types'],
       insertTypesEntry: true,
       copyDtsFiles: true,
       strictOutput: true,
