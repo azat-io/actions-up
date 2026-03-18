@@ -24,6 +24,9 @@ export default defineConfig({
         preserveModules: true,
         exports: 'auto',
       },
+      experimental: {
+        attachDebugInfo: 'none',
+      },
       external,
     },
     lib: {

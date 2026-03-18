@@ -900,7 +900,7 @@ describe('getTagInfo', () => {
 
     await expect(
       getTagInfo(context, { tag: 'v6.0.0', owner: 'o', repo: 'r' }),
-    ).rejects.toThrowError('fatal')
+    ).rejects.toThrow('fatal')
   })
 
   it('enriches missing date from commit when release has body but no date', async () => {

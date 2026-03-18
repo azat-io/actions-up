@@ -40,7 +40,7 @@ describe('normalizeUpdateMode', () => {
   })
 
   it('throws for invalid mode', () => {
-    expect(() => normalizeUpdateMode('invalid')).toThrowError(
+    expect(() => normalizeUpdateMode('invalid')).toThrow(
       'Invalid mode "invalid". Expected "major", "minor", or "patch".',
     )
   })
