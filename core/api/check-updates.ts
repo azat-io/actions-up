@@ -384,7 +384,7 @@ export async function checkUpdates(
       usingToken ?
         'Wait for reset or reduce request rate.'
       : 'Please set GITHUB_TOKEN environment variable to increase the limit.\n' +
-        'See: https://github.com/azat-io/actions-up?tab=readme-ov-file#using-github-token-for-higher-rate-limits'
+        'See: https://github.com/azat-io/actions-up?tab=readme-ov-file#github-token'
     }`
 
     let error = new Error(message)
