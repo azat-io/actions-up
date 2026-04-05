@@ -1273,6 +1273,82 @@ describe('checkUpdates', () => {
     })
   })
 
+  it('propagates rate-limit error from release tag SHA lookup', async () => {
+    let rateLimitError: Error & { name: string } = Object.assign(
+      new Error('rate'),
+      { name: 'GitHubRateLimitError' },
+    )
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-03-29'),
+        isPrerelease: false,
+        version: 'v5.1.0',
+        description: null,
+        name: 'v5.1.0',
+        sha: 'a3ced27cc8dc211a23fe48005eaea8ac9df9400f',
+        url: 'u',
+      }),
+      getTagSha: vi.fn().mockRejectedValue(rateLimitError),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v5.0.0',
+        ref: 'owner/repo@v5.0.0',
+        name: 'owner/repo',
+        version: 'v5.0.0',
+        type: 'external',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toHaveProperty(
+      'name',
+      'GitHubRateLimitError',
+    )
+  })
+
+  it('propagates rate-limit error from tags-only SHA lookup', async () => {
+    let rateLimitError: Error & { name: string } = Object.assign(
+      new Error('rate'),
+      { name: 'GitHubRateLimitError' },
+    )
+    let client: GitHubClient = {
+      getAllTags: vi.fn().mockResolvedValue([
+        { tag: 'v3.0.0', message: null, date: null, sha: '' },
+      ]),
+      getTagSha: vi.fn().mockRejectedValue(rateLimitError),
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v2.0.0',
+        ref: 'owner/repo@v2.0.0',
+        name: 'owner/repo',
+        version: 'v2.0.0',
+        type: 'external',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toHaveProperty(
+      'name',
+      'GitHubRateLimitError',
+    )
+  })
+
   it('propagates rate-limit error', async () => {
     let errorObject: { name: string } & Error = Object.assign(
       new Error('rate'),
