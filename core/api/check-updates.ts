@@ -266,13 +266,16 @@ export async function checkUpdates(
               }
             }
 
-            if (!sha && version) {
+            if (version) {
+              let releaseSha = sha
               try {
-                sha = await client.getTagSha(owner, repo, version)
+                let tagSha = await client.getTagSha(owner, repo, version)
+                sha = tagSha ?? releaseSha
               } catch {
                 /**
-                 * Ignore SHA fetch errors.
+                 * Ignore SHA fetch errors and keep the release SHA as fallback.
                  */
+                sha = releaseSha
               }
             }
             return [

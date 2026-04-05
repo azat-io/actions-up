@@ -7,9 +7,9 @@ import { makeRequest } from './make-request'
 /**
  * Fetch the latest release for a repository.
  *
- * If the latest release does not exist (404), returns null. The commit SHA is
- * taken from target_commitish only when it looks like a SHA; otherwise SHA is
- * left null and may be resolved later via tag lookups.
+ * If the latest release does not exist (404), returns null. The commit SHA may
+ * be taken from target_commitish when it looks like a SHA; callers can resolve
+ * the tag via git refs later when pinning.
  *
  * @param context - Client context.
  * @param owner - Repository owner.

@@ -13,7 +13,7 @@ export interface ReleaseInfo {
   isPrerelease: boolean
 
   /**
-   * Commit SHA associated with the release tag (may be null).
+   * Commit SHA associated with the release tag when known (may be provisional).
    */
   sha: string | null
 

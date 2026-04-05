@@ -8,7 +8,8 @@ import { makeRequest } from './make-request'
  * Fetch releases for a repository.
  *
  * Resolves SHA only for the first returned release via target_commitish when it
- * looks like a SHA; further enrichment happens at higher levels when needed.
+ * looks like a SHA; callers can resolve the tag via git refs later when
+ * pinning.
  *
  * @param context - Client context.
  * @param parameters - Request parameters.
