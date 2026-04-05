@@ -511,9 +511,9 @@ describe('checkUpdates', () => {
         publishedAt: new Date('2024-01-01'),
         isPrerelease: false,
         description: null,
-        version: 'v1',
         /* Cspell:disable-next-line */
-        sha: 'relsha',
+        sha: 'releaseSha',
+        version: 'v1',
         name: 'v1',
         url: 'u',
       }),
@@ -594,9 +594,9 @@ describe('checkUpdates', () => {
         publishedAt: new Date('2024-01-01'),
         isPrerelease: false,
         description: null,
-        version: 'v1',
         /* Cspell:disable-next-line */
-        sha: 'relsha',
+        sha: 'releaseSha',
+        version: 'v1',
         name: 'v1',
         url: 'u',
       }),
@@ -636,9 +636,9 @@ describe('checkUpdates', () => {
         publishedAt: new Date('2024-01-01'),
         isPrerelease: false,
         description: null,
-        version: 'v1',
         /* Cspell:disable-next-line */
-        sha: 'relsha',
+        sha: 'releaseSha',
+        version: 'v1',
         name: 'v1',
         url: 'u',
       }),
@@ -717,6 +717,47 @@ describe('checkUpdates', () => {
     })
   })
 
+  it('release with empty tag_name and no tags skips release SHA resolution', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        sha: 'releaseSha',
+        version: '',
+        name: '',
+        url: 'u',
+      }),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v0.1.0',
+        ref: 'owner/repo@v0.1.0',
+        name: 'owner/repo',
+        version: 'v0.1.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(client.getTagSha).not.toHaveBeenCalled()
+    expect(result[0]).toMatchObject({
+      latestSha: 'releaseSha',
+      latestVersion: '',
+      hasUpdate: false,
+    })
+  })
+
   it('release v1 flow: getTagSha error when best tag has no sha results in null (covers catch {})', async () => {
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
@@ -760,15 +801,59 @@ describe('checkUpdates', () => {
     })
   })
 
-  it('prefers equally-versioned specific tag (v1.0.0) over release v1', async () => {
+  it('release v1 flow propagates rate-limit error from best tag SHA lookup', async () => {
+    let rateLimitError: { name: string } & Error = Object.assign(
+      new Error('rate'),
+      { name: 'GitHubRateLimitError' },
+    )
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
         publishedAt: new Date('2024-01-01'),
         isPrerelease: false,
         description: null,
         version: 'v1',
+        name: 'v1',
+        sha: null,
+        url: 'u',
+      }),
+      getAllTags: vi.fn().mockResolvedValue([
+        { tag: 'v2.0.0', message: null, date: null, sha: '' },
+        { tag: 'v1.5.0', message: null, date: null, sha: 'old' },
+      ]),
+      getTagSha: vi.fn().mockRejectedValue(rateLimitError),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1',
+        ref: 'owner/repo@v1',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'v1',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toHaveProperty(
+      'name',
+      'GitHubRateLimitError',
+    )
+  })
+
+  it('prefers equally-versioned specific tag (v1.0.0) over release v1', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
         /* Cspell:disable-next-line */
-        sha: 'relsha',
+        sha: 'releaseSha',
+        version: 'v1',
         name: 'v1',
         url: 'u',
       }),
@@ -812,9 +897,9 @@ describe('checkUpdates', () => {
         publishedAt: new Date('2024-01-01'),
         isPrerelease: false,
         description: null,
-        version: 'v1',
         /* Cspell:disable-next-line */
-        sha: 'relsha',
+        sha: 'releaseSha',
+        version: 'v1',
         name: 'v1',
         url: 'u',
       }),
@@ -1014,6 +1099,43 @@ describe('checkUpdates', () => {
       latestVersion: 'v3.0.0',
       latestSha: null,
     })
+  })
+
+  it('propagates rate-limit error in tags-only flow when best tag SHA lookup fails', async () => {
+    let rateLimitError: { name: string } & Error = Object.assign(
+      new Error('rate'),
+      { name: 'GitHubRateLimitError' },
+    )
+    let client: GitHubClient = {
+      getAllTags: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'v3.0.0', message: null, date: null, sha: '' },
+        ]),
+      getTagSha: vi.fn().mockRejectedValue(rateLimitError),
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v2.0.0',
+        ref: 'owner/repo@v2.0.0',
+        name: 'owner/repo',
+        version: 'v2.0.0',
+        type: 'external',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toHaveProperty(
+      'name',
+      'GitHubRateLimitError',
+    )
   })
 
   it('fetches SHA for best tag when tag SHA is missing in tags list (no releases)', async () => {
