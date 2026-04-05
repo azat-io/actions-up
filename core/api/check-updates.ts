@@ -250,7 +250,11 @@ export async function checkUpdates(
                     if (!tagSha && tagVersion) {
                       try {
                         tagSha = await client.getTagSha(owner, repo, tagVersion)
-                      } catch {}
+                      } catch (error) {
+                        if (isRateLimitError(error)) {
+                          throw error
+                        }
+                      }
                     }
                     return [
                       ...results,
@@ -266,13 +270,19 @@ export async function checkUpdates(
               }
             }
 
-            if (!sha && version) {
+            if (version) {
+              let releaseSha = sha
               try {
-                sha = await client.getTagSha(owner, repo, version)
-              } catch {
+                let tagSha = await client.getTagSha(owner, repo, version)
+                sha = tagSha ?? releaseSha
+              } catch (error) {
+                if (isRateLimitError(error)) {
+                  throw error
+                }
                 /**
-                 * Ignore SHA fetch errors.
+                 * Ignore SHA fetch errors and keep the release SHA as fallback.
                  */
+                sha = releaseSha
               }
             }
             return [
@@ -323,7 +333,10 @@ export async function checkUpdates(
             if (!sha && version) {
               try {
                 sha = await client.getTagSha(owner, repo, version)
-              } catch {
+              } catch (error) {
+                if (isRateLimitError(error)) {
+                  throw error
+                }
                 /**
                  * Ignore SHA fetch errors.
                  */
@@ -584,4 +597,8 @@ function isSha(value: undefined | string | null): boolean {
    * Check if it matches SHA pattern (7-40 hex characters).
    */
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
+}
+
+function isRateLimitError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'GitHubRateLimitError'
 }
