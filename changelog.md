@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.12.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.12.0...v1.12.1)
+
+### 🐞 Bug Fixes
+
+- Resolve release shas from tags
+  ([29ad621](https://github.com/azat-io/actions-up/commit/29ad621))
+
+### ❤️ Contributors
+
+- Tifan Dwi Avianto ([@tifandotme](https://github.com/tifandotme))
+
 ## v1.12.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.11.0...v1.12.0)
