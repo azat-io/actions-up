@@ -1,8 +1,12 @@
 import { createSpinner } from 'nanospinner'
+import { resolve } from 'node:path'
 import 'node:worker_threads'
 import pc from 'picocolors'
 import cac from 'cac'
 
+import type { JsonReportStatus } from './build-json-report'
+import type { ActionUpdate } from '../types/action-update'
+import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
 
 import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
@@ -14,11 +18,13 @@ import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { printSkippedWarning } from './print-skipped-warning'
 import { normalizeUpdateMode } from './normalize-update-mode'
+import { validateCliOptions } from './validate-cli-options'
 import { shouldIgnore } from '../core/ignore/should-ignore'
 import { checkUpdates } from '../core/api/check-updates'
 import { mergeScanResults } from './merge-scan-results'
 import { printModeWarning } from './print-mode-warning'
 import { scanRecursive } from '../core/scan-recursive'
+import { buildJsonReport } from './build-json-report'
 import { scanGitHubActions } from '../core/index'
 import { isSha } from '../core/versions/is-sha'
 import { version } from '../package.json'
@@ -58,6 +64,11 @@ interface CLIOptions {
   dryRun: boolean
 
   /**
+   * Output a machine-readable JSON report.
+   */
+  json?: boolean
+
+  /**
    * Minimum age in days for updates.
    */
   minAge: number
@@ -66,6 +77,41 @@ interface CLIOptions {
    * Skip all confirmations.
    */
   yes: boolean
+}
+
+/**
+ * Payload used by the local JSON writer helper in the CLI.
+ */
+interface WriteJsonReportOptions {
+  /**
+   * Updates excluded by the selected update mode.
+   */
+  blockedByMode?: ActionUpdate[]
+
+  /**
+   * Number of actions checked after excludes.
+   */
+  actionsToCheckCount: number
+
+  /**
+   * Actionable updates to serialize.
+   */
+  outdated?: ActionUpdate[]
+
+  /**
+   * Skipped updates to serialize.
+   */
+  skipped?: ActionUpdate[]
+
+  /**
+   * Overall JSON report status.
+   */
+  status: JsonReportStatus
+
+  /**
+   * Aggregate scan result for the current run.
+   */
+  scanResult: ScanResult
 }
 
 /**
@@ -87,6 +133,7 @@ export function run(): void {
       '--include-branches',
       'Also check actions pinned to branches (default: false)',
     )
+    .option('--json', 'Output update information as machine-readable JSON')
     .option(
       '--min-age <days>',
       'Minimum age in days for updates (default: 0)',
@@ -105,17 +152,73 @@ export function run(): void {
     .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
     .action(async (options: CLIOptions) => {
-      console.info(pc.cyan('\n🚀 Actions Up!\n'))
-
-      let spinner = createSpinner('Scanning GitHub Actions...').start()
-
+      let json = options.json ?? false
+      let spinner: ReturnType<typeof createSpinner> | null = null
       let directories = resolveScanDirectories({
         recursive: options.recursive,
         cwd: process.cwd(),
         dir: options.dir,
       })
+      let normalizedDirectories = directories.map(({ root, dir }) =>
+        resolve(root, dir),
+      )
+      let includeBranches = options.includeBranches ?? false
+      let mode = normalizeUpdateMode(options.mode)
+      let rawExcludes: string[] = []
+      if (Array.isArray(options.exclude)) {
+        rawExcludes.push(...options.exclude)
+      } else if (typeof options.exclude === 'string') {
+        rawExcludes.push(options.exclude)
+      }
+      let normalizedExcludes = rawExcludes
+        .flatMap(item => item.split(','))
+        .map(item => item.trim())
+        .filter(Boolean)
 
       try {
+        validateCliOptions({ yes: options.yes, json })
+
+        if (!json) {
+          console.info(pc.cyan('\n🚀 Actions Up!\n'))
+          spinner = createSpinner('Scanning GitHub Actions...').start()
+        }
+
+        /**
+         * Write the current CLI state as a machine-readable JSON report.
+         *
+         * @param reportOptions - Report status and update collections to
+         *   serialize.
+         */
+        function writeJsonReport({
+          actionsToCheckCount,
+          blockedByMode = [],
+          outdated = [],
+          skipped = [],
+          scanResult,
+          status,
+        }: WriteJsonReportOptions): void {
+          process.stdout.write(
+            `${JSON.stringify(
+              buildJsonReport({
+                recursive: options.recursive ?? false,
+                excludePatterns: normalizedExcludes,
+                directories: normalizedDirectories,
+                minAge: options.minAge,
+                actionsToCheckCount,
+                includeBranches,
+                blockedByMode,
+                scanResult,
+                outdated,
+                skipped,
+                status,
+                mode,
+              }),
+              null,
+              2,
+            )}\n`,
+          )
+        }
+
         /**
          * Scan for GitHub Actions in the repository.
          */
@@ -133,13 +236,21 @@ export function run(): void {
         let totalWorkflows = scanResult.workflows.size
         let totalCompositeActions = scanResult.compositeActions.size
 
-        spinner.success(
+        spinner?.success(
           `Found ${pc.yellow(totalActions)} actions in ` +
             `${pc.yellow(totalWorkflows)} workflows and ` +
             `${pc.yellow(totalCompositeActions)} composite actions`,
         )
 
         if (totalActions === 0) {
+          if (json) {
+            writeJsonReport({
+              status: 'no-actions-found',
+              actionsToCheckCount: 0,
+              scanResult,
+            })
+            return
+          }
           console.info(
             pc.green('\n✨ No GitHub Actions found in this repository'),
           )
@@ -150,21 +261,6 @@ export function run(): void {
          * Prepare actions list and apply CLI excludes if provided.
          */
         let actionsToCheck = scanResult.actions
-
-        let rawExcludes: string[] = []
-        if (Array.isArray(options.exclude)) {
-          rawExcludes.push(...options.exclude)
-        } else if (typeof options.exclude === 'string') {
-          rawExcludes.push(options.exclude)
-        }
-
-        /**
-         * Support comma-separated lists inside a single flag.
-         */
-        let normalizedExcludes = rawExcludes
-          .flatMap(item => item.split(','))
-          .map(item => item.trim())
-          .filter(Boolean)
 
         if (normalizedExcludes.length > 0) {
           let { parseExcludePatterns } =
@@ -186,17 +282,26 @@ export function run(): void {
         /**
          * Check for updates.
          */
-        spinner = createSpinner('Checking for updates...').start()
+        if (!json) {
+          spinner = createSpinner('Checking for updates...').start()
+        }
 
         if (actionsToCheck.length === 0) {
-          spinner.success('No actions to check after excludes')
+          spinner?.success('No actions to check after excludes')
+          if (json) {
+            writeJsonReport({
+              status: 'nothing-to-check',
+              actionsToCheckCount: 0,
+              scanResult,
+            })
+            return
+          }
           console.info(pc.green('\n✨ Nothing to check after excludes\n'))
           return
         }
 
         let token = process.env['GITHUB_TOKEN']
         let githubClient = createGitHubClient(token)
-        let includeBranches = options.includeBranches ?? false
 
         let updates = await checkUpdates(actionsToCheck, token, {
           client: githubClient,
@@ -242,7 +347,6 @@ export function run(): void {
           return age >= minAgeMs
         })
 
-        let mode = normalizeUpdateMode(options.mode)
         let blockedByMode: typeof outdated = []
         if (mode !== 'major') {
           let tagsCache = new Map<
@@ -324,7 +428,17 @@ export function run(): void {
         let breaking = outdated.filter(update => update.isBreaking)
 
         if (outdated.length === 0) {
-          spinner.success('All actions are up to date!')
+          spinner?.success('All actions are up to date!')
+          if (json) {
+            writeJsonReport({
+              actionsToCheckCount: actionsToCheck.length,
+              status: 'up-to-date',
+              blockedByMode,
+              scanResult,
+              skipped,
+            })
+            return
+          }
           if (skipped.length > 0) {
             printSkippedWarning(skipped, includeBranches)
           }
@@ -337,13 +451,25 @@ export function run(): void {
           return
         }
 
-        spinner.success(
+        spinner?.success(
           `Found ${pc.yellow(outdated.length)} updates available${
             breaking.length > 0 ?
               ` (${pc.redBright(breaking.length)} breaking)`
             : ''
           }`,
         )
+
+        if (json) {
+          writeJsonReport({
+            actionsToCheckCount: actionsToCheck.length,
+            status: 'updates-available',
+            blockedByMode,
+            scanResult,
+            outdated,
+            skipped,
+          })
+          return
+        }
 
         if (skipped.length > 0) {
           printSkippedWarning(skipped, includeBranches)
@@ -412,7 +538,7 @@ export function run(): void {
           console.info(pc.green('\n✓ Updates applied successfully!'))
         }
       } catch (error) {
-        spinner.error('Failed')
+        spinner?.error('Failed')
 
         /**
          * Handle rate limit errors with helpful message.

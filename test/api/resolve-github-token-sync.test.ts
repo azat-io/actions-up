@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 describe('resolveGitHubTokenSync', () => {
   beforeEach(() => {
     vi.resetModules()
-    vi.unmock('node:child_process')
-    vi.unmock('node:fs')
+    vi.doUnmock('node:child_process')
+    vi.doUnmock('node:fs')
     delete process.env['GITHUB_TOKEN']
     delete process.env['GH_TOKEN']
   })

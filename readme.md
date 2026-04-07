@@ -144,6 +144,17 @@ Check for updates without making any changes:
 npx actions-up --dry-run
 ```
 
+### JSON Mode
+
+Output a machine-readable JSON report instead of the interactive UI:
+
+```bash
+npx actions-up --json
+```
+
+`--json` is report-only: it never writes files, skips the interactive prompt,
+and cannot be combined with `--yes`.
+
 ### Custom Directory
 
 By default, Actions Up scans `.github`.
@@ -235,69 +246,53 @@ jobs:
           echo "## GitHub Actions Update Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Initialize variables
-          HAS_UPDATES=false
-          UPDATE_COUNT=0
-
-          # Run actions-up and capture output
+          # Run actions-up and capture machine-readable output
           echo "Running actions-up to check for updates..."
-          actions-up --dry-run > actions-up-raw.txt 2>&1
+          actions-up --json > actions-up-report.json
 
-          # Parse the output to detect updates
-          if grep -q "→" actions-up-raw.txt; then
-            HAS_UPDATES=true
-            # Count the number of updates (lines with arrows)
-            UPDATE_COUNT=$(grep -c "→" actions-up-raw.txt || echo "0")
-          fi
+          UPDATE_COUNT=$(node -pe "JSON.parse(require('node:fs').readFileSync('actions-up-report.json', 'utf8')).summary.totalUpdates")
 
           # Create formatted output
-          if [ "$HAS_UPDATES" = true ]; then
+          if [ "$UPDATE_COUNT" -gt 0 ]; then
             echo "Found $UPDATE_COUNT GitHub Actions with available updates" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "<details>" >> $GITHUB_STEP_SUMMARY
-            echo "<summary>Click to see details</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Click to see JSON report</summary>" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat actions-up-raw.txt >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat actions-up-report.json >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "</details>" >> $GITHUB_STEP_SUMMARY
 
             # Create detailed markdown report with better formatting
-            {
-              echo "## GitHub Actions Update Report"
-              echo ""
+            node --input-type=module <<'EOF'
+            import { readFileSync, writeFileSync } from 'node:fs'
 
-              echo "### Summary"
-              echo "- **Updates available:** $UPDATE_COUNT"
-              echo ""
+            let report = JSON.parse(readFileSync('actions-up-report.json', 'utf8'))
+            let lines = [
+              '## GitHub Actions Update Report',
+              '',
+              '### Summary',
+              `- **Updates available:** ${report.summary.totalUpdates}`,
+              '',
+              '### Updates',
+              '',
+            ]
 
-              # See the raw output above for details.
-              echo "### How to Update"
-              echo ""
-              echo "Choose from several ways to update these actions:"
-              echo ""
-              echo "#### Option 1: Automatic Update (Recommended)"
-              echo '```bash'
-              echo "# Run this command locally in your repository"
-              echo "npx actions-up"
-              echo '```'
-              echo ""
-              echo "#### Option 2: Manual Update"
-              echo "1. Review each update in the table above"
-              echo "2. For breaking changes, click the Release Notes link to review changes"
-              echo "3. Edit the workflows and update the version numbers"
-              echo "4. Test the changes in your CI/CD pipeline"
-              echo ""
-              echo "---"
-              echo ""
-              echo "<details>"
-              echo "<summary>Raw actions-up output</summary>"
-              echo ""
-              echo '```'
-              cat actions-up-raw.txt
-              echo '```'
-              echo "</details>"
-            } > actions-up-report.md
+            for (let update of report.updates) {
+              let file = update.action.file ?? 'unknown'
+              let currentVersion = update.currentVersion ?? 'unknown'
+              let latestVersion = update.latestVersion ?? 'unknown'
+              lines.push(
+                `- \`${update.action.name}\` in \`${file}\`: \`${currentVersion}\` → \`${latestVersion}\``,
+              )
+            }
+
+            lines.push('')
+            lines.push('Run `npx actions-up` locally to review and apply updates.')
+
+            writeFileSync('actions-up-report.md', lines.join('\n'))
+            EOF
 
             echo "has-updates=true" >> $GITHUB_OUTPUT
             echo "update-count=$UPDATE_COUNT" >> $GITHUB_OUTPUT
@@ -470,7 +465,7 @@ Or in GitHub Actions:
 - name: Check for updates
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  run: npx actions-up --dry-run
+  run: npx actions-up --json
 ```
 
 ### Skipping Updates
