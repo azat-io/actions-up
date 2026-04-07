@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.13.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.12.1...v1.13.0)
+
+### 🚀 Features
+
+- Add machine-readable output
+  ([7c24e50](https://github.com/azat-io/actions-up/commit/7c24e50))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.12.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.12.0...v1.12.1)
