@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.14.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.13.0...v1.14.0)
+
+### 🚀 Features
+
+- Add preserve update style
+  ([c94f1b2](https://github.com/azat-io/actions-up/commit/c94f1b2))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.13.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.12.1...v1.13.0)
