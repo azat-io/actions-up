@@ -23,7 +23,7 @@ describe('printSkippedWarning', () => {
       },
     ]
 
-    printSkippedWarning(skipped, false)
+    printSkippedWarning(skipped, false, 'sha')
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('--include-branches'),
@@ -38,7 +38,7 @@ describe('printSkippedWarning', () => {
       },
     ]
 
-    printSkippedWarning(skipped, true)
+    printSkippedWarning(skipped, true, 'sha')
 
     expect(consoleInfoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('--include-branches'),
@@ -53,7 +53,7 @@ describe('printSkippedWarning', () => {
       },
     ]
 
-    printSkippedWarning(skipped, false)
+    printSkippedWarning(skipped, false, 'sha')
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('1 action'),
@@ -72,7 +72,7 @@ describe('printSkippedWarning', () => {
       },
     ]
 
-    printSkippedWarning(skipped, false)
+    printSkippedWarning(skipped, false, 'sha')
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('2 actions'),
@@ -91,7 +91,7 @@ describe('printSkippedWarning', () => {
       },
     ]
 
-    printSkippedWarning(skipped, false)
+    printSkippedWarning(skipped, false, 'sha')
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('actions/checkout@main'),
@@ -106,7 +106,7 @@ describe('printSkippedWarning', () => {
       },
     ]
 
-    printSkippedWarning(skipped, false)
+    printSkippedWarning(skipped, false, 'sha')
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('actions/checkout@main'),
@@ -121,10 +121,45 @@ describe('printSkippedWarning', () => {
       },
     ]
 
-    printSkippedWarning(skipped, false)
+    printSkippedWarning(skipped, false, 'sha')
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('actions/checkout@unknown'),
+    )
+  })
+
+  it('prints a dedicated warning for refs that cannot be preserved', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'stable' },
+        skipReason: 'unsupported-style' as const,
+        currentVersion: 'stable',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'preserve')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('could not be preserved'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@stable'),
+    )
+  })
+
+  it('prints a generic warning for unsupported style skips outside preserve mode', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'stable' },
+        skipReason: 'unsupported-style' as const,
+        currentVersion: 'stable',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('current style'),
     )
   })
 })

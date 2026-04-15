@@ -3,6 +3,7 @@ import semver from 'semver'
 import type { GitHubClient } from '../../types/github-client'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
+import type { UpdateStyle } from '../../types/update-style'
 
 import { normalizeVersion } from '../versions/normalize-version'
 import { createGitHubClient } from './create-github-client'
@@ -12,6 +13,11 @@ import { isSemverLike } from '../versions/is-semver-like'
  * Internal result for a single release/tag lookup, enriched with status info.
  */
 interface ReleaseCheckResult extends LatestInfo {
+  /**
+   * Detected style of the current reference being evaluated.
+   */
+  currentRefType?: ActionUpdate['currentRefType']
+
   /**
    * Whether lookup succeeded or was skipped (e.g., branch ref).
    */
@@ -60,10 +66,15 @@ interface LatestInfo {
 export async function checkUpdates(
   actions: GitHubAction[],
   token?: string,
-  options?: { includeBranches?: boolean; client?: GitHubClient },
+  options?: {
+    includeBranches?: boolean
+    client?: GitHubClient
+    style?: UpdateStyle
+  },
 ): Promise<ActionUpdate[]> {
   let client = options?.client ?? createGitHubClient(token)
   let includeBranches = options?.includeBranches ?? false
+  let style = options?.style ?? 'sha'
 
   /**
    * Filter external actions and reusable workflows.
@@ -108,6 +119,7 @@ export async function checkUpdates(
           return [
             ...results,
             {
+              currentRefType: 'unknown',
               publishedAt: null,
               version: null,
               actionName,
@@ -123,7 +135,13 @@ export async function checkUpdates(
         if (segments.length < 2) {
           return [
             ...results,
-            { publishedAt: null, version: null, actionName, sha: null },
+            {
+              currentRefType: 'unknown',
+              publishedAt: null,
+              version: null,
+              actionName,
+              sha: null,
+            },
           ]
         }
         let [owner, repo] = segments
@@ -131,7 +149,13 @@ export async function checkUpdates(
         if (!owner || !repo) {
           return [
             ...results,
-            { publishedAt: null, version: null, actionName, sha: null },
+            {
+              currentRefType: 'unknown',
+              publishedAt: null,
+              version: null,
+              actionName,
+              sha: null,
+            },
           ]
         }
 
@@ -142,6 +166,7 @@ export async function checkUpdates(
            */
           let currentVersions = uniqueActions.get(actionName)!
           let firstVersion = currentVersions[0]?.version
+          let currentReferenceType = deriveCurrentReferenceType(firstVersion)
           if (
             firstVersion &&
             !isSha(firstVersion) &&
@@ -152,6 +177,10 @@ export async function checkUpdates(
               repo,
               firstVersion,
             )
+            currentReferenceType =
+              referenceType === 'branch' || referenceType === 'tag' ?
+                referenceType
+              : currentReferenceType
             if (referenceType === 'branch' && !includeBranches) {
               /**
                * Skip update check for branch references.
@@ -159,6 +188,7 @@ export async function checkUpdates(
               return [
                 ...results,
                 {
+                  currentRefType: currentReferenceType,
                   skipReason: 'branch' as const,
                   status: 'skipped' as const,
                   publishedAt: null,
@@ -259,6 +289,7 @@ export async function checkUpdates(
                     return [
                       ...results,
                       {
+                        currentRefType: currentReferenceType,
                         version: tagVersion,
                         publishedAt: null,
                         sha: tagSha,
@@ -287,7 +318,14 @@ export async function checkUpdates(
             }
             return [
               ...results,
-              { status: 'ok' as const, publishedAt, actionName, version, sha },
+              {
+                currentRefType: currentReferenceType,
+                status: 'ok' as const,
+                publishedAt,
+                actionName,
+                version,
+                sha,
+              },
             ]
           }
 
@@ -345,6 +383,7 @@ export async function checkUpdates(
             return [
               ...results,
               {
+                currentRefType: currentReferenceType,
                 status: 'ok' as const,
                 publishedAt: null,
                 actionName,
@@ -356,7 +395,13 @@ export async function checkUpdates(
 
           return [
             ...results,
-            { publishedAt: null, version: null, actionName, sha: null },
+            {
+              currentRefType: currentReferenceType,
+              publishedAt: null,
+              version: null,
+              actionName,
+              sha: null,
+            },
           ]
         } catch (error: unknown) {
           /**
@@ -370,7 +415,13 @@ export async function checkUpdates(
              */
             return [
               ...results,
-              { publishedAt: null, version: null, actionName, sha: null },
+              {
+                currentRefType: 'unknown',
+                publishedAt: null,
+                version: null,
+                actionName,
+                sha: null,
+              },
             ]
           }
           /**
@@ -379,7 +430,13 @@ export async function checkUpdates(
           console.warn(`Failed to check ${actionName}:`, error)
           return [
             ...results,
-            { publishedAt: null, version: null, actionName, sha: null },
+            {
+              currentRefType: 'unknown',
+              publishedAt: null,
+              version: null,
+              actionName,
+              sha: null,
+            },
           ]
         }
       }),
@@ -411,6 +468,7 @@ export async function checkUpdates(
   let cache = new Map<string, ReleaseCheckResult>()
   for (let result of releaseResults) {
     cache.set(result.actionName, {
+      currentRefType: result.currentRefType,
       publishedAt: result.publishedAt,
       actionName: result.actionName,
       skipReason: result.skipReason,
@@ -436,12 +494,24 @@ export async function checkUpdates(
             version: cached.version,
             sha: cached.sha,
           },
-          { skipReason: cached.skipReason, status: cached.status },
+          {
+            currentRefType: cached.currentRefType,
+            skipReason: cached.skipReason,
+            status: cached.status,
+            style,
+          },
         ),
       )
     } else {
       updates.push(
-        createUpdate(action, { publishedAt: null, version: null, sha: null }),
+        createUpdate(
+          action,
+          { publishedAt: null, version: null, sha: null },
+          {
+            currentRefType: deriveCurrentReferenceType(action.version),
+            style,
+          },
+        ),
       )
     }
   }
@@ -461,14 +531,18 @@ function createUpdate(
   action: GitHubAction,
   latest: LatestInfo,
   meta: {
+    currentRefType: ActionUpdate['currentRefType']
     skipReason?: ActionUpdate['skipReason']
     status?: ActionUpdate['status']
-  } = {},
+    style: UpdateStyle
+  },
 ): ActionUpdate {
   let { version: latestVersion, sha: latestSha, publishedAt } = latest
   let currentVersionRaw = action.version ?? 'unknown'
   let currentVersion = normalizeVersion(currentVersionRaw)
   let normalized = latestVersion ? normalizeVersion(latestVersion) : null
+  let currentReferenceType = meta.currentRefType
+  let { style } = meta
 
   /**
    * Default status is ok unless explicitly marked skipped.
@@ -481,6 +555,7 @@ function createUpdate(
 
   if (status === 'skipped') {
     return {
+      currentRefType: currentReferenceType,
       currentVersion: currentVersionRaw,
       isBreaking: false,
       hasUpdate: false,
@@ -519,7 +594,8 @@ function createUpdate(
         !hasUpdate &&
         semver.eq(currentSemver, latestSemver) &&
         !isSha(action.version) &&
-        latestSha
+        latestSha &&
+        style === 'sha'
       ) {
         hasUpdate = true
         isBreaking = false
@@ -530,6 +606,7 @@ function createUpdate(
   }
 
   return {
+    currentRefType: currentReferenceType,
     currentVersion: currentVersionRaw,
     latestVersion,
     publishedAt,
@@ -597,6 +674,24 @@ function isSha(value: undefined | string | null): boolean {
    * Check if it matches SHA pattern (7-40 hex characters).
    */
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
+}
+
+function deriveCurrentReferenceType(
+  version: undefined | string | null,
+): ActionUpdate['currentRefType'] {
+  if (!version) {
+    return 'unknown'
+  }
+
+  if (isSha(version)) {
+    return 'sha'
+  }
+
+  if (isSemverLike(version)) {
+    return 'tag'
+  }
+
+  return 'unknown'
 }
 
 function isRateLimitError(error: unknown): error is Error {

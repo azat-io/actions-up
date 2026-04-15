@@ -7,7 +7,17 @@ export interface ActionUpdate {
   /**
    * Reason for skipping the update check.
    */
-  skipReason?: 'unknown' | 'branch'
+  skipReason?: 'unsupported-style' | 'unknown' | 'branch'
+
+  /**
+   * Detected style of the current reference in the source file.
+   */
+  currentRefType?: 'unknown' | 'branch' | 'sha' | 'tag'
+
+  /**
+   * Style of the final reference that should be written back to the file.
+   */
+  targetRefStyle?: 'sha' | 'tag' | null
 
   /**
    * Current version string.
@@ -23,6 +33,11 @@ export interface ActionUpdate {
    * Status of the check for this action.
    */
   status?: 'skipped' | 'ok'
+
+  /**
+   * Final reference that should be written back to the file.
+   */
+  targetRef?: string | null
 
   /**
    * SHA hash of the latest version.

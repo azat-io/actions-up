@@ -16,7 +16,7 @@ Actions Up scans your workflows and composite actions to discover every
 referenced GitHub Action, then checks for newer releases.
 
 Interactively upgrade and pin actions to exact commit SHAs for secure,
-reproducible CI and low-friction maintenance.
+reproducible CI, or preserve tag-style references when you need to stay on tags.
 
 ## Features
 
@@ -25,8 +25,8 @@ reproducible CI and low-friction maintenance.
   `action.yml`/`action.yaml`)
 - **Reusable Workflows**: Detects and updates reusable workflow calls at the job
   level
-- **SHA pinning**: Updates actions to use commit SHA instead of tags for better
-  security
+- **Flexible update styles**: Use SHA pinning by default, or preserve tag-style
+  references with `--style preserve`
 - **Batch Updates**: Update multiple actions at once
 - **Interactive Selection**: Choose which actions to update
 - **Breaking Changes Detection**: Warns about major version updates
@@ -124,7 +124,7 @@ This will:
    plus root `action.yml`/`action.yaml`
 2. Check for available updates
 3. Show an interactive list to select updates
-4. Apply selected updates with SHA pinning
+4. Apply selected updates with SHA pinning by default
 
 ### Auto-Update Mode
 
@@ -199,6 +199,24 @@ npx actions-up --mode patch
 In `minor` and `patch` modes, Actions Up tries to find the newest compatible tag
 first (for example, from `@v4` in `minor` mode it will choose the latest
 `v4.x.y`). If no compatible version exists, that action is skipped.
+
+### Update Style
+
+By default, Actions Up writes updates as pinned SHAs:
+
+```bash
+npx actions-up --style sha
+```
+
+Use `--style preserve` to keep the current reference style:
+
+```bash
+npx actions-up --style preserve
+```
+
+`preserve` keeps tag references on tags and SHA references on SHAs. For example,
+`actions/checkout@v5` updates to `actions/checkout@v6.0.2`, while a SHA-pinned
+action continues updating to the latest resolved SHA.
 
 ## GitHub Actions Integration
 
@@ -500,7 +518,8 @@ Ignore comments (file/block/next-line/inline):
 Interactive CLI for developers who want control over GitHub Actions updates.
 
 - **vs. Dependabot/Renovate:** Dependabot and Renovate update via pull requests;
-  Actions Up is an interactive CLI with explicit SHA pinning.
+  Actions Up is an interactive CLI with explicit SHA pinning by default and an
+  opt-in preserve mode for tag users.
 - **vs. pinact:** pinact is a CLI to pin and update Actions and reusable
   workflows; Actions Up adds interactive selection and major update warnings.
 - **Zero-config:** `npx actions-up` runs immediately.

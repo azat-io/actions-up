@@ -901,4 +901,33 @@ describe('promptUpdateSelection', () => {
     expect(selected).toBeNull()
     expect(capturedOptions).toBeDefined()
   })
+
+  it('allows selecting preserve-style tag targets without sha', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/preserve.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v4',
+        },
+        latestVersion: 'v5.0.0',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v4',
+        targetRef: 'v5.0.0',
+        publishedAt: null,
+        isBreaking: true,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['0']
+    let selected = await promptUpdateSelection(updates)
+
+    expect(selected).toHaveLength(1)
+    expect(capturedOptions).toBeDefined()
+    expect(getFirstRenderedRowMessage(capturedOptions!)).toContain('5.0.0')
+  })
 })

@@ -273,8 +273,8 @@ export async function promptUpdateSelection(
   }
 
   /**
-   * Only outdated (hasUpdate). Items without latestSha are shown but disabled —
-   * always pinning.
+   * Only outdated (hasUpdate). Items without a resolved target ref are shown
+   * but disabled.
    */
   let outdated = updates.filter(update => update.hasUpdate)
 
@@ -370,8 +370,12 @@ export async function promptUpdateSelection(
     )
     maxJobLength = Math.max(maxJobLength, jobRaw.length)
     if (update.latestVersion) {
+      let targetVersion =
+        update.targetRefStyle === 'tag' && update.targetRef ?
+          update.targetRef
+        : update.latestVersion
       let formatted = formatVersion(
-        update.latestVersion,
+        targetVersion,
         currentComputedByIndex[index]?.effectiveForDiff ??
           update.currentVersion,
       )
@@ -419,7 +423,7 @@ export async function promptUpdateSelection(
     })
 
     for (let { update, index } of groupOrder) {
-      let hasSha = Boolean(update.latestSha)
+      let hasTarget = hasResolvedTarget(update)
 
       let currentComputed = currentComputedByIndex[index]!
       let current = currentComputed.display
@@ -428,15 +432,21 @@ export async function promptUpdateSelection(
       }
       let effectiveCurrentForDiff =
         currentComputed.effectiveForDiff ?? update.currentVersion
-      let latest = formatVersion(update.latestVersion, effectiveCurrentForDiff)
+      let latest = formatVersion(
+        getTargetVersion(update),
+        effectiveCurrentForDiff,
+      )
       let actionName = update.action.name
 
-      if (update.latestSha) {
-        let shortSha = update.latestSha.slice(0, 7)
+      if (
+        getResolvedTargetStyle(update) === 'sha' &&
+        getResolvedTarget(update)
+      ) {
+        let shortSha = getResolvedTarget(update)!.slice(0, 7)
         latest = `${padString(latest, globalVersionWidth + 1)}${pc.gray(`(${shortSha})`)}`
       }
 
-      if (!hasSha) {
+      if (!hasTarget) {
         latest = pc.gray(latest)
         current = pc.gray(current)
         actionName = pc.gray(actionName)
@@ -445,8 +455,8 @@ export async function promptUpdateSelection(
       let jobName = update.action.job ?? '–'
       let age = formatAge(update.publishedAt)
       tableRows.push({
-        job: hasSha ? jobName : pc.gray(jobName),
-        age: hasSha ? age : pc.gray(age),
+        job: hasTarget ? jobName : pc.gray(jobName),
+        age: hasTarget ? age : pc.gray(age),
         action: actionName,
         target: latest,
         arrow: '❯',
@@ -480,13 +490,13 @@ export async function promptUpdateSelection(
         })
       } else {
         let { update, index } = groupOrder[i - 1]!
-        let hasSha = Boolean(update.latestSha)
-        let enabled = hasSha && !update.isBreaking
+        let hasTarget = hasResolvedTarget(update)
+        let enabled = hasTarget && !update.isBreaking
         groupChildren.push({
           message: formattedRow,
           value: String(index),
+          disabled: !hasTarget,
           name: String(index),
-          disabled: !hasSha,
           // Remove auto-child indent to tighten left padding
           // @ts-expect-error enquirer supports indent on choice items
           indent: '',
@@ -581,7 +591,7 @@ export async function promptUpdateSelection(
         let groupItems = groups.get(fileKey) ?? []
 
         for (let { update: upd, index } of groupItems) {
-          if (upd.latestSha) {
+          if (hasResolvedTarget(upd)) {
             selectedIndexes.add(index)
           }
         }
@@ -595,7 +605,7 @@ export async function promptUpdateSelection(
 
     let result: ActionUpdate[] = []
     for (let [index, outdatedUpdate] of outdated.entries()) {
-      if (selectedIndexes.has(index) && outdatedUpdate.latestSha) {
+      if (selectedIndexes.has(index) && hasResolvedTarget(outdatedUpdate)) {
         result.push(outdatedUpdate)
       }
     }
@@ -695,6 +705,32 @@ function formatVersionOrSha(version: undefined | string | null): string {
   return version.replace(/^v/u, '')
 }
 
+function getTargetVersion(update: ActionUpdate): string | null {
+  if (getResolvedTargetStyle(update) === 'tag' && getResolvedTarget(update)) {
+    return getResolvedTarget(update)
+  }
+
+  return update.latestVersion
+}
+
+function getResolvedTargetStyle(
+  update: ActionUpdate,
+): ActionUpdate['targetRefStyle'] {
+  if (update.targetRefStyle) {
+    return update.targetRefStyle
+  }
+
+  return update.latestSha ? 'sha' : null
+}
+
+function getResolvedTarget(update: ActionUpdate): string | null {
+  if (update.targetRef) {
+    return update.targetRef
+  }
+
+  return update.latestSha
+}
+
 /**
  * Logs a cancellation message to the console, clearing any terminal artifacts
  * left by the interactive prompt.
@@ -706,4 +742,8 @@ function formatVersionOrSha(version: undefined | string | null): string {
  */
 function logSelectionCancelled(): void {
   console.info(`\r\u001B[K${pc.yellow('Selection cancelled')}`)
+}
+
+function hasResolvedTarget(update: ActionUpdate): boolean {
+  return Boolean(getResolvedTarget(update))
 }

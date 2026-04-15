@@ -6,16 +6,19 @@ import cac from 'cac'
 
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
+import type { UpdateStyle } from '../types/update-style'
 import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
 
 import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
+import { resolveTargetReference } from '../core/updates/resolve-target-reference'
 import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { createGitHubClient } from '../core/api/create-github-client'
 import { resolveScanDirectories } from './resolve-scan-directories'
 import { getUpdateLevel } from '../core/versions/get-update-level'
 import { applyUpdates } from '../core/ast/update/apply-updates'
+import { normalizeUpdateStyle } from './normalize-update-style'
 import { printSkippedWarning } from './print-skipped-warning'
 import { normalizeUpdateMode } from './normalize-update-mode'
 import { validateCliOptions } from './validate-cli-options'
@@ -52,6 +55,11 @@ interface CLIOptions {
    * Recursively scan directories for YAML files.
    */
   recursive?: boolean
+
+  /**
+   * Update style (sha or preserve).
+   */
+  style?: UpdateStyle
 
   /**
    * Update mode (major, minor, patch).
@@ -148,6 +156,9 @@ export function run(): void {
         default: 'major',
       },
     )
+    .option('--style <style>', 'Update style: sha or preserve (default: sha)', {
+      default: 'sha',
+    })
     .option('--recursive, -r', 'Recursively scan directories for YAML files')
     .option('--yes, -y', 'Skip all confirmations')
     .command('', 'Update GitHub Actions')
@@ -164,6 +175,7 @@ export function run(): void {
       )
       let includeBranches = options.includeBranches ?? false
       let mode = normalizeUpdateMode(options.mode)
+      let style = normalizeUpdateStyle(options.style)
       let rawExcludes: string[] = []
       if (Array.isArray(options.exclude)) {
         rawExcludes.push(...options.exclude)
@@ -211,6 +223,7 @@ export function run(): void {
                 outdated,
                 skipped,
                 status,
+                style,
                 mode,
               }),
               null,
@@ -306,6 +319,7 @@ export function run(): void {
         let updates = await checkUpdates(actionsToCheck, token, {
           client: githubClient,
           includeBranches,
+          style,
         })
 
         /**
@@ -425,6 +439,18 @@ export function run(): void {
           outdated = allowedByMode
         }
 
+        outdated = outdated.map(update => resolveTargetReference(update, style))
+        let unresolvedByStyle = outdated
+          .filter(update => !update.targetRef)
+          .map(update => ({
+            ...update,
+            skipReason: 'unsupported-style' as const,
+            status: 'skipped' as const,
+            hasUpdate: false,
+          }))
+        skipped.push(...unresolvedByStyle)
+        outdated = outdated.filter(update => update.targetRef)
+
         let breaking = outdated.filter(update => update.isBreaking)
 
         if (outdated.length === 0) {
@@ -440,7 +466,7 @@ export function run(): void {
             return
           }
           if (skipped.length > 0) {
-            printSkippedWarning(skipped, includeBranches)
+            printSkippedWarning(skipped, includeBranches, style)
           }
           if (blockedByMode.length > 0) {
             printModeWarning(blockedByMode, mode)
@@ -472,7 +498,7 @@ export function run(): void {
         }
 
         if (skipped.length > 0) {
-          printSkippedWarning(skipped, includeBranches)
+          printSkippedWarning(skipped, includeBranches, style)
         }
         if (blockedByMode.length > 0) {
           printModeWarning(blockedByMode, mode)
@@ -482,11 +508,15 @@ export function run(): void {
           console.info(pc.yellow('\n📋 Dry Run - No changes will be made\n'))
 
           for (let update of outdated) {
+            let target =
+              update.targetRefStyle === 'sha' && update.targetRef ?
+                `${update.latestVersion} ${pc.gray(`(${update.targetRef.slice(0, 7)})`)}`
+              : (update.targetRef ?? update.latestVersion)
             console.info(
               `${pc.cyan(update.action.file ?? 'unknown')}:\n` +
                 `${update.action.name}: ${pc.redBright(update.currentVersion)} → ${pc.green(
-                  update.latestVersion,
-                )} ${update.latestSha ? pc.gray(`(${update.latestSha.slice(0, 7)})`) : ''}\n`,
+                  target,
+                )}\n`,
             )
           }
 
@@ -498,13 +528,11 @@ export function run(): void {
 
         if (options.yes) {
           /**
-           * Auto-update all actions with SHA.
+           * Auto-update all actions with the resolved target ref.
            */
-          let toUpdate = outdated.filter(update => update.latestSha)
+          let toUpdate = outdated.filter(update => update.targetRef)
           if (toUpdate.length === 0) {
-            console.info(
-              pc.yellow('\n⚠️ No actions with SHA available for update\n'),
-            )
+            console.info(pc.yellow('\n⚠️ No actionable updates available\n'))
             return
           }
 

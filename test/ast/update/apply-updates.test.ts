@@ -688,4 +688,116 @@ describe('applyUpdates', () => {
     expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
     expect(consoleSpy).toHaveBeenCalledWith('Invalid SHA format: not-a-sha')
   })
+
+  it('writes preserve-style tag targets without inline version comment', async () => {
+    let filePath = '/repo/.github/workflows/preserve.yml'
+    let original = [
+      'steps:',
+      '  - uses: actions/checkout@v4 # keep this',
+      '',
+    ].join('\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+        },
+        latestVersion: 'v5.0.0',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v4',
+        targetRef: 'v5.0.0',
+        publishedAt: null,
+        isBreaking: true,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toContain('- uses: actions/checkout@v5.0.0 # keep this')
+  })
+
+  it('removes old inline version comment when switching to preserve-style tag target', async () => {
+    let filePath = '/repo/.github/workflows/remove-version-comment.yml'
+    let original = ['steps:', '  - uses: actions/cache@v3 # v3.1.2', ''].join(
+      '\n',
+    )
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestVersion: 'v3.2.0',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v3',
+        targetRef: 'v3.2.0',
+        isBreaking: false,
+        publishedAt: null,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledOnce()
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content).toContain('- uses: actions/cache@v3.2.0')
+    expect(content).not.toContain('# v3.1.2')
+  })
+
+  it('logs error when target ref contains a newline', async () => {
+    let filePath = '/repo/.github/workflows/invalid-target-ref.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestVersion: 'v3.2.0',
+        currentRefType: 'tag',
+        targetRef: 'v3.2.0\n',
+        targetRefStyle: 'tag',
+        currentVersion: 'v3',
+        isBreaking: false,
+        publishedAt: null,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
+    expect(consoleSpy).toHaveBeenCalledWith('Invalid target ref: v3.2.0\n')
+  })
 })

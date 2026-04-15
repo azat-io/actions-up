@@ -35,7 +35,7 @@ interface MatchGroups {
 }
 
 /**
- * Apply updates using SHA with version in comment for readability.
+ * Apply updates using the already-resolved target refs.
  *
  * @param updates - Array of updates to apply.
  */
@@ -58,7 +58,11 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
       let content = await readFile(filePath, 'utf8')
 
       for (let update of fileUpdates) {
-        if (!update.latestSha) {
+        let targetReference = update.targetRef ?? update.latestSha
+        let targetReferenceStyle =
+          update.targetRefStyle ?? (update.latestSha ? 'sha' : null)
+
+        if (!targetReference || !targetReferenceStyle) {
           continue
         }
 
@@ -83,8 +87,20 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
           continue
         }
 
-        if (!/^[\da-f]{40}$/iu.test(update.latestSha)) {
-          console.error(`Invalid SHA format: ${update.latestSha}`)
+        if (
+          targetReference.includes('\n') ||
+          targetReference.includes('\r') ||
+          targetReference.trim() === ''
+        ) {
+          console.error(`Invalid target ref: ${targetReference}`)
+          continue
+        }
+
+        if (
+          targetReferenceStyle === 'sha' &&
+          !/^[\da-f]{40}$/iu.test(targetReference)
+        ) {
+          console.error(`Invalid SHA format: ${targetReference}`)
           continue
         }
 
@@ -147,13 +163,22 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
              */
             let hasTrailingContent = restOfLine.trim().length > 0
             let spacer = groups.after.endsWith(' ') ? '' : ' '
-            let skipComment =
-              hasTrailingContent && !groups.comment && escapedVersion !== ''
-            let comment =
-              skipComment ? '' : `${spacer}# ${update.latestVersion}`
+            let comment = ''
+
+            if (targetReferenceStyle === 'sha') {
+              let skipComment =
+                hasTrailingContent && !groups.comment && escapedVersion !== ''
+              comment = skipComment ? '' : `${spacer}# ${update.latestVersion}`
+            } else if (
+              groups.comment &&
+              !looksLikeInlineVersionComment(groups.comment)
+            ) {
+              let { comment: existingComment } = groups
+              comment = existingComment
+            }
 
             let action = `${groups.prefix}${groups.quote}${groups.name}`
-            let version = `${update.latestSha}${groups.quote}${groups.after}${comment}`
+            let version = `${targetReference}${groups.quote}${groups.after}${comment}`
 
             return `${action}@${version}`
           },
@@ -165,4 +190,10 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
   )
 
   await Promise.all(filePromises)
+}
+
+function looksLikeInlineVersionComment(comment: string): boolean {
+  return /^#\s*[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?\s*$/u.test(
+    comment.trim(),
+  )
 }

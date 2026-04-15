@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve } from 'node:path'
 
 import type { ActionUpdate } from '../types/action-update'
+import type { UpdateStyle } from '../types/update-style'
 import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
 
@@ -68,6 +69,11 @@ interface BuildJsonReportOptions {
   recursive: boolean
 
   /**
+   * Effective update style for the run.
+   */
+  style: UpdateStyle
+
+  /**
    * Effective update mode for the run.
    */
   mode: UpdateMode
@@ -87,6 +93,16 @@ interface BuildJsonReportOptions {
  * Serialized update entry in the JSON report.
  */
 interface JsonReportUpdate {
+  /**
+   * Style of the final reference.
+   */
+  targetRefStyle: NonNullable<ActionUpdate['targetRefStyle']> | null
+
+  /**
+   * Detected style of the current reference in the source file.
+   */
+  currentRefType: ActionUpdate['currentRefType'] | null
+
   /**
    * Reason why this entry was skipped, if any.
    */
@@ -121,6 +137,11 @@ interface JsonReportUpdate {
    * Resolved SHA for the target version.
    */
   latestSha: string | null
+
+  /**
+   * Final reference that would be written back to the file.
+   */
+  targetRef: string | null
 
   /**
    * Whether this update crosses a major version boundary.
@@ -179,6 +200,56 @@ interface JsonReportSummary {
 }
 
 /**
+ * Effective CLI options serialized into the report.
+ */
+interface JsonReportOptions {
+  /**
+   * Regex patterns supplied through `--exclude`.
+   */
+  excludePatterns: string[]
+
+  /**
+   * Whether branch references were checked.
+   */
+  includeBranches: boolean
+
+  /**
+   * Resolved scan directories.
+   */
+  directories: string[]
+
+  /**
+   * Whether recursive scanning mode is enabled.
+   */
+  recursive: boolean
+
+  /**
+   * Effective update style.
+   */
+  style: UpdateStyle
+
+  /**
+   * Effective update mode.
+   */
+  mode: UpdateMode
+
+  /**
+   * Indicates that JSON mode never applies changes.
+   */
+  reportOnly: true
+
+  /**
+   * Minimum age filter in days.
+   */
+  minAge: number
+
+  /**
+   * Indicates that this payload came from `--json`.
+   */
+  json: true
+}
+
+/**
  * Serialized action reference included in each update entry.
  */
 interface JsonReportAction {
@@ -221,51 +292,6 @@ interface JsonReportAction {
    * Normalized action name.
    */
   name: string
-}
-
-/**
- * Effective CLI options serialized into the report.
- */
-interface JsonReportOptions {
-  /**
-   * Regex patterns supplied through `--exclude`.
-   */
-  excludePatterns: string[]
-
-  /**
-   * Whether branch references were checked.
-   */
-  includeBranches: boolean
-
-  /**
-   * Resolved scan directories.
-   */
-  directories: string[]
-
-  /**
-   * Whether recursive scanning mode is enabled.
-   */
-  recursive: boolean
-
-  /**
-   * Effective update mode.
-   */
-  mode: UpdateMode
-
-  /**
-   * Indicates that JSON mode never applies changes.
-   */
-  reportOnly: true
-
-  /**
-   * Minimum age filter in days.
-   */
-  minAge: number
-
-  /**
-   * Indicates that this payload came from `--json`.
-   */
-  json: true
 }
 
 /**
@@ -337,6 +363,7 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       includeBranches: options.includeBranches,
       recursive: options.recursive,
       minAge: options.minAge,
+      style: options.style,
       mode: options.mode,
       reportOnly: true,
       json: true,
@@ -371,9 +398,12 @@ function serializeUpdate(update: ActionUpdate, cwd: string): JsonReportUpdate {
       type: update.action.type,
     },
     publishedAt: update.publishedAt?.toISOString() ?? null,
+    currentRefType: update.currentRefType ?? null,
+    targetRefStyle: update.targetRefStyle ?? null,
     currentVersion: update.currentVersion,
     skipReason: update.skipReason ?? null,
     latestVersion: update.latestVersion,
+    targetRef: update.targetRef ?? null,
     isBreaking: update.isBreaking,
     status: update.status ?? 'ok',
     hasUpdate: update.hasUpdate,
