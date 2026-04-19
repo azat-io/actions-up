@@ -39,6 +39,14 @@ const MAX_VERSION_WIDTH = 7
  */
 interface PromptOptionsLike {
   /**
+   * Renders submitted output shown inline after confirmation.
+   */
+  format?(this: {
+    state?: { cancelled?: boolean; submitted?: boolean }
+    value?: string[] | string
+  }): Promise<string> | string
+
+  /**
    * Renders selection marker for a choice.
    */
   indicator(
@@ -240,6 +248,18 @@ interface ChoiceSeparator {
   name?: string
 }
 
+interface GroupEntry {
+  /**
+   * Outdated update belonging to the group.
+   */
+  update: ActionUpdate
+
+  /**
+   * Index in the filtered outdated updates list.
+   */
+  index: number
+}
+
 /**
  * Result shape returned by enquirer for the multiselect prompt.
  */
@@ -286,7 +306,7 @@ export async function promptUpdateSelection(
   /**
    * Group by files for user convenience.
    */
-  let groups = new Map<string, { update: ActionUpdate; index: number }[]>()
+  let groups = new Map<string, GroupEntry[]>()
 
   for (let [index, update] of outdated.entries()) {
     let originalFile = update.action.file ?? 'unknown file'
@@ -552,6 +572,21 @@ export async function promptUpdateSelection(
 
         return `   ${choice.enabled ? '●' : '○'}`
       },
+      format() {
+        if (this.state?.submitted !== true || this.state.cancelled === true) {
+          return ''
+        }
+
+        let selectedValues = Array.isArray(this.value) ? this.value : []
+        let selectedIndexes = getSelectedIndexes(selectedValues, groups)
+        let selectedCount = getSelectedUpdates(outdated, selectedIndexes).length
+
+        if (selectedCount === 0) {
+          return ''
+        }
+
+        return formatSelectionSummary(selectedCount)
+      },
       message:
         'Choose which actions to update ' +
         `(Press ${pc.cyan('<space>')} to select, ` +
@@ -583,32 +618,8 @@ export async function promptUpdateSelection(
       promptOptions as unknown as PromptOptions,
     )
 
-    let selectedIndexes = new Set<number>()
-
-    for (let valueString of selected) {
-      if (valueString.startsWith('label|')) {
-        let fileKey = valueString.slice('label|'.length)
-        let groupItems = groups.get(fileKey) ?? []
-
-        for (let { update: upd, index } of groupItems) {
-          if (hasResolvedTarget(upd)) {
-            selectedIndexes.add(index)
-          }
-        }
-        continue
-      }
-      let index = Number.parseInt(valueString, 10)
-      if (Number.isFinite(index)) {
-        selectedIndexes.add(index)
-      }
-    }
-
-    let result: ActionUpdate[] = []
-    for (let [index, outdatedUpdate] of outdated.entries()) {
-      if (selectedIndexes.has(index) && hasResolvedTarget(outdatedUpdate)) {
-        result.push(outdatedUpdate)
-      }
-    }
+    let selectedIndexes = getSelectedIndexes(selected, groups)
+    let result = getSelectedUpdates(outdated, selectedIndexes)
 
     if (result.length === 0) {
       console.info(pc.yellow('\nNo actions selected'))
@@ -630,6 +641,35 @@ export async function promptUpdateSelection(
     console.error(pc.red('Unexpected error during selection:'), error)
     throw error
   }
+}
+
+function getSelectedIndexes(
+  selectedValues: string[],
+  groups: Map<string, GroupEntry[]>,
+): Set<number> {
+  let selectedIndexes = new Set<number>()
+
+  for (let valueString of selectedValues) {
+    if (valueString.startsWith('label|')) {
+      let fileKey = valueString.slice('label|'.length)
+      let groupItems = groups.get(fileKey) ?? []
+
+      for (let { update, index } of groupItems) {
+        if (hasResolvedTarget(update)) {
+          selectedIndexes.add(index)
+        }
+      }
+
+      continue
+    }
+
+    let index = Number.parseInt(valueString, 10)
+    if (Number.isFinite(index)) {
+      selectedIndexes.add(index)
+    }
+  }
+
+  return selectedIndexes
 }
 
 /**
@@ -687,6 +727,21 @@ function formatTableRow(options: FormatTableRowOptions): string {
   return line.replace(/\s+$/u, '')
 }
 
+function getSelectedUpdates(
+  outdated: ActionUpdate[],
+  selectedIndexes: Set<number>,
+): ActionUpdate[] {
+  let result: ActionUpdate[] = []
+
+  for (let [index, outdatedUpdate] of outdated.entries()) {
+    if (selectedIndexes.has(index) && hasResolvedTarget(outdatedUpdate)) {
+      result.push(outdatedUpdate)
+    }
+  }
+
+  return result
+}
+
 /**
  * Format version or SHA for display, shortening long SHAs.
  *
@@ -721,6 +776,11 @@ function getResolvedTargetStyle(
   }
 
   return update.latestSha ? 'sha' : null
+}
+
+function formatSelectionSummary(selectedCount: number): string {
+  let noun = selectedCount === 1 ? 'action' : 'actions'
+  return `${selectedCount} ${noun} selected`
 }
 
 function getResolvedTarget(update: ActionUpdate): string | null {

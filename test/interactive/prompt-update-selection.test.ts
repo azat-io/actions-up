@@ -11,6 +11,10 @@ import { promptUpdateSelection } from '../../core/interactive/prompt-update-sele
 import { stripAnsi } from '../../core/interactive/strip-ansi'
 
 interface PromptOptionsForTest {
+  format?(this: {
+    state?: { cancelled?: boolean; submitted?: boolean }
+    value?: string[] | string
+  }): Promise<string> | string
   choices: (RenderChoiceSeparator | RenderGroupLabel | RenderChoiceItem)[]
   indicator?(state: unknown, choice: IndicatorChoice): string
   down?(): Promise<string[]>
@@ -78,6 +82,7 @@ function isSelectable(
 }
 let nextSelected: string[] = []
 let capturedOptions: PromptOptionsForTest | undefined
+let formattedSubmitOutput: undefined | string
 let promptError: Error | null = null
 
 vi.mock(
@@ -133,6 +138,13 @@ vi.mock(
             throw error
           }
 
+          if (typeof options.format === 'function') {
+            formattedSubmitOutput = await options.format.call({
+              state: { cancelled: false, submitted: true },
+              value: nextSelected,
+            })
+          }
+
           let nameKey = options.name as 'selected'
           return { [nameKey]: nextSelected }
         },
@@ -184,6 +196,7 @@ describe('promptUpdateSelection', () => {
   beforeEach(() => {
     nextSelected = []
     promptError = null
+    formattedSubmitOutput = undefined
     infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
   })
@@ -466,9 +479,182 @@ describe('promptUpdateSelection', () => {
     expect(typeof capturedOptions?.indicator).toBe('function')
     expect(typeof capturedOptions?.j).toBe('function')
     expect(typeof capturedOptions?.k).toBe('function')
+    expect(typeof capturedOptions?.format).toBe('function')
     expect(typeof capturedOptions?.cancel).toBe('function')
 
     expect(capturedOptions?.cancel?.()).toBeNull()
+  })
+
+  it('formats submitted output as readable action count for group selections', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/actions/a.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestVersion: 'v4.2.4',
+        currentVersion: 'v4',
+        latestSha: 'sha-a',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+      {
+        action: {
+          file: '.github/actions/a.yml',
+          name: 'actions/setup-node',
+          type: 'external',
+          version: 'v4',
+        },
+        latestVersion: 'v5.0.0',
+        currentVersion: 'v4',
+        publishedAt: null,
+        isBreaking: true,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['label|actions/a.yml']
+    await promptUpdateSelection(updates)
+
+    expect(formattedSubmitOutput).toBe('1 action selected')
+    expect(formattedSubmitOutput).not.toContain('label|')
+    expect(formattedSubmitOutput).not.toMatch(/\b\d+,\s*\d+\b/u)
+  })
+
+  it('deduplicates mixed group and row selections in submitted summary', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/actions/a.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestVersion: 'v4.2.4',
+        currentVersion: 'v4',
+        latestSha: 'sha-a',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+      {
+        action: {
+          file: '.github/workflows/b.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v4',
+        },
+        latestVersion: 'v4.1.0',
+        currentVersion: 'v4',
+        latestSha: 'sha-b',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['label|actions/a.yml', '0', '1']
+    await promptUpdateSelection(updates)
+
+    expect(formattedSubmitOutput).toBe('2 actions selected')
+  })
+
+  it('keeps submitted summary empty when no valid actions remain selected', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/test.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v3',
+        },
+        latestVersion: 'v4.1.0',
+        currentVersion: 'v3',
+        latestSha: 'sha123',
+        publishedAt: null,
+        isBreaking: true,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['not-a-number', 'invalid']
+    await promptUpdateSelection(updates)
+
+    expect(formattedSubmitOutput).toBe('')
+  })
+
+  it('returns empty submitted output before submit and after cancellation', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/test.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestVersion: 'v4.2.4',
+        currentVersion: 'v4',
+        latestSha: 'sha-a',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['0']
+    await promptUpdateSelection(updates)
+
+    await expect(
+      Promise.resolve(
+        capturedOptions?.format?.call({
+          state: { submitted: false, cancelled: false },
+          value: nextSelected,
+        }),
+      ),
+    ).resolves.toBe('')
+    await expect(
+      Promise.resolve(
+        capturedOptions?.format?.call({
+          state: { submitted: true, cancelled: true },
+          value: nextSelected,
+        }),
+      ),
+    ).resolves.toBe('')
+  })
+
+  it('returns empty submitted output when prompt value is not an array', async () => {
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          file: '.github/workflows/test.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestVersion: 'v4.2.4',
+        currentVersion: 'v4',
+        latestSha: 'sha-a',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+      },
+    ]
+
+    nextSelected = ['0']
+    await promptUpdateSelection(updates)
+
+    await expect(
+      Promise.resolve(
+        capturedOptions?.format?.call({
+          state: { cancelled: false, submitted: true },
+          value: '0',
+        }),
+      ),
+    ).resolves.toBe('')
   })
 
   it('handles empty update groups gracefully', async () => {
