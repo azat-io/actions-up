@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.14.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.14.0...v1.14.1)
+
+### 🐞 Bug Fixes
+
+- Clean up interactive selection submit summary
+  ([4a3fb81](https://github.com/azat-io/actions-up/commit/4a3fb81))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.14.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.13.0...v1.14.0)
