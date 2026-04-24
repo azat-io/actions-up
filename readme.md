@@ -3,9 +3,8 @@
 <img
   src="https://raw.githubusercontent.com/azat-io/actions-up/main/assets/logo.svg"
   alt="Actions Up logo"
-  width="160"
-  height="160"
   align="right"
+  width="160"
 />
 
 [![Version](https://img.shields.io/npm/v/actions-up.svg?color=fff&labelColor=4493f8)](https://npmjs.com/package/actions-up)
