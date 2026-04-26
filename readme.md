@@ -101,7 +101,8 @@ Per-project
 npm install --save-dev actions-up
 ```
 
-Alternatively, you can install Actions Up with [Homebrew](https://brew.sh)
+Alternatively, you can install Actions Up with
+[Homebrew](https://formulae.brew.sh/formula/actions-up)
 
 ```bash
 brew install actions-up
