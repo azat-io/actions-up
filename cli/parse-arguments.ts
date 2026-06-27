@@ -17,6 +17,7 @@ Options:
   --style <style>     Update style: sha or preserve (default: sha)
   -r, --recursive     Recursively scan directories for YAML files
   -y, --yes           Skip all confirmations
+  -q, --quiet         Suppress skipped/blocked warnings
   -h, --help          Display this message
   -v, --version       Display version number`
 
@@ -32,6 +33,7 @@ let parserOptions = {
   version: { type: 'boolean', short: 'v' },
   'include-branches': { type: 'boolean' },
   dir: { type: 'string', multiple: true },
+  quiet: { type: 'boolean', short: 'q' },
   help: { type: 'boolean', short: 'h' },
   yes: { type: 'boolean', short: 'y' },
   'dry-run': { type: 'boolean' },
@@ -64,6 +66,11 @@ export interface CLIOptions {
    * Recursively scan directories for YAML files.
    */
   recursive?: boolean
+
+  /**
+   * Suppress skipped and blocked-update warnings.
+   */
+  quiet?: boolean
 
   /**
    * Preview changes without applying them.
@@ -159,6 +166,7 @@ export function parseArguments(
         recursive: values.recursive,
         yes: values.yes ?? false,
         exclude: values.exclude,
+        quiet: values.quiet,
         json: values.json,
         dir: values.dir,
         minAge,

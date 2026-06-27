@@ -187,6 +187,16 @@ skipped to avoid changing intentionally floating references. Skipped entries are
 listed in the output. To include them in update checks, pass
 `--include-branches`.
 
+### Quiet Mode
+
+Use `--quiet` (`-q`) to hide the skipped and blocked-update warnings (for
+example, actions intentionally pinned to branches). Other output — results,
+applied updates, and errors — is unchanged.
+
+```bash
+npx actions-up --yes --quiet
+```
+
 ### Update Mode
 
 By default, Actions Up allows major updates. Use `--mode` to limit updates:

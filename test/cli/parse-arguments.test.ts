@@ -121,7 +121,14 @@ describe('parseArguments', () => {
 
   it('parses boolean flags', () => {
     let result = parseArguments(
-      ['--dry-run', '--json', '--recursive', '--include-branches', '--yes'],
+      [
+        '--dry-run',
+        '--json',
+        '--recursive',
+        '--include-branches',
+        '--yes',
+        '--quiet',
+      ],
       'x',
     )
 
@@ -132,6 +139,7 @@ describe('parseArguments', () => {
         mode: 'major',
         dryRun: true,
         style: 'sha',
+        quiet: true,
         json: true,
         minAge: 0,
         yes: true,
@@ -141,7 +149,7 @@ describe('parseArguments', () => {
   })
 
   it('parses short boolean aliases', () => {
-    let result = parseArguments(['-r', '-y'], 'x')
+    let result = parseArguments(['-r', '-y', '-q'], 'x')
 
     expect(result).toEqual({
       options: {
@@ -149,6 +157,7 @@ describe('parseArguments', () => {
         mode: 'major',
         dryRun: false,
         style: 'sha',
+        quiet: true,
         minAge: 0,
         yes: true,
       },

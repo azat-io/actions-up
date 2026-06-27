@@ -94,6 +94,7 @@ export function run(): void {
  */
 async function runUpdate(options: CLIOptions): Promise<void> {
   let json = options.json ?? false
+  let quiet = options.quiet ?? false
   let spinner: ReturnType<typeof createSpinner> | null = null
   let cwd = process.cwd()
   let repoRoot = options.recursive ? null : await findRepoRoot(cwd)
@@ -391,10 +392,10 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         })
         return
       }
-      if (skipped.length > 0) {
+      if (!quiet && skipped.length > 0) {
         printSkippedWarning(skipped, includeBranches, style)
       }
-      if (blockedByMode.length > 0) {
+      if (!quiet && blockedByMode.length > 0) {
         printModeWarning(blockedByMode, mode)
       }
       console.info(
@@ -423,10 +424,10 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       return
     }
 
-    if (skipped.length > 0) {
+    if (!quiet && skipped.length > 0) {
       printSkippedWarning(skipped, includeBranches, style)
     }
-    if (blockedByMode.length > 0) {
+    if (!quiet && blockedByMode.length > 0) {
       printModeWarning(blockedByMode, mode)
     }
 
@@ -466,7 +467,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
       console.info(pc.green('\n✓ Updates applied successfully!'))
     } else {
-      if (skipped.length > 0 || blockedByMode.length > 0) {
+      if (!quiet && (skipped.length > 0 || blockedByMode.length > 0)) {
         console.info('')
       }
 
