@@ -15,12 +15,14 @@ import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { createGitHubClient } from '../core/api/create-github-client'
 import { resolveScanDirectories } from './resolve-scan-directories'
 import { getUpdateLevel } from '../core/versions/get-update-level'
+import { anchorDirectoryInputs } from './anchor-directory-inputs'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { normalizeUpdateStyle } from './normalize-update-style'
 import { printSkippedWarning } from './print-skipped-warning'
 import { normalizeUpdateMode } from './normalize-update-mode'
 import { validateCliOptions } from './validate-cli-options'
 import { shouldIgnore } from '../core/ignore/should-ignore'
+import { findRepoRoot } from '../core/fs/find-repo-root'
 import { checkUpdates } from '../core/api/check-updates'
 import { mergeScanResults } from './merge-scan-results'
 import { printModeWarning } from './print-mode-warning'
@@ -93,10 +95,12 @@ export function run(): void {
 async function runUpdate(options: CLIOptions): Promise<void> {
   let json = options.json ?? false
   let spinner: ReturnType<typeof createSpinner> | null = null
+  let cwd = process.cwd()
+  let repoRoot = options.recursive ? null : await findRepoRoot(cwd)
   let directories = resolveScanDirectories({
+    dir: anchorDirectoryInputs({ dir: options.dir, root: repoRoot, cwd }),
     recursive: options.recursive,
-    cwd: process.cwd(),
-    dir: options.dir,
+    cwd,
   })
   let normalizedDirectories = directories.map(({ root, dir }) =>
     resolve(root, dir),

@@ -20,6 +20,7 @@ export default defineConfig({
     'rcompare',
     'rolldown',
     'segs',
+    'worktree',
     'zipball',
   ],
   ignorePaths: [
