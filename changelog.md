@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.15.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.14.3...v1.15.0)
+
+### 🚀 Features
+
+- Support running from any subdirectory
+  ([fadfbe8](https://github.com/azat-io/actions-up/commit/fadfbe8))
+- Add quiet flag to suppress skipped warnings
+  ([e7ffda8](https://github.com/azat-io/actions-up/commit/e7ffda8))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.14.3
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.14.2...v1.14.3)
