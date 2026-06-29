@@ -418,11 +418,10 @@ describe('promptUpdateSelection', () => {
       key,
     ): unknown {
       observedKeys.push(key)
-      let value = originalGet.call(this, key) as unknown
       if (typeof key === 'string' && key === 'workflows/special.yml') {
         return
       }
-      return value
+      return originalGet.call(this, key) as unknown
     })
 
     let updates: ActionUpdate[] = [

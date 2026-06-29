@@ -53,143 +53,143 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
     updatesByFile.set(file, fileUpdates)
   }
 
-  let filePromises = [...updatesByFile.entries()].map(
-    async ([filePath, fileUpdates]) => {
-      let content = await readFile(filePath, 'utf8')
+  let filePromises = [...updatesByFile].map(async ([filePath, fileUpdates]) => {
+    let content = await readFile(filePath, 'utf8')
 
-      for (let update of fileUpdates) {
-        let targetReference = update.targetRef ?? update.latestSha
-        let targetReferenceStyle =
-          update.targetRefStyle ?? (update.latestSha ? 'sha' : null)
+    for (let update of fileUpdates) {
+      let targetReference = update.targetRef ?? update.latestSha
+      let targetReferenceStyle =
+        update.targetRefStyle ?? (update.latestSha ? 'sha' : null)
 
-        if (!targetReference || !targetReferenceStyle) {
-          continue
-        }
+      if (!targetReference || !targetReferenceStyle) {
+        continue
+      }
 
-        function escapeRegExp(string_: string): string {
-          return string_.replaceAll(/[$()*+\-./?[\\\]^{|}]/gu, String.raw`\$&`)
-        }
+      function escapeRegExp(string_: string): string {
+        return string_.replaceAll(/[$()*+\-./?[\\\]^{|}]/gu, String.raw`\$&`)
+      }
 
-        let escapedName = escapeRegExp(update.action.name)
-        let escapedVersion =
-          update.currentVersion ? escapeRegExp(update.currentVersion) : ''
-        let boundary =
-          escapedVersion ? String.raw`(?=(?:['"]|[ \t\]}{,#]|$))` : ''
+      let escapedName = escapeRegExp(update.action.name)
 
-        if (escapedName.includes('\n') || escapedName.includes('\r')) {
-          console.error(`Invalid action name: ${update.action.name}`)
-          continue
-        }
+      if (escapedName.includes('\n') || escapedName.includes('\r')) {
+        console.error(`Invalid action name: ${update.action.name}`)
+        continue
+      }
 
-        if (
-          escapedVersion &&
-          (escapedVersion.includes('\n') || escapedVersion.includes('\r'))
-        ) {
-          console.error(`Invalid version: ${update.currentVersion}`)
-          continue
-        }
+      let escapedVersion =
+        update.currentVersion ? escapeRegExp(update.currentVersion) : ''
 
-        if (
-          targetReference.includes('\n') ||
-          targetReference.includes('\r') ||
-          targetReference.trim() === ''
-        ) {
-          console.error(`Invalid target ref: ${targetReference}`)
-          continue
-        }
+      if (
+        escapedVersion &&
+        (escapedVersion.includes('\n') || escapedVersion.includes('\r'))
+      ) {
+        console.error(`Invalid version: ${update.currentVersion}`)
+        continue
+      }
 
-        if (
-          targetReferenceStyle === 'sha' &&
-          !/^[\da-f]{40}$/iu.test(targetReference)
-        ) {
-          console.error(`Invalid SHA format: ${targetReference}`)
-          continue
-        }
+      if (
+        targetReference.includes('\n') ||
+        targetReference.includes('\r') ||
+        targetReference.trim() === ''
+      ) {
+        console.error(`Invalid target ref: ${targetReference}`)
+        continue
+      }
 
-        /**
-         * Matches `uses` key (optionally quoted for JSON-style YAML).
-         */
-        let usesKey = String.raw`['"]?\buses\b['"]?\s*:\s*`
+      if (
+        targetReferenceStyle === 'sha' &&
+        !/^[\da-f]{40}$/iu.test(targetReference)
+      ) {
+        console.error(`Invalid SHA format: ${targetReference}`)
+        continue
+      }
 
-        /**
-         * Prefix captures context before `uses:`:
-         *
-         * - Start of line + whitespace + optional `-` (standard YAML)
-         * - OR `{`, `[`, `,` + whitespace (JSON-style flow syntax).
-         */
-        let prefixPattern =
-          String.raw`(?:^[^\S\n]*(?:-[^\S\n]*)?|[{\[,][^\S\n]*)` + usesKey
+      let boundary =
+        escapedVersion ? String.raw`(?=(?:['"]|[ \t\]}{,#]|$))` : ''
 
-        /**
-         * Match `uses:` + action@version (quoted/unquoted, flow or block).
-         */
-        let pattern = new RegExp(
-          String.raw`(?<prefix>${prefixPattern})` +
-            /**
-             * Optional quote around the ref.
-             */
-            String.raw`(?<quote>['"]?)` +
-            /**
-             * Action name before @.
-             */
-            String.raw`(?<name>${escapedName})@${escapedVersion}${boundary}` +
-            String.raw`\k<quote>` +
+      /**
+       * Matches `uses` key (optionally quoted for JSON-style YAML).
+       */
+      let usesKey = String.raw`['"]?\buses\b['"]?\s*:\s*`
+
+      /**
+       * Prefix captures context before `uses:`:
+       *
+       * - Start of line + whitespace + optional `-` (standard YAML)
+       * - OR `{`, `[`, `,` + whitespace (JSON-style flow syntax).
+       */
+      let prefixPattern =
+        String.raw`(?:^[^\S\n]*(?:-[^\S\n]*)?|[{\[,][^\S\n]*)` + usesKey
+
+      /**
+       * Match `uses:` + action@version (quoted/unquoted, flow or block).
+       */
+      let pattern = new RegExp(
+        `(?<prefix>${prefixPattern})` +
+          /**
+           * Optional quote around the ref.
+           */
+          `(?<quote>['"]?)` +
+          /**
+           * Action name before @.
+           */
+          `(?<name>${escapedName})@${escapedVersion}${boundary}${
+            String.raw`\k<quote>`
             /**
              * Trailing delimiters/spaces after the ref.
              */
-            String.raw`(?<after>[ \t\]}{,]*)` +
+          }${
+            String.raw`(?<after>[ \t\]}{,]*)`
             /**
              * Existing inline comment (if any).
              */
-            String.raw`(?<comment>[^\S\r\n]*#[^\r\n]*)?`,
-          'gm',
-        )
+          }${String.raw`(?<comment>[^\S\r\n]*#[^\r\n]*)?`}`,
+        'gm',
+      )
 
-        content = content.replace(
-          pattern,
-          (matched: string, ...captures: unknown[]) => {
-            let offset = captures.at(-3) as number
-            let source = captures.at(-2) as string
-            let groups = captures.at(-1) as MatchGroups
-            let nextLineBreak = source.indexOf('\n', offset + matched.length)
-            let restOfLine =
-              nextLineBreak === -1 ?
-                source.slice(offset + matched.length)
-              : source.slice(offset + matched.length, nextLineBreak)
+      content = content.replace(
+        pattern,
+        (matched: string, ...captures: unknown[]) => {
+          let offset = captures.at(-3) as number
+          let source = captures.at(-2) as string
+          let groups = captures.at(-1) as MatchGroups
+          let nextLineBreak = source.indexOf('\n', offset + matched.length)
+          let restOfLine =
+            nextLineBreak === -1 ?
+              source.slice(offset + matched.length)
+            : source.slice(offset + matched.length, nextLineBreak)
 
-            /**
-             * Avoid inserting a comment mid-line when more content follows.
-             * Exception: when currentVersion is missing, trailing content may
-             * be the original unparsed version suffix — allow comment in that
-             * case.
-             */
-            let hasTrailingContent = restOfLine.trim().length > 0
-            let spacer = groups.after.endsWith(' ') ? '' : ' '
-            let comment = ''
+          /**
+           * Avoid inserting a comment mid-line when more content follows.
+           * Exception: when currentVersion is missing, trailing content may be
+           * the original unparsed version suffix — allow comment in that case.
+           */
+          let hasTrailingContent = restOfLine.trim().length > 0
+          let spacer = groups.after.endsWith(' ') ? '' : ' '
+          let comment = ''
 
-            if (targetReferenceStyle === 'sha') {
-              let skipComment =
-                hasTrailingContent && !groups.comment && escapedVersion !== ''
-              comment = skipComment ? '' : `${spacer}# ${update.latestVersion}`
-            } else if (
-              groups.comment &&
-              !looksLikeInlineVersionComment(groups.comment)
-            ) {
-              let { comment: existingComment } = groups
-              comment = existingComment
-            }
+          if (targetReferenceStyle === 'sha') {
+            let skipComment =
+              hasTrailingContent && !groups.comment && escapedVersion !== ''
+            comment = skipComment ? '' : `${spacer}# ${update.latestVersion}`
+          } else if (
+            groups.comment &&
+            !looksLikeInlineVersionComment(groups.comment)
+          ) {
+            let { comment: existingComment } = groups
+            comment = existingComment
+          }
 
-            let action = `${groups.prefix}${groups.quote}${groups.name}`
-            let version = `${targetReference}${groups.quote}${groups.after}${comment}`
+          let action = `${groups.prefix}${groups.quote}${groups.name}`
+          let version = `${targetReference}${groups.quote}${groups.after}${comment}`
 
-            return `${action}@${version}`
-          },
-        )
-      }
+          return `${action}@${version}`
+        },
+      )
+    }
 
-      await writeFile(filePath, content, 'utf8')
-    },
-  )
+    await writeFile(filePath, content, 'utf8')
+  })
 
   await Promise.all(filePromises)
 }

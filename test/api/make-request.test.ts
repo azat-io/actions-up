@@ -24,7 +24,13 @@ describe('makeRequest', () => {
       return Promise.resolve(new Response('{}', { status: 200 }))
     })
     await makeRequest(context('t'), '/path')
-    expect(spy).toHaveBeenCalledOnce()
+    expect(spy).toHaveBeenCalledExactlyOnceWith('https://api.github.com/path', {
+      headers: {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'actions-up',
+        Authorization: 'Bearer t',
+      },
+    })
   })
 
   it('maps 403 with rate limit message to friendly error', async () => {

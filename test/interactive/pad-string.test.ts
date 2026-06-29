@@ -15,7 +15,7 @@ describe('padString', () => {
   })
 
   it('computes length ignoring ANSI and pads accordingly', () => {
-    let colored = `\u001B[32mab\u001B[0m`
+    let colored = `\u{1B}[32mab\u{1B}[0m`
     let padded = padString(colored, 5)
     expect(stripAnsi(padded)).toBe('ab   ')
   })

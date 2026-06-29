@@ -8,6 +8,13 @@ import { checkUpdates } from '../../core/api/check-updates'
 
 vi.mock(import('../../core/api/create-github-client'))
 
+class GitHubRateLimitError extends Error {
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'GitHubRateLimitError'
+  }
+}
+
 describe('checkUpdates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -52,7 +59,10 @@ describe('checkUpdates', () => {
     ]
     let result = await checkUpdates(actions)
     expect(result).toHaveLength(2)
-    expect(client.getLatestRelease).toHaveBeenCalledOnce()
+    expect(client.getLatestRelease).toHaveBeenCalledExactlyOnceWith(
+      'actions',
+      'checkout',
+    )
   })
 
   it('uses provided client when passed in options', async () => {
@@ -90,7 +100,10 @@ describe('checkUpdates', () => {
 
     let result = await checkUpdates(actions, undefined, { client })
     expect(result).toHaveLength(1)
-    expect(client.getLatestRelease).toHaveBeenCalledOnce()
+    expect(client.getLatestRelease).toHaveBeenCalledExactlyOnceWith(
+      'actions',
+      'checkout',
+    )
     expect(createGitHubClient).not.toHaveBeenCalled()
   })
 
@@ -222,7 +235,10 @@ describe('checkUpdates', () => {
     let result = await checkUpdates(actions, undefined, {
       includeBranches: true,
     })
-    expect(client.getLatestRelease).toHaveBeenCalledOnce()
+    expect(client.getLatestRelease).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v1.2.3',
       hasUpdate: true,
@@ -541,7 +557,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v1.2.3',
       latestSha: 'abc1234',
@@ -549,8 +569,9 @@ describe('checkUpdates', () => {
   })
 
   it('throws friendly error when rate limit is hit and skips remaining actions', async () => {
-    let rateLimitError = new Error('GitHub API rate limit exceeded.')
-    rateLimitError.name = 'GitHubRateLimitError'
+    let rateLimitError = new GitHubRateLimitError(
+      'GitHub API rate limit exceeded.',
+    )
 
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(rateLimitError),
@@ -585,7 +606,10 @@ describe('checkUpdates', () => {
       name: 'GitHubRateLimitError',
     })
 
-    expect(client.getLatestRelease).toHaveBeenCalledOnce()
+    expect(client.getLatestRelease).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+    )
   })
 
   it('release v1 tie-breaker also works with reversed tag order', async () => {
@@ -667,8 +691,16 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
-    expect(client.getTagSha).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
+    expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'v1.2.3',
+    )
     expect(result[0]).toMatchObject({
       latestSha: 'resolved-v123',
       latestVersion: 'v1.2.3',
@@ -710,7 +742,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v1.0.0',
       latestSha: 'new',
@@ -749,7 +785,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
     expect(client.getTagSha).not.toHaveBeenCalled()
     expect(result[0]).toMatchObject({
       latestSha: 'releaseSha',
@@ -793,8 +833,16 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
-    expect(client.getTagSha).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
+    expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'v2.0.0',
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v2.0.0',
       latestSha: null,
@@ -802,10 +850,7 @@ describe('checkUpdates', () => {
   })
 
   it('release v1 flow propagates rate-limit error from best tag SHA lookup', async () => {
-    let rateLimitError: { name: string } & Error = Object.assign(
-      new Error('rate'),
-      { name: 'GitHubRateLimitError' },
-    )
+    let rateLimitError = new GitHubRateLimitError('rate')
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
         publishedAt: new Date('2024-01-01'),
@@ -883,7 +928,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v1.0.0',
       /* Cspell:disable-next-line */
@@ -927,7 +976,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v1.0.0',
       latestSha: 'sha1',
@@ -1094,7 +1147,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getTagSha).toHaveBeenCalledOnce()
+    expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'v3.0.0',
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v3.0.0',
       latestSha: null,
@@ -1102,10 +1159,7 @@ describe('checkUpdates', () => {
   })
 
   it('propagates rate-limit error in tags-only flow when best tag SHA lookup fails', async () => {
-    let rateLimitError: { name: string } & Error = Object.assign(
-      new Error('rate'),
-      { name: 'GitHubRateLimitError' },
-    )
+    let rateLimitError = new GitHubRateLimitError('rate')
     let client: GitHubClient = {
       getAllTags: vi
         .fn()
@@ -1166,7 +1220,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getTagSha).toHaveBeenCalledOnce()
+    expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'v2.1.0',
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v2.1.0',
       latestSha: 'resolved',
@@ -1271,7 +1329,11 @@ describe('checkUpdates', () => {
       },
     ]
     let result = await checkUpdates(actions)
-    expect(client.getTagSha).toHaveBeenCalledOnce()
+    expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'v2.0.0',
+    )
     expect(result[0]).toMatchObject({ latestSha: 'sha-from-tag' })
   })
 
@@ -1396,10 +1458,7 @@ describe('checkUpdates', () => {
   })
 
   it('propagates rate-limit error from release tag SHA lookup', async () => {
-    let rateLimitError: { name: string } & Error = Object.assign(
-      new Error('rate'),
-      { name: 'GitHubRateLimitError' },
-    )
+    let rateLimitError = new GitHubRateLimitError('rate')
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
         sha: 'a3ced27cc8dc211a23fe48005eaea8ac9df9400f',
@@ -1437,10 +1496,7 @@ describe('checkUpdates', () => {
   })
 
   it('propagates rate-limit error', async () => {
-    let errorObject: { name: string } & Error = Object.assign(
-      new Error('rate'),
-      { name: 'GitHubRateLimitError' },
-    )
+    let errorObject = new GitHubRateLimitError('rate')
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(errorObject),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -1469,9 +1525,8 @@ describe('checkUpdates', () => {
   })
 
   it('propagates rate-limit error with authenticated hint when token is used', async () => {
-    let errorObject: { name: string } & Error = Object.assign(
-      new Error('API rate limit exceeded. Resets at 00:00:00'),
-      { name: 'GitHubRateLimitError' },
+    let errorObject = new GitHubRateLimitError(
+      'API rate limit exceeded. Resets at 00:00:00',
     )
 
     let client: GitHubClient = {
@@ -1505,10 +1560,7 @@ describe('checkUpdates', () => {
   })
 
   it('uses default base message when rate-limit error has empty message', async () => {
-    // eslint-disable-next-line unicorn/error-message
-    let errorObject: { name: string } & Error = Object.assign(new Error(''), {
-      name: 'GitHubRateLimitError',
-    })
+    let errorObject = new GitHubRateLimitError('')
 
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(errorObject),
@@ -1918,8 +1970,9 @@ describe('checkUpdates', () => {
 
   it('returns null results for actions skipped due to rate limit', async () => {
     let callCount = 0
-    let rateLimitError = new Error('GitHub API rate limit exceeded.')
-    rateLimitError.name = 'GitHubRateLimitError'
+    let rateLimitError = new GitHubRateLimitError(
+      'GitHub API rate limit exceeded.',
+    )
 
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockImplementation(() => {
@@ -2287,7 +2340,11 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(client.getAllTags).toHaveBeenCalledOnce()
+    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      30,
+    )
     expect(result[0]).toMatchObject({
       latestVersion: 'v4.33.0',
       latestSha: 'new-sha',

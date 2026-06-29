@@ -26,8 +26,7 @@ describe('getTagInfo', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v1.0.0')) {
         return Promise.resolve(
           new Response(
@@ -83,8 +82,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v2.0.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
@@ -167,8 +165,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v2.1.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
@@ -204,8 +201,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v2.1.1')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
@@ -249,8 +245,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v3.0.0')) {
         return Promise.resolve(
           new Response(
@@ -308,8 +303,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v3.1.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
@@ -358,8 +352,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v3.2.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
@@ -408,8 +401,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v2.1.2')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
@@ -453,8 +445,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v3.3.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
@@ -502,8 +493,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.0.0')) {
         return Promise.resolve(
           new Response(
@@ -553,8 +543,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.4.1')) {
         return Promise.resolve(
           new Response(
@@ -599,8 +588,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.1.0')) {
         return Promise.resolve(
           new Response(
@@ -653,8 +641,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.2.0')) {
         return Promise.resolve(
           new Response(
@@ -693,8 +680,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.2.1')) {
         return Promise.resolve(
           new Response(
@@ -728,8 +714,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.2.2')) {
         return Promise.resolve(
           new Response(
@@ -771,14 +756,13 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.2.3')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
               published_at: '2024-03-05T00:00:00Z',
-              target_commitish: '   ',
+              target_commitish: ' '.repeat(3),
               body: null,
             }),
             { status: 200 },
@@ -814,8 +798,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.3.0')) {
         return Promise.resolve(
           new Response('Not Found', { statusText: 'Not Found', status: 404 }),
@@ -858,8 +841,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v4.4.0')) {
         return Promise.resolve(
           new Response('Not Found', { statusText: 'Not Found', status: 404 }),
@@ -907,8 +889,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v5.0.0')) {
         return Promise.resolve(
           new Response(
@@ -961,8 +942,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v5.1.0')) {
         return Promise.resolve(
           new Response(
@@ -1015,8 +995,7 @@ describe('getTagInfo', () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/releases/tags/v5.2.0')) {
         return Promise.resolve(
           new Response(

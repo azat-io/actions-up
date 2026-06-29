@@ -56,6 +56,22 @@ interface LatestInfo {
 }
 
 /**
+ * Error thrown when the GitHub API rate limit is exceeded.
+ */
+class GitHubRateLimitError extends Error {
+  /**
+   * Create a rate limit error.
+   *
+   * @param message - Human-readable error message.
+   * @param options - Optional error options (e.g., cause).
+   */
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'GitHubRateLimitError'
+  }
+}
+
+/**
  * Check for updates for GitHub Actions.
  *
  * @param actions - Array of GitHub Actions to check.
@@ -110,237 +126,125 @@ export async function checkUpdates(
   /**
    * Fetch releases sequentially to stop on rate limit.
    */
-  let releaseResults = await [...uniqueActions.keys()].reduce(
-    (promise, actionName) =>
-      promise.then(async results => {
-        /**
-         * Skip remaining if rate limit hit.
-         */
-        if (sharedState.rateLimitHit) {
-          return [
-            ...results,
-            {
-              currentRefType: 'unknown',
-              publishedAt: null,
-              version: null,
-              actionName,
-              sha: null,
-            },
-          ]
+  let releaseResults: ReleaseCheckResult[] = []
+
+  /**
+   * Resolve the latest release/tag info for a single action.
+   *
+   * @param actionName - Owner/repo[/path] identifier of the action.
+   * @returns The resolved release/tag information for the action.
+   */
+  async function resolveAction(
+    actionName: string,
+  ): Promise<ReleaseCheckResult> {
+    /**
+     * Skip remaining if rate limit hit.
+     */
+    if (sharedState.rateLimitHit) {
+      return {
+        currentRefType: 'unknown',
+        publishedAt: null,
+        version: null,
+        actionName,
+        sha: null,
+      }
+    }
+
+    /**
+     * Parse owner/repo from actionName, which may include path.
+     */
+    let segments = actionName.split('/')
+    if (segments.length < 2) {
+      return {
+        currentRefType: 'unknown',
+        publishedAt: null,
+        version: null,
+        actionName,
+        sha: null,
+      }
+    }
+    let [owner, repo] = segments
+
+    if (!owner || !repo) {
+      return {
+        currentRefType: 'unknown',
+        publishedAt: null,
+        version: null,
+        actionName,
+        sha: null,
+      }
+    }
+
+    try {
+      /**
+       * First check if current versions are branches - if so, skip update check
+       * unless explicitly allowed.
+       */
+      let currentVersions = uniqueActions.get(actionName)!
+      let firstVersion = currentVersions[0]?.version
+      let currentReferenceType = deriveCurrentReferenceType(firstVersion)
+      if (firstVersion && !isSha(firstVersion) && !isSemverLike(firstVersion)) {
+        let referenceType = await client.getRefType(owner, repo, firstVersion)
+        currentReferenceType =
+          referenceType === 'branch' || referenceType === 'tag' ?
+            referenceType
+          : currentReferenceType
+        if (referenceType === 'branch' && !includeBranches) {
+          /**
+           * Skip update check for branch references.
+           */
+          return {
+            currentRefType: currentReferenceType,
+            skipReason: 'branch' as const,
+            status: 'skipped' as const,
+            publishedAt: null,
+            version: null,
+            actionName,
+            sha: null,
+          }
+        }
+      }
+
+      /**
+       * Get latest release first to minimize requests.
+       */
+      let release = await client.getLatestRelease(owner, repo)
+
+      if (!release) {
+        let allReleases = await client.getAllReleases(owner, repo, 1)
+        let stableRelease = allReleases.find(
+          currentRelease => !currentRelease.isPrerelease,
+        )
+        release = stableRelease ?? allReleases[0] ?? null
+      }
+
+      /**
+       * If we have a release, prefer it and avoid tags, except when the release
+       * tag looks like a moving major (e.g., v1). In that case, try tags to
+       * find a more specific highest semver.
+       */
+      if (release) {
+        let { publishedAt, version, sha } = release
+        let considerTags = false
+        {
+          /**
+           * Consider tags when:
+           *
+           * - Release version is missing/empty
+           * - Or it's a moving major (v1)
+           * - Or it doesn't parse as valid semver after normalization.
+           */
+          let normalized = normalizeVersion(version)
+          let hasVersion = Boolean(version && version.trim() !== '')
+          let majorOnly = hasVersion && /^v?\d+$/u.test(version.trim())
+          let valid = semver.valid(normalized)
+          considerTags =
+            !hasVersion || majorOnly || !valid || !isSemverLike(version)
         }
 
-        /**
-         * Parse owner/repo from actionName, which may include path.
-         */
-        let segments = actionName.split('/')
-        if (segments.length < 2) {
-          return [
-            ...results,
-            {
-              currentRefType: 'unknown',
-              publishedAt: null,
-              version: null,
-              actionName,
-              sha: null,
-            },
-          ]
-        }
-        let [owner, repo] = segments
-
-        if (!owner || !repo) {
-          return [
-            ...results,
-            {
-              currentRefType: 'unknown',
-              publishedAt: null,
-              version: null,
-              actionName,
-              sha: null,
-            },
-          ]
-        }
-
-        try {
-          /**
-           * First check if current versions are branches - if so, skip update
-           * check unless explicitly allowed.
-           */
-          let currentVersions = uniqueActions.get(actionName)!
-          let firstVersion = currentVersions[0]?.version
-          let currentReferenceType = deriveCurrentReferenceType(firstVersion)
-          if (
-            firstVersion &&
-            !isSha(firstVersion) &&
-            !isSemverLike(firstVersion)
-          ) {
-            let referenceType = await client.getRefType(
-              owner,
-              repo,
-              firstVersion,
-            )
-            currentReferenceType =
-              referenceType === 'branch' || referenceType === 'tag' ?
-                referenceType
-              : currentReferenceType
-            if (referenceType === 'branch' && !includeBranches) {
-              /**
-               * Skip update check for branch references.
-               */
-              return [
-                ...results,
-                {
-                  currentRefType: currentReferenceType,
-                  skipReason: 'branch' as const,
-                  status: 'skipped' as const,
-                  publishedAt: null,
-                  version: null,
-                  actionName,
-                  sha: null,
-                },
-              ]
-            }
-          }
-
-          /**
-           * Get latest release first to minimize requests.
-           */
-          let release = await client.getLatestRelease(owner, repo)
-
-          if (!release) {
-            let allReleases = await client.getAllReleases(owner, repo, 1)
-            let stableRelease = allReleases.find(
-              currentRelease => !currentRelease.isPrerelease,
-            )
-            release = stableRelease ?? allReleases[0] ?? null
-          }
-
-          /**
-           * If we have a release, prefer it and avoid tags, except when the
-           * release tag looks like a moving major (e.g., v1). In that case, try
-           * tags to find a more specific highest semver.
-           */
-          if (release) {
-            let { publishedAt, version, sha } = release
-            let considerTags = false
-            {
-              /**
-               * Consider tags when:
-               *
-               * - Release version is missing/empty
-               * - Or it's a moving major (v1)
-               * - Or it doesn't parse as valid semver after normalization.
-               */
-              let normalized = normalizeVersion(version)
-              let hasVersion = Boolean(version && version.trim() !== '')
-              let majorOnly = hasVersion && /^v?\d+$/u.test(version.trim())
-              let valid = semver.valid(normalized)
-              considerTags =
-                !hasVersion || majorOnly || !valid || !isSemverLike(version)
-            }
-
-            if (considerTags) {
-              let tags = await client.getAllTags(owner, repo, 30)
-              if (tags.length > 0) {
-                let semverCandidates = tags
-                  .filter(tag => isSemverLike(tag.tag))
-                  .map(tag => ({
-                    v: semver.valid(normalizeVersion(tag.tag))!,
-                    raw: tag,
-                  }))
-
-                if (semverCandidates.length > 0) {
-                  /**
-                   * Sort desc; tie-break to prefer more specific (x.y.z).
-                   */
-                  semverCandidates.sort((a, b) => {
-                    let cmp = semver.rcompare(a.v, b.v)
-                    if (cmp !== 0) {
-                      return cmp
-                    }
-                    let aSpecific = /\d+\.\d+/u.test(a.raw.tag) ? 1 : 0
-                    let bSpecific = /\d+\.\d+/u.test(b.raw.tag) ? 1 : 0
-                    return bSpecific - aSpecific
-                  })
-
-                  let best = semverCandidates[0]!.raw
-                  let releaseSem = semver.valid(
-                    normalizeVersion(version) ?? undefined,
-                  )
-
-                  /**
-                   * If best tag is newer or same but more specific, prefer it.
-                   */
-                  if (
-                    !releaseSem ||
-                    semver.gt(semverCandidates[0]!.v, releaseSem) ||
-                    (semver.eq(semverCandidates[0]!.v, releaseSem) &&
-                      /\d+\.\d+/u.test(best.tag))
-                  ) {
-                    let tagVersion = best.tag
-                    let tagSha = best.sha?.length ? best.sha : null
-                    if (!tagSha && tagVersion) {
-                      try {
-                        tagSha = await client.getTagSha(owner, repo, tagVersion)
-                      } catch (error) {
-                        if (isRateLimitError(error)) {
-                          throw error
-                        }
-                      }
-                    }
-                    return [
-                      ...results,
-                      {
-                        currentRefType: currentReferenceType,
-                        version: tagVersion,
-                        publishedAt: null,
-                        sha: tagSha,
-                        actionName,
-                      },
-                    ]
-                  }
-                }
-              }
-            }
-
-            if (version) {
-              let releaseSha = sha
-              try {
-                let tagSha = await client.getTagSha(owner, repo, version)
-                sha = tagSha ?? releaseSha
-              } catch (error) {
-                if (isRateLimitError(error)) {
-                  throw error
-                }
-                /**
-                 * Ignore SHA fetch errors and keep the release SHA as fallback.
-                 */
-                sha = releaseSha
-              }
-            }
-            return [
-              ...results,
-              {
-                currentRefType: currentReferenceType,
-                status: 'ok' as const,
-                publishedAt,
-                actionName,
-                version,
-                sha,
-              },
-            ]
-          }
-
-          /**
-           * No releases found: fetch tags and choose the best semver tag.
-           */
+        if (considerTags) {
           let tags = await client.getAllTags(owner, repo, 30)
           if (tags.length > 0) {
-            /**
-             * Prefer the highest semver tag; among equal numeric versions,
-             * prefer more specific (x.y.z over v1). If no semver-like tags,
-             * fallback to the first tag as returned by the API (most recent by
-             * commit date).
-             */
             let semverCandidates = tags
               .filter(tag => isSemverLike(tag.tag))
               .map(tag => ({
@@ -348,101 +252,198 @@ export async function checkUpdates(
                 raw: tag,
               }))
 
-            let best: (typeof tags)[number]
             if (semverCandidates.length > 0) {
+              /**
+               * Sort desc; tie-break to prefer more specific (x.y.z).
+               */
               semverCandidates.sort((a, b) => {
                 let cmp = semver.rcompare(a.v, b.v)
                 if (cmp !== 0) {
                   return cmp
                 }
-                /**
-                 * Tie-breaker: prefer more specific tags containing a dot.
-                 */
                 let aSpecific = /\d+\.\d+/u.test(a.raw.tag) ? 1 : 0
                 let bSpecific = /\d+\.\d+/u.test(b.raw.tag) ? 1 : 0
                 return bSpecific - aSpecific
               })
-              best = semverCandidates[0]!.raw
-            } else {
-              best = tags[0]!
-            }
 
-            let version = best.tag
-            let sha = best.sha?.length ? best.sha : null
-            if (!sha && version) {
-              try {
-                sha = await client.getTagSha(owner, repo, version)
-              } catch (error) {
-                if (isRateLimitError(error)) {
-                  throw error
+              let best = semverCandidates[0]!.raw
+              let releaseSem = semver.valid(
+                normalizeVersion(version) ?? undefined,
+              )
+
+              /**
+               * If best tag is newer or same but more specific, prefer it.
+               */
+              if (
+                !releaseSem ||
+                semver.gt(semverCandidates[0]!.v, releaseSem) ||
+                (semver.eq(semverCandidates[0]!.v, releaseSem) &&
+                  /\d+\.\d+/u.test(best.tag))
+              ) {
+                let tagVersion = best.tag
+                let tagSha = best.sha?.length ? best.sha : null
+                if (!tagSha && tagVersion) {
+                  try {
+                    tagSha = await client.getTagSha(owner, repo, tagVersion)
+                  } catch (error) {
+                    if (isRateLimitError(error)) {
+                      throw error
+                    }
+                  }
                 }
-                /**
-                 * Ignore SHA fetch errors.
-                 */
+                return {
+                  currentRefType: currentReferenceType,
+                  version: tagVersion,
+                  publishedAt: null,
+                  sha: tagSha,
+                  actionName,
+                }
               }
             }
-            return [
-              ...results,
-              {
-                currentRefType: currentReferenceType,
-                status: 'ok' as const,
-                publishedAt: null,
-                actionName,
-                version,
-                sha,
-              },
-            ]
           }
-
-          return [
-            ...results,
-            {
-              currentRefType: currentReferenceType,
-              publishedAt: null,
-              version: null,
-              actionName,
-              sha: null,
-            },
-          ]
-        } catch (error: unknown) {
-          /**
-           * Handle rate limit errors specially.
-           */
-          if (error instanceof Error && error.name === 'GitHubRateLimitError') {
-            sharedState.rateLimitHit = true
-            sharedState.rateLimitError = error
-            /**
-             * Don't log individual rate limit errors.
-             */
-            return [
-              ...results,
-              {
-                currentRefType: 'unknown',
-                publishedAt: null,
-                version: null,
-                actionName,
-                sha: null,
-              },
-            ]
-          }
-          /**
-           * Log other failures per action.
-           */
-          console.warn(`Failed to check ${actionName}:`, error)
-          return [
-            ...results,
-            {
-              currentRefType: 'unknown',
-              publishedAt: null,
-              version: null,
-              actionName,
-              sha: null,
-            },
-          ]
         }
-      }),
-    Promise.resolve([] as ReleaseCheckResult[]),
-  )
+
+        if (version) {
+          let releaseSha = sha
+          try {
+            let tagSha = await client.getTagSha(owner, repo, version)
+            sha = tagSha ?? releaseSha
+          } catch (error) {
+            if (isRateLimitError(error)) {
+              throw error
+            }
+            /**
+             * Ignore SHA fetch errors and keep the release SHA as fallback.
+             */
+            sha = releaseSha
+          }
+        }
+        return {
+          currentRefType: currentReferenceType,
+          status: 'ok' as const,
+          publishedAt,
+          actionName,
+          version,
+          sha,
+        }
+      }
+
+      /**
+       * No releases found: fetch tags and choose the best semver tag.
+       */
+      let tags = await client.getAllTags(owner, repo, 30)
+      if (tags.length > 0) {
+        /**
+         * Prefer the highest semver tag; among equal numeric versions, prefer
+         * more specific (x.y.z over v1). If no semver-like tags, fallback to
+         * the first tag as returned by the API (most recent by commit date).
+         */
+        let semverCandidates = tags
+          .filter(tag => isSemverLike(tag.tag))
+          .map(tag => ({
+            v: semver.valid(normalizeVersion(tag.tag))!,
+            raw: tag,
+          }))
+
+        let best: (typeof tags)[number]
+        if (semverCandidates.length > 0) {
+          semverCandidates.sort((a, b) => {
+            let cmp = semver.rcompare(a.v, b.v)
+            if (cmp !== 0) {
+              return cmp
+            }
+            /**
+             * Tie-breaker: prefer more specific tags containing a dot.
+             */
+            let aSpecific = /\d+\.\d+/u.test(a.raw.tag) ? 1 : 0
+            let bSpecific = /\d+\.\d+/u.test(b.raw.tag) ? 1 : 0
+            return bSpecific - aSpecific
+          })
+          best = semverCandidates[0]!.raw
+        } else {
+          best = tags[0]!
+        }
+
+        let version = best.tag
+        let sha = best.sha?.length ? best.sha : null
+        if (!sha && version) {
+          try {
+            sha = await client.getTagSha(owner, repo, version)
+          } catch (error) {
+            if (isRateLimitError(error)) {
+              throw error
+            }
+            /**
+             * Ignore SHA fetch errors.
+             */
+          }
+        }
+        return {
+          currentRefType: currentReferenceType,
+          status: 'ok' as const,
+          publishedAt: null,
+          actionName,
+          version,
+          sha,
+        }
+      }
+
+      return {
+        currentRefType: currentReferenceType,
+        publishedAt: null,
+        version: null,
+        actionName,
+        sha: null,
+      }
+    } catch (error: unknown) {
+      /**
+       * Handle rate limit errors specially.
+       */
+      if (error instanceof Error && error.name === 'GitHubRateLimitError') {
+        sharedState.rateLimitHit = true
+        sharedState.rateLimitError = error
+        /**
+         * Don't log individual rate limit errors.
+         */
+        return {
+          currentRefType: 'unknown',
+          publishedAt: null,
+          version: null,
+          actionName,
+          sha: null,
+        }
+      }
+      /**
+       * Log other failures per action.
+       */
+      console.warn(`Failed to check ${actionName}:`, error)
+      return {
+        currentRefType: 'unknown',
+        publishedAt: null,
+        version: null,
+        actionName,
+        sha: null,
+      }
+    }
+  }
+
+  /**
+   * Process actions one at a time so a rate-limit hit short-circuits the rest.
+   *
+   * @param iterator - Iterator over unique action names.
+   */
+  async function processActions(
+    iterator: IterableIterator<string>,
+  ): Promise<void> {
+    let next = iterator.next()
+    if (next.done) {
+      return
+    }
+    releaseResults.push(await resolveAction(next.value))
+    await processActions(iterator)
+  }
+
+  await processActions(uniqueActions.keys())
 
   /**
    * If rate limit was hit, throw a user-friendly error.
@@ -458,9 +459,7 @@ export async function checkUpdates(
         'See: https://github.com/azat-io/actions-up?tab=readme-ov-file#github-token'
     }`
 
-    let error = new Error(message)
-    error.name = 'GitHubRateLimitError'
-    throw error
+    throw new GitHubRateLimitError(message)
   }
 
   /**
@@ -557,9 +556,6 @@ function createUpdate(
   let status: ActionUpdate['status'] = meta.status ?? 'ok'
   let skipReason: ActionUpdate['skipReason'] = meta.skipReason
 
-  let hasUpdate = false
-  let isBreaking = false
-
   if (status === 'skipped') {
     return {
       currentRefType: currentReferenceType,
@@ -574,6 +570,9 @@ function createUpdate(
       status,
     }
   }
+  let hasUpdate = false
+
+  let isBreaking = false
 
   if (currentVersion && isSha(currentVersion)) {
     if (latestSha) {

@@ -9,7 +9,7 @@ describe('parseExcludePatterns', () => {
 
   it('returns empty array for empty or whitespace-only inputs', () => {
     expect(parseExcludePatterns([])).toEqual([])
-    expect(parseExcludePatterns(['', '   '])).toEqual([])
+    expect(parseExcludePatterns(['', ' '.repeat(3)])).toEqual([])
   })
 
   it('parses plain patterns as case-insensitive regex', () => {
@@ -51,8 +51,7 @@ describe('parseExcludePatterns', () => {
     let warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     let compiledPatterns = parseExcludePatterns(['/(unclosed'])
     expect(compiledPatterns).toHaveLength(0)
-    expect(warn).toHaveBeenCalledOnce()
-    expect(warn).toHaveBeenCalledWith(
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining('Invalid regex exclude'),
       expect.any(SyntaxError),
     )

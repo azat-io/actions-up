@@ -32,8 +32,7 @@ describe('getReferenceType', () => {
   it('returns branch when tag 404 and head exists', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.includes('/git/refs/tags/')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }

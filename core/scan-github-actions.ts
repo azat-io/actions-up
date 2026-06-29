@@ -316,7 +316,8 @@ export async function scanGitHubActions(
           return
         }
 
-        let batch = queue.splice(0)
+        let batch = [...queue]
+        queue.length = 0
         let discoveredNext = await Promise.all(
           batch.map(async directory => {
             try {

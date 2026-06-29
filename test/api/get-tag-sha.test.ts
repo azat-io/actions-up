@@ -103,8 +103,7 @@ describe('getTagSha', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/git/refs/tags/v2.0.0')) {
         return Promise.resolve(
           new Response(
@@ -133,8 +132,7 @@ describe('getTagSha', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/git/refs/tags/v2.2.0')) {
         return Promise.resolve(
           new Response(
@@ -211,8 +209,7 @@ describe('getTagSha', () => {
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
-      let urlString =
-        typeof input === 'string' ? input : (input as URL).toString()
+      let urlString = typeof input === 'string' ? input : (input as URL).href
       if (urlString.endsWith('/git/refs/tags/v3.0.0')) {
         return Promise.resolve(
           new Response(

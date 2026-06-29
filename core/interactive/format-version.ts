@@ -27,7 +27,7 @@ export function formatVersion(
   let change = semver.diff(normalizeVersion(currentVersion!), latestVersion)
   let unstable = current.major === 0
 
-  let changeColor = unstable ? pc.yellowBright : pc.gray
+  let changeColor = pc[unstable ? 'yellowBright' : 'gray']
 
   let parts = [latest.major, latest.minor, latest.patch]
   let colors = parts.map((_, i) => {

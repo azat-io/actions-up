@@ -66,10 +66,9 @@ export async function makeRequest(
     headers,
   })) as unknown as FetchResponseLike
 
-  let responseHeaders: Record<string, string> = {}
-  for (let [key, value] of response.headers.entries()) {
-    responseHeaders[key] = value
-  }
+  let responseHeaders: Record<string, string> = Object.fromEntries(
+    response.headers.entries(),
+  )
 
   updateRateLimitInfo(context, responseHeaders)
 

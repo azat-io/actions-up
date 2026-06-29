@@ -8,12 +8,9 @@ import type { UpdateMode } from '../types/update-mode'
  */
 export function normalizeUpdateMode(mode: undefined | string): UpdateMode {
   let normalized = (mode ?? 'major').toLowerCase()
-  if (
-    normalized === 'major' ||
-    normalized === 'minor' ||
-    normalized === 'patch'
-  ) {
-    return normalized
+  let modes: UpdateMode[] = ['major', 'minor', 'patch']
+  if (modes.includes(normalized as UpdateMode)) {
+    return normalized as UpdateMode
   }
   throw new Error(
     `Invalid mode "${mode}". Expected "major", "minor", or "patch".`,

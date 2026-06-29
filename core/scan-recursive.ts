@@ -71,7 +71,6 @@ export async function scanRecursive(
 
     if (scanResult.type === 'workflow') {
       result.workflows.set(scanResult.path, scanResult.actions)
-      result.actions.push(...scanResult.actions)
     } else {
       let actionDirectory = dirname(scanResult.path)
       let actionName =
@@ -79,8 +78,8 @@ export async function scanRecursive(
           scanResult.path
         : actionDirectory
       result.compositeActions.set(actionName, scanResult.path)
-      result.actions.push(...scanResult.actions)
     }
+    result.actions.push(...scanResult.actions)
   }
 
   return result
@@ -95,8 +94,6 @@ export async function scanRecursive(
  */
 function hasKey(value: unknown, key: string): boolean {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    key in (value as Record<string, unknown>)
+    typeof value === 'object' && value !== null && Object.hasOwn(value, key)
   )
 }

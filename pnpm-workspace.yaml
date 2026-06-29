@@ -4,6 +4,9 @@ allowBuilds:
 configDependencies:
   '@pnpm/plugin-trusted-deps': 0.2.1+sha512-eexZgdsCkalvvWOdtlhlLoMg5Kylqj7CjeAzhSshEi3Io3TJawdKNwRg10ObK0V4DSWNF0lP2ilobwUKUdoCyw==
 
+minimumReleaseAgeExclude:
+  - '@azat-io/eslint-config@2.85.0'
+
 onlyBuiltDependenciesFile: node_modules/.pnpm-config/@pnpm/plugin-trusted-deps/allow.json
 
 sideEffectsCache: false

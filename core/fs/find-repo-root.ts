@@ -30,7 +30,7 @@ export async function findRepoRoot(
   if (parent === current) {
     return null
   }
-  return findRepoRoot(parent)
+  return await findRepoRoot(parent)
 }
 
 /**

@@ -50,7 +50,11 @@ describe('createGitHubClient', () => {
       await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getLatestRelease('owner', 'repo')
-    expect(getLatestReleaseMock).toHaveBeenCalledOnce()
+    expect(getLatestReleaseMock).toHaveBeenCalledExactlyOnceWith(
+      getLatestReleaseMock.mock.calls[0]![0],
+      'owner',
+      'repo',
+    )
     let call = getLatestReleaseMock.mock.calls[0]!
     expect(call[1]).toBe('owner')
     expect(call[2]).toBe('repo')
@@ -67,7 +71,10 @@ describe('createGitHubClient', () => {
     let client = createGitHubClient('t')
     let result = await client.getRefType('owner', 'repo', 'ref')
     expect(result).toBe('tag')
-    expect(getReferenceTypeMock).toHaveBeenCalledOnce()
+    expect(getReferenceTypeMock).toHaveBeenCalledExactlyOnceWith(
+      getReferenceTypeMock.mock.calls[0]![0],
+      { reference: 'ref', owner: 'owner', repo: 'repo' },
+    )
     let call = getReferenceTypeMock.mock.calls[0]!
     expect(call[0]).toMatchObject({ baseUrl: 'https://api.github.com' })
     expect(call[1]).toEqual({ reference: 'ref', owner: 'owner', repo: 'repo' })
@@ -82,7 +89,10 @@ describe('createGitHubClient', () => {
       await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getAllReleases('owner', 'repo', 42)
-    expect(getAllReleasesMock).toHaveBeenCalledOnce()
+    expect(getAllReleasesMock).toHaveBeenCalledExactlyOnceWith(
+      getAllReleasesMock.mock.calls[0]![0],
+      { owner: 'owner', repo: 'repo', limit: 42 },
+    )
     let call = getAllReleasesMock.mock.calls[0]!
     expect(call[0]).toMatchObject({ baseUrl: 'https://api.github.com' })
     expect(call[1]).toEqual({ owner: 'owner', repo: 'repo', limit: 42 })
@@ -97,7 +107,10 @@ describe('createGitHubClient', () => {
       await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getAllTags('owner', 'repo', 7)
-    expect(getAllTagsMock).toHaveBeenCalledOnce()
+    expect(getAllTagsMock).toHaveBeenCalledExactlyOnceWith(
+      getAllTagsMock.mock.calls[0]![0],
+      { owner: 'owner', repo: 'repo', limit: 7 },
+    )
     let call = getAllTagsMock.mock.calls[0]!
     expect(call[0]).toMatchObject({ baseUrl: 'https://api.github.com' })
     expect(call[1]).toEqual({ owner: 'owner', repo: 'repo', limit: 7 })
@@ -112,7 +125,10 @@ describe('createGitHubClient', () => {
       await import('../../core/api/create-github-client')
     let client = createGitHubClient('t')
     await client.getTagInfo('owner', 'repo', 'v1.2.3')
-    expect(getTagInfoMock).toHaveBeenCalledOnce()
+    expect(getTagInfoMock).toHaveBeenCalledExactlyOnceWith(
+      getTagInfoMock.mock.calls[0]![0],
+      { owner: 'owner', tag: 'v1.2.3', repo: 'repo' },
+    )
     let call = getTagInfoMock.mock.calls[0]!
     expect(call[0]).toMatchObject({ baseUrl: 'https://api.github.com' })
     expect(call[1]).toEqual({ owner: 'owner', tag: 'v1.2.3', repo: 'repo' })
@@ -128,7 +144,10 @@ describe('createGitHubClient', () => {
     let client = createGitHubClient('t')
     let result = await client.getTagSha('owner', 'repo', 'v1.2.3')
     expect(result).toBe('sha')
-    expect(getTagShaMock).toHaveBeenCalledOnce()
+    expect(getTagShaMock).toHaveBeenCalledExactlyOnceWith(
+      getTagShaMock.mock.calls[0]![0],
+      { owner: 'owner', tag: 'v1.2.3', repo: 'repo' },
+    )
     let call = getTagShaMock.mock.calls[0]!
     expect(call[0]).toMatchObject({ baseUrl: 'https://api.github.com' })
     expect(call[1]).toEqual({ owner: 'owner', tag: 'v1.2.3', repo: 'repo' })

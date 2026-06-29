@@ -58,7 +58,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0 # v4.2.0\n      - run: echo "hi"\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -97,7 +101,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      "steps:\n  - uses: 'actions/cache@abc123def4567890abc123def4567890abc123de' # v3.1.2\n",
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -142,7 +150,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'jobs:\r\n  build:\r\n    steps:\r\n      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.0\r\n      # keep me\r\n      - run: echo "done"\r\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain(
@@ -186,7 +198,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: "actions/setup-node@f1f2f3f4f5f6f7f8f9f0a1a2a3a4a5a6a7a8a9b0" # v5.1.0\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -245,7 +261,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee # v4.2.0\n      - uses: "actions/setup-node@ffffffffffffffffffffffffffffffffffffffff" # v5.0.1\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     let updated = content
@@ -310,7 +330,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      "# flow-style steps\nsteps:\n  - { 'uses': 'actions/checkout@1111111111111111111111111111111111111111' } # v6.0.1\n  - { 'uses': 'actions/setup-node@2222222222222222222222222222222222222222' } # v5.2.0\n",
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
 
@@ -476,7 +500,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'name: deploy\non:\n  push:\n\njobs:\n  build:\n    name: build\n    runs-on: ubuntu-latest\n    steps:\n      - name: checkout\n        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0\n\n  publish_typescript_sdk:\n    runs-on: ubuntu-latest\n    name: publish typescript sdk\n    steps:\n      - id: checkout\n        name: Checkout\n        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain(`uses: actions/checkout@${sha} # v5.0.0`)
@@ -513,7 +541,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'uses: actions/checkout@v3\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toBe(original)
@@ -549,7 +581,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5v3\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain(
@@ -589,7 +625,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/cache@v3\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toBe(original)
@@ -722,7 +762,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/checkout@v5.0.0 # keep this\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain('- uses: actions/checkout@v5.0.0 # keep this')
@@ -759,7 +803,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/cache@v3.2.0 \n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain('- uses: actions/cache@v3.2.0')
@@ -800,7 +848,11 @@ describe('applyUpdates', () => {
 
     await applyUpdates(updates)
 
-    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      'steps:\n  - uses: actions/checkout@v6.0.2\n  - uses: actions/checkout@v6.0.2\n',
+      'utf8',
+    )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
     assertString(content)
     expect(content).toContain('- uses: actions/checkout@v6.0.2')

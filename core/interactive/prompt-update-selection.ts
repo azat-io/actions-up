@@ -384,9 +384,11 @@ export async function promptUpdateSelection(
     maxJobLength = Math.max(maxJobLength, jobRaw.length)
     if (update.latestVersion) {
       let targetVersion =
-        update.targetRefStyle === 'tag' && update.targetRef ?
-          update.targetRef
-        : update.latestVersion
+        update[
+          update.targetRefStyle === 'tag' && update.targetRef ?
+            'targetRef'
+          : 'latestVersion'
+        ]
       let formatted = formatVersion(
         targetVersion,
         currentComputedByIndex[index]?.effectiveForDiff ??
@@ -413,7 +415,7 @@ export async function promptUpdateSelection(
   let globalTargetWidth = globalVersionWidth + 1 + 9
   let globalAgeWidth = showAge && hasAnyAge ? 6 : 0
 
-  let sortedFiles = [...groups.keys()].toSorted()
+  let sortedFiles = groups.keys().toArray().toSorted()
 
   for (let [fileIndex, file] of sortedFiles.entries()) {
     let fileGroup = groups.get(file)
@@ -557,7 +559,7 @@ export async function promptUpdateSelection(
             (child): child is ChoiceItem => !('role' in child),
           )
           let total = rows.length
-          let selectedCount = rows.filter(row => Boolean(row.enabled)).length
+          let selectedCount = rows.filter(row => row.enabled).length
           let mark = selectedCount === total ? '●' : '○'
 
           return ` ${pc.gray(mark)}`
@@ -792,7 +794,7 @@ function getResolvedTarget(update: ActionUpdate): string | null {
  * cancellation message.
  */
 function logSelectionCancelled(): void {
-  console.info(`\r\u001B[K${pc.yellow('Selection cancelled')}`)
+  console.info(`\r\u{1B}[K${pc.yellow('Selection cancelled')}`)
 }
 
 function hasResolvedTarget(update: ActionUpdate): boolean {

@@ -310,7 +310,7 @@ describe('scanRecursive', () => {
     /**
      * Root-level action.yml has '.' as parent, so path is used as key.
      */
-    let [key] = [...result.compositeActions.keys()]
+    let [key] = result.compositeActions.keys()
     expect(key).toBe('action.yml')
   })
 

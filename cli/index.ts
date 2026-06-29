@@ -314,10 +314,10 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             effectiveCurrentVersion,
             update.latestVersion,
           )
-          let allowed =
+          let allowed = (
             mode === 'minor' ?
-              level === 'minor' || level === 'patch' || level === 'none'
-            : level === 'patch' || level === 'none'
+              ['minor', 'patch', 'none']
+            : ['patch', 'none']).includes(level)
 
           return { effectiveCurrentVersion, allowed, update }
         }),
@@ -378,8 +378,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     skipped.push(...unresolvedByStyle)
     outdated = outdated.filter(update => update.targetRef)
 
-    let breaking = outdated.filter(update => update.isBreaking)
-
     if (outdated.length === 0) {
       spinner?.success('All actions are up to date!')
       if (json) {
@@ -403,6 +401,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       )
       return
     }
+
+    let breaking = outdated.filter(update => update.isBreaking)
 
     spinner?.success(
       `Found ${pc.yellow(outdated.length)} updates available${
@@ -464,8 +464,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       console.info(pc.yellow(`\n🔄 Updating ${toUpdate.length} actions...\n`))
 
       await applyUpdates(toUpdate)
-
-      console.info(pc.green('\n✓ Updates applied successfully!'))
     } else {
       if (!quiet && (skipped.length > 0 || blockedByMode.length > 0)) {
         console.info('')
@@ -485,9 +483,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       )
 
       await applyUpdates(selected)
-
-      console.info(pc.green('\n✓ Updates applied successfully!'))
     }
+    console.info(pc.green('\n✓ Updates applied successfully!'))
   } catch (error) {
     spinner?.error('Failed')
 

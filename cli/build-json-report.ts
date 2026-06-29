@@ -9,10 +9,7 @@ import type { UpdateMode } from '../types/update-mode'
  * High-level status of a JSON report.
  */
 export type JsonReportStatus =
-  | 'updates-available'
-  | 'no-actions-found'
-  | 'nothing-to-check'
-  | 'up-to-date'
+  'updates-available' | 'no-actions-found' | 'nothing-to-check' | 'up-to-date'
 
 /**
  * Options used to build a JSON report from the current CLI state.

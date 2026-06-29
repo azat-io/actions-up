@@ -61,8 +61,7 @@ export function resolveGitHubTokenSync(): undefined | string {
         if (tokenMatch?.groups?.['val']) {
           return tokenMatch.groups['val'].trim()
         }
-      }
-      if (currentSection === 'hub') {
+      } else if (currentSection === 'hub') {
         let oauthMatch = line.match(/^oauthtoken\s*=\s*(?<val>\S[^\n\r]*)$/u)
         if (oauthMatch?.groups?.['val']) {
           return oauthMatch.groups['val'].trim()
