@@ -20,6 +20,7 @@ import { applyUpdates } from '../core/ast/update/apply-updates'
 import { normalizeUpdateStyle } from './normalize-update-style'
 import { printSkippedWarning } from './print-skipped-warning'
 import { normalizeUpdateMode } from './normalize-update-mode'
+import { printMinAgeWarning } from './print-min-age-warning'
 import { validateCliOptions } from './validate-cli-options'
 import { shouldIgnore } from '../core/ignore/should-ignore'
 import { findRepoRoot } from '../core/fs/find-repo-root'
@@ -280,12 +281,17 @@ async function runUpdate(options: CLIOptions): Promise<void> {
      */
     let minAgeMs = options.minAge * 24 * 60 * 60 * 1000
     let now = Date.now()
+    let blockedByAge: typeof outdated = []
     outdated = outdated.filter(update => {
       if (!update.publishedAt) {
         return true
       }
       let age = now - update.publishedAt.getTime()
-      return age >= minAgeMs
+      if (age < minAgeMs) {
+        blockedByAge.push(update)
+        return false
+      }
+      return true
     })
 
     let blockedByMode: typeof outdated = []
@@ -396,6 +402,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       if (!quiet && blockedByMode.length > 0) {
         printModeWarning(blockedByMode, mode)
       }
+      if (!quiet && blockedByAge.length > 0) {
+        printMinAgeWarning(blockedByAge, options.minAge)
+      }
       console.info(
         pc.green('\n✨ Everything is already at the latest version!\n'),
       )
@@ -429,6 +438,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
     if (!quiet && blockedByMode.length > 0) {
       printModeWarning(blockedByMode, mode)
+    }
+    if (!quiet && blockedByAge.length > 0) {
+      printMinAgeWarning(blockedByAge, options.minAge)
     }
 
     if (options.dryRun) {
@@ -465,7 +477,12 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
       await applyUpdates(toUpdate)
     } else {
-      if (!quiet && (skipped.length > 0 || blockedByMode.length > 0)) {
+      if (
+        !quiet &&
+        (skipped.length > 0 ||
+          blockedByMode.length > 0 ||
+          blockedByAge.length > 0)
+      ) {
         console.info('')
       }
 

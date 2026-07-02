@@ -12,7 +12,7 @@ Options:
   --exclude <regex>   Exclude actions by regex (repeatable)
   --include-branches  Also check actions pinned to branches (default: false)
   --json              Output update information as machine-readable JSON
-  --min-age <days>    Minimum age in days for updates (default: 0)
+  --min-age <days>    Minimum age in days for updates (default: 1, use 0 to disable)
   --mode <mode>       Update mode: major, minor, or patch (default: major)
   --style <style>     Update style: sha or preserve (default: sha)
   -r, --recursive     Recursively scan directories for YAML files
@@ -148,7 +148,7 @@ export function parseArguments(
     }
 
     let rawMinAge = values['min-age']
-    let minAge = rawMinAge === undefined ? 0 : Number(rawMinAge)
+    let minAge = rawMinAge === undefined ? 1 : Number(rawMinAge)
 
     if (!Number.isFinite(minAge) || minAge < 0) {
       return {

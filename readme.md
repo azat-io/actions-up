@@ -505,6 +505,10 @@ Use CLI excludes or YAML ignore comments.
 npx actions-up --exclude "my-org/.*" --exclude ".*/internal-.*"
 ```
 
+Updates released less than 1 day ago are skipped by default. This cool-down
+protects against supply-chain attacks through freshly published releases. Use
+`--min-age` to change the threshold, or set it to `0` to disable the cool-down:
+
 ```bash
 npx actions-up --min-age 7
 ```

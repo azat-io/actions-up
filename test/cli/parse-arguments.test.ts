@@ -12,7 +12,7 @@ describe('parseArguments', () => {
         dryRun: false,
         style: 'sha',
         yes: false,
-        minAge: 0,
+        minAge: 1,
       },
       kind: 'options',
     })
@@ -60,6 +60,21 @@ describe('parseArguments', () => {
     })
   })
 
+  it('allows disabling the cool-down with --min-age 0', () => {
+    let result = parseArguments(['--min-age', '0'], '1.0.0')
+
+    expect(result).toEqual({
+      options: {
+        mode: 'major',
+        dryRun: false,
+        style: 'sha',
+        yes: false,
+        minAge: 0,
+      },
+      kind: 'options',
+    })
+  })
+
   it('rejects a non-numeric --min-age', () => {
     let result = parseArguments(['--min-age', 'abc'], '1.0.0')
 
@@ -93,7 +108,7 @@ describe('parseArguments', () => {
         mode: 'minor',
         dryRun: false,
         yes: false,
-        minAge: 0,
+        minAge: 1,
       },
       kind: 'options',
     })
@@ -113,7 +128,7 @@ describe('parseArguments', () => {
         dryRun: false,
         style: 'sha',
         yes: false,
-        minAge: 0,
+        minAge: 1,
       },
       kind: 'options',
     })
@@ -141,7 +156,7 @@ describe('parseArguments', () => {
         style: 'sha',
         quiet: true,
         json: true,
-        minAge: 0,
+        minAge: 1,
         yes: true,
       },
       kind: 'options',
@@ -158,7 +173,7 @@ describe('parseArguments', () => {
         dryRun: false,
         style: 'sha',
         quiet: true,
-        minAge: 0,
+        minAge: 1,
         yes: true,
       },
       kind: 'options',
