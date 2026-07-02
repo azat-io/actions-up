@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.16.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.15.0...v1.16.0)
+
+### 🚀 Features
+
+- Skip updates released less than one day ago by default
+  ([cfccd4c](https://github.com/azat-io/actions-up/commit/cfccd4c))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.15.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.14.3...v1.15.0)
