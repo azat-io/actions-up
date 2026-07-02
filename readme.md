@@ -322,7 +322,7 @@ jobs:
             lines.push('Run `npx actions-up` locally to review and apply updates.')
 
             writeFileSync('actions-up-report.md', lines.join('\n'))
-            EOF
+          EOF
 
             echo "has-updates=true" >> $GITHUB_OUTPUT
             echo "update-count=$UPDATE_COUNT" >> $GITHUB_OUTPUT
@@ -351,16 +351,15 @@ jobs:
             const fs = require('fs');
             const report = fs.readFileSync('actions-up-report.md', 'utf8');
             const hasUpdates = '${{ steps.actions-check.outputs.has-updates }}' === 'true';
-            const updateCount = '${{ steps.actions-check.outputs.update-count }}';
 
             // Check if we already commented
-            const comments = await github.rest.issues.listComments({
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number
             });
 
-            const botComment = comments.data.find(comment =>
+            const botComment = comments.find(comment =>
               comment.user.type === 'Bot' &&
               comment.body.includes('GitHub Actions Update Report')
             );
