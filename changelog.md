@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.17.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.16.0...v1.17.0)
+
+### 🚀 Features
+
+- Add semver update style
+  ([88c666a](https://github.com/azat-io/actions-up/commit/88c666a))
+
+### 🐞 Bug Fixes
+
+- Avoid writing nonexistent tag references in preserve style
+  ([b8d0c2f](https://github.com/azat-io/actions-up/commit/b8d0c2f))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.16.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.15.0...v1.16.0)
