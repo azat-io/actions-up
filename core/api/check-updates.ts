@@ -601,10 +601,10 @@ function createUpdate(
        */
       if (
         !hasUpdate &&
-        semver.eq(currentSemver, latestSemver) &&
-        !isSha(action.version) &&
         latestSha &&
-        (style === 'sha' || style === 'semver')
+        (style === 'sha' || style === 'semver') &&
+        semver.eq(currentSemver, latestSemver) &&
+        !isSha(action.version)
       ) {
         hasUpdate = true
         isBreaking = false
