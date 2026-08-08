@@ -23,7 +23,7 @@ describe('getTagSha', () => {
     let context = makeContext()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      if ((url as string).includes('/git/refs/tags/v1.2.3')) {
+      if ((url as string).includes('/git/ref/tags/v1.2.3')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -104,7 +104,7 @@ describe('getTagSha', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/git/refs/tags/v2.0.0')) {
+      if (urlString.endsWith('/git/ref/tags/v2.0.0')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -133,7 +133,7 @@ describe('getTagSha', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/git/refs/tags/v2.2.0')) {
+      if (urlString.endsWith('/git/ref/tags/v2.2.0')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -157,6 +157,22 @@ describe('getTagSha', () => {
 
     let sha = await getTagSha(context, { tag: 'v2.2.0', owner: 'o', repo: 'r' })
     expect(sha).toBeNull()
+  })
+
+  it('returns null when exact tag does not exist', async () => {
+    let context = makeContext()
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Not Found', {
+        statusText: 'Not Found',
+        status: 404,
+      }),
+    )
+
+    let sha = await getTagSha(context, { owner: 'o', repo: 'r', tag: 'v8' })
+
+    expect(sha).toBeNull()
+    expect(context.caches.tagSha.get('o/r#v8')).toBeNull()
   })
 
   it('throws GitHubRateLimitError on rate limit', async () => {
@@ -210,7 +226,7 @@ describe('getTagSha', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/git/refs/tags/v3.0.0')) {
+      if (urlString.endsWith('/git/ref/tags/v3.0.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { sha: 'directSha', type: 'commit' } }),

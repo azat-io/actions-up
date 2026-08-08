@@ -15,6 +15,7 @@ import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { createGitHubClient } from '../core/api/create-github-client'
 import { resolveScanDirectories } from './resolve-scan-directories'
 import { getUpdateLevel } from '../core/versions/get-update-level'
+import { printRateLimitWarning } from './print-rate-limit-warning'
 import { anchorDirectoryInputs } from './anchor-directory-inputs'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { normalizeUpdateStyle } from './normalize-update-style'
@@ -372,7 +373,40 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       outdated = allowedByMode
     }
 
-    outdated = outdated.map(update => resolveTargetReference(update, style))
+    /**
+     * Deduplicate resolution per action and version, so repeated occurrences
+     * across files do not trigger duplicate API requests.
+     */
+    let resolutionCache = new Map<string, Promise<ActionUpdate>>()
+    outdated = await Promise.all(
+      outdated.map(async update => {
+        let resolutionKey = [
+          update.action.name,
+          update.currentVersion,
+          update.latestVersion,
+          update.latestSha,
+        ].join('@')
+        let resolution = resolutionCache.get(resolutionKey)
+        if (!resolution) {
+          resolution = resolveTargetReference(update, style, githubClient)
+          resolutionCache.set(resolutionKey, resolution)
+        }
+        let resolved = await resolution
+        return {
+          ...update,
+          targetRefRateLimited: resolved.targetRefRateLimited,
+          targetRefStyle: resolved.targetRefStyle,
+          targetRef: resolved.targetRef,
+        }
+      }),
+    )
+
+    /**
+     * Drop no-op updates whose resolved target matches the current reference.
+     */
+    outdated = outdated.filter(
+      update => update.targetRef !== update.action.version,
+    )
     let unresolvedByStyle = outdated
       .filter(update => !update.targetRef)
       .map(update => ({
@@ -383,6 +417,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       }))
     skipped.push(...unresolvedByStyle)
     outdated = outdated.filter(update => update.targetRef)
+
+    /**
+     * Updates that fell back to exact versions because tag validation was rate
+     * limited.
+     */
+    let rateLimitedFallbacks = outdated.filter(
+      update => update.targetRefRateLimited,
+    )
 
     if (outdated.length === 0) {
       spinner?.success('All actions are up to date!')
@@ -442,6 +484,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     if (!quiet && blockedByAge.length > 0) {
       printMinAgeWarning(blockedByAge, options.minAge)
     }
+    if (!quiet && rateLimitedFallbacks.length > 0) {
+      printRateLimitWarning(rateLimitedFallbacks)
+    }
 
     if (options.dryRun) {
       console.info(pc.yellow('\n📋 Dry Run - No changes will be made\n'))
@@ -481,7 +526,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         !quiet &&
         (skipped.length > 0 ||
           blockedByMode.length > 0 ||
-          blockedByAge.length > 0)
+          blockedByAge.length > 0 ||
+          rateLimitedFallbacks.length > 0)
       ) {
         console.info('')
       }

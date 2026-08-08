@@ -20,6 +20,12 @@ export interface ActionUpdate {
   targetRefStyle?: 'sha' | 'tag' | null
 
   /**
+   * True when rate limiting prevented validating floating tag candidates and
+   * the exact latest version was used as a fallback.
+   */
+  targetRefRateLimited?: boolean
+
+  /**
    * Current version string.
    */
   currentVersion: string | null

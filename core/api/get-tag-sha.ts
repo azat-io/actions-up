@@ -9,6 +9,10 @@ import { makeRequest } from './make-request'
  * Prefers annotated tag target when present; otherwise falls back to the
  * lightweight tag (commit) SHA.
  *
+ * Uses the exact-match `git/ref/tags` endpoint, so a tag that exists only as a
+ * prefix of other tags (e.g. `v8` with only `v8.3.2` published) resolves to
+ * null.
+ *
  * @param context - Client context.
  * @param parameters - Request parameters.
  * @param parameters.owner - Repository owner.
@@ -31,7 +35,7 @@ export async function getTagSha(
   try {
     let referenceResp = await makeRequest(
       context,
-      `/repos/${owner}/${repo}/git/refs/tags/${displayTag}`,
+      `/repos/${owner}/${repo}/git/ref/tags/${displayTag}`,
     )
     let referenceData = referenceResp.data as {
       object: { type: 'commit' | 'tag'; sha: string }

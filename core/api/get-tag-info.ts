@@ -46,7 +46,7 @@ export async function getTagInfo(
       try {
         let referenceResp = await makeRequest(
           context,
-          `/repos/${owner}/${repo}/git/refs/tags/${displayTag}`,
+          `/repos/${owner}/${repo}/git/ref/tags/${displayTag}`,
         )
         let referenceData = referenceResp.data as {
           object: { type: 'commit' | 'tag'; sha: string }
@@ -112,7 +112,7 @@ export async function getTagInfo(
       try {
         let referenceResp = await makeRequest(
           context,
-          `/repos/${owner}/${repo}/git/refs/tags/${displayTag}`,
+          `/repos/${owner}/${repo}/git/ref/tags/${displayTag}`,
         )
         let referenceData = referenceResp.data as {
           object: { type: 'commit' | 'tag'; sha: string }

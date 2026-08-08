@@ -18,9 +18,14 @@ describe('getReferenceType', () => {
   }
 
   it('returns tag when tag ref exists', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('{}', { status: 200 }),
-    )
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.endsWith('/repos/o/r/git/ref/tags/v1')) {
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }
+      return Promise.reject(new Error('Unexpected URL'))
+    })
     let t = await getReferenceType(context(), {
       reference: 'v1',
       owner: 'o',
@@ -33,10 +38,13 @@ describe('getReferenceType', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.includes('/git/refs/tags/')) {
+      if (urlString.includes('/git/ref/tags/')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      return Promise.resolve(new Response('{}', { status: 200 }))
+      if (urlString.includes('/git/ref/heads/')) {
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }
+      return Promise.reject(new Error('Unexpected URL'))
     })
     let t = await getReferenceType(context(), {
       reference: 'main',

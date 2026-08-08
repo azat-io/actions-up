@@ -230,6 +230,19 @@ also keep their granularity, so `actions/checkout@v5` updates to
 `actions/checkout@v6.0`. A SHA-pinned action continues updating to the latest
 resolved SHA.
 
+Actions Up only writes tags that actually exist in the action repository.
+Floating tag conventions differ between publishers, so when the preferred
+granularity is not published, the closest existing tag is used instead:
+
+- `astral-sh/setup-uv@v7` updates to `astral-sh/setup-uv@v8.3.2`, because the
+  publisher does not maintain a floating `v8` tag
+- A broader floating tag is preferred when it points at the latest release, so a
+  `v6.1`-style reference may resolve to `v6` when `v6.2` does not exist
+
+Keep in mind that a broader floating tag moves with future releases, so it may
+cross minor version boundaries over time even when the update was selected with
+`--mode patch`.
+
 ## GitHub Actions Integration
 
 ### Automated PR Checks

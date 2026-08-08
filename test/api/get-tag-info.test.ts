@@ -39,7 +39,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v1.0.0')) {
+      if (urlString.endsWith('/git/ref/tags/v1.0.0')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -86,7 +86,7 @@ describe('getTagInfo', () => {
       if (urlString.endsWith('/releases/tags/v2.0.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      if (urlString.endsWith('/git/refs/tags/v2.0.0')) {
+      if (urlString.endsWith('/git/ref/tags/v2.0.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { type: 'commit', sha: 'light' } }),
@@ -169,7 +169,7 @@ describe('getTagInfo', () => {
       if (urlString.endsWith('/releases/tags/v2.1.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      if (urlString.endsWith('/git/refs/tags/v2.1.0')) {
+      if (urlString.endsWith('/git/ref/tags/v2.1.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { type: 'commit', sha: 'sha123' } }),
@@ -205,7 +205,7 @@ describe('getTagInfo', () => {
       if (urlString.endsWith('/releases/tags/v2.1.1')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      if (urlString.endsWith('/git/refs/tags/v2.1.1')) {
+      if (urlString.endsWith('/git/ref/tags/v2.1.1')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { type: 'commit', sha: 'sha456' } }),
@@ -258,7 +258,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v3.0.0')) {
+      if (urlString.endsWith('/git/ref/tags/v3.0.0')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -307,7 +307,7 @@ describe('getTagInfo', () => {
       if (urlString.endsWith('/releases/tags/v3.1.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      if (urlString.endsWith('/git/refs/tags/v3.1.0')) {
+      if (urlString.endsWith('/git/ref/tags/v3.1.0')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -356,7 +356,7 @@ describe('getTagInfo', () => {
       if (urlString.endsWith('/releases/tags/v3.2.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      if (urlString.endsWith('/git/refs/tags/v3.2.0')) {
+      if (urlString.endsWith('/git/ref/tags/v3.2.0')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -405,7 +405,7 @@ describe('getTagInfo', () => {
       if (urlString.endsWith('/releases/tags/v2.1.2')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      if (urlString.endsWith('/git/refs/tags/v2.1.2')) {
+      if (urlString.endsWith('/git/ref/tags/v2.1.2')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { type: 'commit', sha: 'sha789' } }),
@@ -449,7 +449,7 @@ describe('getTagInfo', () => {
       if (urlString.endsWith('/releases/tags/v3.3.0')) {
         return Promise.resolve(new Response('Not Found', { status: 404 }))
       }
-      if (urlString.endsWith('/git/refs/tags/v3.3.0')) {
+      if (urlString.endsWith('/git/ref/tags/v3.3.0')) {
         return Promise.resolve(
           new Response(
             /* Cspell:disable-next-line */
@@ -506,7 +506,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v4.0.0')) {
+      if (urlString.endsWith('/git/ref/tags/v4.0.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { sha: 'tagRef', type: 'tag' } }),
@@ -556,7 +556,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v4.4.1')) {
+      if (urlString.endsWith('/git/ref/tags/v4.4.1')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { sha: 'commitSha', type: 'commit' } }),
@@ -601,7 +601,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v4.1.0')) {
+      if (urlString.endsWith('/git/ref/tags/v4.1.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { sha: 'commit123', type: 'commit' } }),
@@ -654,7 +654,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.includes('/git/refs/tags/')) {
+      if (urlString.includes('/git/ref/tags/')) {
         return Promise.resolve(
           new Response('Not Found', { statusText: 'Not Found', status: 404 }),
         )
@@ -727,7 +727,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v4.2.2')) {
+      if (urlString.endsWith('/git/ref/tags/v4.2.2')) {
         return Promise.resolve(
           new Response('Not Found', {
             statusText: 'Not Found',
@@ -769,7 +769,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v4.2.3')) {
+      if (urlString.endsWith('/git/ref/tags/v4.2.3')) {
         return Promise.resolve(
           new Response('Not Found', {
             statusText: 'Not Found',
@@ -804,7 +804,7 @@ describe('getTagInfo', () => {
           new Response('Not Found', { statusText: 'Not Found', status: 404 }),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v4.3.0')) {
+      if (urlString.endsWith('/git/ref/tags/v4.3.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { sha: 'tagRef', type: 'tag' } }),
@@ -847,7 +847,7 @@ describe('getTagInfo', () => {
           new Response('Not Found', { statusText: 'Not Found', status: 404 }),
         )
       }
-      if (urlString.includes('/git/refs/tags/')) {
+      if (urlString.includes('/git/ref/tags/')) {
         return Promise.resolve(
           new Response('Forbidden', { statusText: 'Forbidden', status: 403 }),
         )
@@ -902,7 +902,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v5.0.0')) {
+      if (urlString.endsWith('/git/ref/tags/v5.0.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { sha: 'commit456', type: 'commit' } }),
@@ -955,7 +955,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v5.1.0')) {
+      if (urlString.endsWith('/git/ref/tags/v5.1.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { sha: 'commit789', type: 'commit' } }),
@@ -1008,7 +1008,7 @@ describe('getTagInfo', () => {
           ),
         )
       }
-      if (urlString.endsWith('/git/refs/tags/v5.2.0')) {
+      if (urlString.endsWith('/git/ref/tags/v5.2.0')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({ object: { type: 'commit', sha: '' } }),
