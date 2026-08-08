@@ -1759,6 +1759,50 @@ describe('checkUpdates', () => {
     expect(update?.hasUpdate).toBeTruthy()
   })
 
+  it('suggests normalization when style is semver and tag version is unchanged', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v1.0.0',
+        name: 'v1.0.0',
+        sha: 'tagSha',
+        url: 'u',
+      }),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1.0.0',
+        ref: 'owner/repo@v1.0.0',
+        name: 'owner/repo',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions, undefined, {
+      style: 'semver',
+    })
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v1.0.0',
+      currentRefType: 'tag',
+      latestSha: 'tagSha',
+      isBreaking: false,
+      hasUpdate: true,
+    })
+  })
+
   it('does not suggest pinning when style is preserve and tag version is unchanged', async () => {
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({

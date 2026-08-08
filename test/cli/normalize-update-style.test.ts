@@ -21,6 +21,12 @@ describe('normalizeUpdateStyle', () => {
     expect(result).toBe('preserve')
   })
 
+  it('returns semver for semver', () => {
+    let result = normalizeUpdateStyle('semver')
+
+    expect(result).toBe('semver')
+  })
+
   it('handles uppercase input', () => {
     let result = normalizeUpdateStyle('SHA')
 
@@ -35,7 +41,7 @@ describe('normalizeUpdateStyle', () => {
 
   it('throws for invalid style', () => {
     expect(() => normalizeUpdateStyle('tag')).toThrow(
-      'Invalid style "tag". Expected "sha" or "preserve".',
+      'Invalid style "tag". Expected "sha", "preserve" or "semver".',
     )
   })
 })

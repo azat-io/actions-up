@@ -243,6 +243,20 @@ Keep in mind that a broader floating tag moves with future releases, so it may
 cross minor version boundaries over time even when the update was selected with
 `--mode patch`.
 
+Use `--style semver` to rewrite tag references to the conventional floating tag
+for the selected `--mode`, regardless of the granularity used in the workflow:
+
+```bash
+npx actions-up --style semver
+npx actions-up --style semver --mode patch
+```
+
+With `--mode major` or `--mode minor` the preferred form is `v<major>`, and with
+`--mode patch` it is `v<major>.<minor>`. The same existence rules apply: when
+the publisher does not provide the preferred floating tag, the closest existing
+tag is used, falling back to the exact version. SHA-pinned references keep
+updating to the latest resolved SHA and are never converted to tags.
+
 ## GitHub Actions Integration
 
 ### Automated PR Checks

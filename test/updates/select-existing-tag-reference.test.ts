@@ -27,6 +27,7 @@ function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
     ...overrides,
   }
 }
+
 describe('selectExistingTagReference', () => {
   it('returns floating tag when it exists and points at the latest release', async () => {
     let client = createClient({
@@ -36,7 +37,7 @@ describe('selectExistingTagReference', () => {
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
+      candidates: ['v8'],
       latestSha,
     })
 
@@ -50,7 +51,7 @@ describe('selectExistingTagReference', () => {
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
+      candidates: ['v8'],
       latestSha,
     })
 
@@ -67,9 +68,9 @@ describe('selectExistingTagReference', () => {
     })
 
     let result = await selectExistingTagReference(client, {
+      candidates: ['v6.2', 'v6'],
       actionName: 'owner/repo',
       latestVersion: 'v6.2.3',
-      currentVersion: 'v6.1',
       latestSha,
     })
 
@@ -88,9 +89,9 @@ describe('selectExistingTagReference', () => {
     })
 
     let result = await selectExistingTagReference(client, {
+      candidates: ['v6.2', 'v6'],
       actionName: 'owner/repo',
       latestVersion: 'v6.2.3',
-      currentVersion: 'v6.1',
       latestSha,
     })
 
@@ -105,7 +106,7 @@ describe('selectExistingTagReference', () => {
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
+      candidates: ['v8'],
       latestSha,
     })
 
@@ -120,7 +121,7 @@ describe('selectExistingTagReference', () => {
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
+      candidates: ['v8'],
       latestSha: null,
     })
 
@@ -136,7 +137,7 @@ describe('selectExistingTagReference', () => {
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
+      candidates: ['v8'],
       latestSha,
     })
 
@@ -151,7 +152,7 @@ describe('selectExistingTagReference', () => {
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
+      candidates: ['v8'],
       latestSha,
     })
 
@@ -171,9 +172,9 @@ describe('selectExistingTagReference', () => {
     })
 
     let result = await selectExistingTagReference(client, {
+      candidates: ['v6.2', 'v6'],
       actionName: 'owner/repo',
       latestVersion: 'v6.2.3',
-      currentVersion: 'v6.1',
       latestSha,
     })
 
@@ -185,8 +186,8 @@ describe('selectExistingTagReference', () => {
 
     let result = await selectExistingTagReference(client, {
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
       actionName: '/repo',
+      candidates: ['v8'],
       latestSha,
     })
 
@@ -199,8 +200,8 @@ describe('selectExistingTagReference', () => {
 
     let result = await selectExistingTagReference(client, {
       latestVersion: 'v8.3.2',
-      currentVersion: 'v7',
       actionName: 'owner',
+      candidates: ['v8'],
       latestSha,
     })
 
@@ -208,13 +209,13 @@ describe('selectExistingTagReference', () => {
     expect(client.getTagSha).not.toHaveBeenCalled()
   })
 
-  it('returns the latest version when no candidates can be built', async () => {
+  it('returns the latest version when there are no candidates', async () => {
     let client = createClient()
 
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
-      currentVersion: 'v8.3.1',
       latestVersion: 'v8.3.2',
+      candidates: [],
       latestSha,
     })
 

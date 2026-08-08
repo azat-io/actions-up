@@ -47,22 +47,20 @@ function createUpdate(overrides: Partial<ActionUpdate> = {}): ActionUpdate {
 }
 describe('resolveTargetReference', () => {
   it('resolves sha target in sha style', async () => {
-    let result = await resolveTargetReference(
-      createUpdate(),
-      'sha',
-      createClient(),
-    )
+    let result = await resolveTargetReference(createUpdate(), {
+      client: createClient(),
+      style: 'sha',
+    })
 
     expect(result.targetRef).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
     expect(result.targetRefStyle).toBe('sha')
   })
 
   it('resolves tag target in preserve style for tag refs', async () => {
-    let result = await resolveTargetReference(
-      createUpdate(),
-      'preserve',
-      createClient(),
-    )
+    let result = await resolveTargetReference(createUpdate(), {
+      client: createClient(),
+      style: 'preserve',
+    })
 
     expect(result.targetRef).toBe('v5')
     expect(result.targetRefStyle).toBe('tag')
@@ -74,8 +72,7 @@ describe('resolveTargetReference', () => {
         latestVersion: 'v4.2.3',
         currentVersion: 'v4.1',
       }),
-      'preserve',
-      createClient(),
+      { client: createClient(), style: 'preserve' },
     )
 
     expect(result.targetRef).toBe('v4.2')
@@ -92,8 +89,7 @@ describe('resolveTargetReference', () => {
         latestVersion: 'v8.3.2',
         currentVersion: 'v7',
       }),
-      'preserve',
-      client,
+      { style: 'preserve', client },
     )
 
     expect(result.targetRef).toBe('v8.3.2')
@@ -113,8 +109,7 @@ describe('resolveTargetReference', () => {
         latestVersion: 'v8.3.2',
         currentVersion: 'v7',
       }),
-      'preserve',
-      client,
+      { style: 'preserve', client },
     )
 
     expect(result.targetRef).toBe('v8.3.2')
@@ -129,8 +124,7 @@ describe('resolveTargetReference', () => {
         currentVersion: 'v4.2.1',
         latestVersion: 'v4.2.3',
       }),
-      'preserve',
-      client,
+      { style: 'preserve', client },
     )
 
     expect(result.targetRef).toBe('v4.2.3')
@@ -149,12 +143,121 @@ describe('resolveTargetReference', () => {
         latestVersion: 'v8.3.2',
         currentVersion: 'v7',
       }),
-      'preserve',
-      client,
+      { style: 'preserve', client },
     )
 
     expect(result.targetRef).toBe('v8.3.2')
     expect(result.targetRefRateLimited).toBeTruthy()
+  })
+
+  it('rewrites to the canonical major tag in semver style', async () => {
+    let client = createClient()
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        currentVersion: 'v4.2.1',
+        latestVersion: 'v7.0.1',
+      }),
+      { style: 'semver', mode: 'major', client },
+    )
+
+    expect(result.targetRef).toBe('v7')
+    expect(result.targetRefStyle).toBe('tag')
+    expect(client.getTagSha).toHaveBeenCalledWith('actions', 'checkout', 'v7')
+  })
+
+  it('rewrites to the canonical minor tag in semver patch mode', async () => {
+    let client = createClient()
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        currentVersion: 'v4.2.1',
+        latestVersion: 'v4.2.3',
+      }),
+      { style: 'semver', mode: 'patch', client },
+    )
+
+    expect(result.targetRef).toBe('v4.2')
+    expect(result.targetRefStyle).toBe('tag')
+  })
+
+  it('falls back to the exact tag in semver style when no canonical tag exists', async () => {
+    let client = createClient({
+      getTagSha: vi.fn().mockResolvedValue(null),
+    })
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        currentVersion: 'v7.1.2',
+        latestVersion: 'v8.3.2',
+      }),
+      { style: 'semver', mode: 'major', client },
+    )
+
+    expect(result.targetRef).toBe('v8.3.2')
+    expect(result.targetRefStyle).toBe('tag')
+  })
+
+  it('defaults to major granularity in semver style without explicit mode', async () => {
+    let client = createClient()
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        latestVersion: 'v7.0.1',
+        currentVersion: 'v4',
+      }),
+      { style: 'semver', client },
+    )
+
+    expect(result.targetRef).toBe('v7')
+    expect(result.targetRefStyle).toBe('tag')
+  })
+
+  it('marks rate limited fallbacks in semver style', async () => {
+    let rateLimitError = new GitHubRateLimitError()
+    let client = createClient({
+      getTagSha: vi.fn().mockRejectedValue(rateLimitError),
+    })
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        currentVersion: 'v7.1.2',
+        latestVersion: 'v8.3.2',
+      }),
+      { style: 'semver', mode: 'major', client },
+    )
+
+    expect(result.targetRef).toBe('v8.3.2')
+    expect(result.targetRefRateLimited).toBeTruthy()
+  })
+
+  it('writes major-only latest as is in semver style without validation', async () => {
+    let client = createClient()
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        currentVersion: 'v5.1.0',
+        latestVersion: 'v6',
+      }),
+      { style: 'semver', mode: 'major', client },
+    )
+
+    expect(result.targetRef).toBe('v6')
+    expect(result.targetRefStyle).toBe('tag')
+    expect(client.getTagSha).not.toHaveBeenCalled()
+  })
+
+  it('keeps sha target in semver style for sha refs', async () => {
+    let result = await resolveTargetReference(
+      createUpdate({
+        currentVersion: 'abcdef1',
+        currentRefType: 'sha',
+      }),
+      { client: createClient(), style: 'semver' },
+    )
+
+    expect(result.targetRef).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+    expect(result.targetRefStyle).toBe('sha')
   })
 
   it('returns null target when current version is missing for tag refs', async () => {
@@ -164,8 +267,7 @@ describe('resolveTargetReference', () => {
       createUpdate({
         currentVersion: null,
       }),
-      'preserve',
-      client,
+      { style: 'preserve', client },
     )
 
     expect(result.targetRef).toBeNull()
@@ -179,8 +281,7 @@ describe('resolveTargetReference', () => {
         currentVersion: 'v4.1',
         latestVersion: 'v5',
       }),
-      'preserve',
-      createClient(),
+      { client: createClient(), style: 'preserve' },
     )
 
     expect(result.targetRef).toBeNull()
@@ -193,8 +294,7 @@ describe('resolveTargetReference', () => {
         currentVersion: 'abcdef1',
         currentRefType: 'sha',
       }),
-      'preserve',
-      createClient(),
+      { client: createClient(), style: 'preserve' },
     )
 
     expect(result.targetRef).toBe('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
@@ -206,8 +306,7 @@ describe('resolveTargetReference', () => {
       createUpdate({
         latestSha: null,
       }),
-      'sha',
-      createClient(),
+      { client: createClient(), style: 'sha' },
     )
 
     expect(result.targetRef).toBeNull()
@@ -219,8 +318,7 @@ describe('resolveTargetReference', () => {
       createUpdate({
         currentRefType: 'branch',
       }),
-      'preserve',
-      createClient(),
+      { client: createClient(), style: 'preserve' },
     )
 
     expect(result.targetRef).toBeNull()
@@ -234,8 +332,7 @@ describe('resolveTargetReference', () => {
         currentRefType: 'sha',
         latestSha: null,
       }),
-      'preserve',
-      createClient(),
+      { client: createClient(), style: 'preserve' },
     )
 
     expect(result.targetRef).toBeNull()
@@ -247,8 +344,7 @@ describe('resolveTargetReference', () => {
       createUpdate({
         hasUpdate: false,
       }),
-      'preserve',
-      createClient(),
+      { client: createClient(), style: 'preserve' },
     )
 
     expect(result.targetRef).toBeNull()

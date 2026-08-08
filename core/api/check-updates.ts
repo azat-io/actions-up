@@ -595,14 +595,16 @@ function createUpdate(
       }
       /**
        * If versions are equal but current ref is an unpinned tag and latest SHA
-       * is known, suggest pinning to SHA.
+       * is known, suggest pinning to SHA (or normalizing to the canonical
+       * floating tag in semver style). A semver-style no-op is dropped later
+       * when the resolved target matches the current reference.
        */
       if (
         !hasUpdate &&
         semver.eq(currentSemver, latestSemver) &&
         !isSha(action.version) &&
         latestSha &&
-        style === 'sha'
+        (style === 'sha' || style === 'semver')
       ) {
         hasUpdate = true
         isBreaking = false

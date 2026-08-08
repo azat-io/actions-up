@@ -388,7 +388,11 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         ].join('@')
         let resolution = resolutionCache.get(resolutionKey)
         if (!resolution) {
-          resolution = resolveTargetReference(update, style, githubClient)
+          resolution = resolveTargetReference(update, {
+            client: githubClient,
+            style,
+            mode,
+          })
           resolutionCache.set(resolutionKey, resolution)
         }
         let resolved = await resolution

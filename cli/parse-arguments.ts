@@ -14,7 +14,7 @@ Options:
   --json              Output update information as machine-readable JSON
   --min-age <days>    Minimum age in days for updates (default: 1, use 0 to disable)
   --mode <mode>       Update mode: major, minor, or patch (default: major)
-  --style <style>     Update style: sha or preserve (default: sha)
+  --style <style>     Update style: sha, preserve or semver (default: sha)
   -r, --recursive     Recursively scan directories for YAML files
   -y, --yes           Skip all confirmations
   -q, --quiet         Suppress skipped/blocked warnings
@@ -78,7 +78,7 @@ export interface CLIOptions {
   dryRun: boolean
 
   /**
-   * Update style (sha or preserve).
+   * Update style (sha, preserve or semver).
    */
   style?: string
 
