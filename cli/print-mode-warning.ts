@@ -2,6 +2,8 @@ import pc from 'picocolors'
 
 import type { UpdateMode } from '../types/update-mode'
 
+import { groupByIdentifier } from './group-by-identifier'
+
 /**
  * Prints a warning message for actions that were skipped due to update mode
  * restrictions.
@@ -20,20 +22,20 @@ export function printModeWarning(
     return
   }
 
+  let grouped = groupByIdentifier(blocked)
+
   let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
-  let form = pluralRules.select(blocked.length)
+  let form = pluralRules.select(grouped.length)
   let noun = form === 'one' ? 'action' : 'actions'
   let label = mode === 'minor' ? 'major' : 'major/minor'
 
   console.info(
     pc.yellow(
-      `\n⚠️  Skipped ${blocked.length} ${noun} due to ${label} updates`,
+      `\n⚠️  Skipped ${grouped.length} ${noun} due to ${label} updates`,
     ),
   )
-  for (let update of blocked) {
-    let identifier =
-      update.action.uses ??
-      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
-    console.info(pc.gray(`   • ${identifier}`))
+  for (let { identifier, count } of grouped) {
+    let suffix = count > 1 ? ` (×${count})` : ''
+    console.info(pc.gray(`   • ${identifier}${suffix}`))
   }
 }

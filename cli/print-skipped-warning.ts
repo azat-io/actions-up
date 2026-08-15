@@ -2,6 +2,8 @@ import pc from 'picocolors'
 
 import type { UpdateStyle } from '../types/update-style'
 
+import { groupByIdentifier } from './group-by-identifier'
+
 /**
  * Prints a warning message for actions that were skipped during scanning.
  *
@@ -50,15 +52,15 @@ function printSkippedGroup(
   }[],
   reason: string,
 ): void {
+  let grouped = groupByIdentifier(skipped)
+
   let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
-  let form = pluralRules.select(skipped.length)
+  let form = pluralRules.select(grouped.length)
   let noun = form === 'one' ? 'action' : 'actions'
 
-  console.info(pc.yellow(`\n⚠️  Skipped ${skipped.length} ${noun} ${reason}`))
-  for (let update of skipped) {
-    let identifier =
-      update.action.uses ??
-      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
-    console.info(pc.gray(`   • ${identifier}`))
+  console.info(pc.yellow(`\n⚠️  Skipped ${grouped.length} ${noun} ${reason}`))
+  for (let { identifier, count } of grouped) {
+    let suffix = count > 1 ? ` (×${count})` : ''
+    console.info(pc.gray(`   • ${identifier}${suffix}`))
   }
 }

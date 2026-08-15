@@ -108,6 +108,47 @@ describe('printMinAgeWarning', () => {
     )
   })
 
+  it('deduplicates repeated identifiers and shows occurrence count', () => {
+    let entry = {
+      action: {
+        uses: 'actions/checkout@v3',
+        name: 'actions/checkout',
+        version: 'v3',
+      },
+      currentVersion: 'v3',
+    }
+    let blocked = [entry, entry, entry]
+
+    printMinAgeWarning(blocked, 1)
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 update released less than 1 day ago'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@v3 (×3)'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('omits occurrence count for identifiers appearing once', () => {
+    let blocked = [
+      {
+        action: {
+          uses: 'actions/checkout@v3',
+          name: 'actions/checkout',
+          version: 'v3',
+        },
+        currentVersion: 'v3',
+      },
+    ]
+
+    printMinAgeWarning(blocked, 1)
+
+    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('×'),
+    )
+  })
+
   it('shows unknown when currentVersion is null and uses is not set', () => {
     let blocked = [
       {

@@ -162,4 +162,22 @@ describe('printSkippedWarning', () => {
       expect.stringContaining('current style'),
     )
   })
+
+  it('deduplicates repeated identifiers and shows occurrence count', () => {
+    let entry = {
+      action: { name: 'actions/checkout', version: 'main' },
+      currentVersion: 'main',
+    }
+    let skipped = [entry, entry]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action pinned to branches'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@main (×2)'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
+  })
 })

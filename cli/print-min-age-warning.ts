@@ -1,5 +1,7 @@
 import pc from 'picocolors'
 
+import { groupByIdentifier } from './group-by-identifier'
+
 /**
  * Prints a notice for updates held back by the minimum age cool-down.
  *
@@ -18,21 +20,21 @@ export function printMinAgeWarning(
     return
   }
 
+  let grouped = groupByIdentifier(blocked)
+
   let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
   let updateNoun =
-    pluralRules.select(blocked.length) === 'one' ? 'update' : 'updates'
+    pluralRules.select(grouped.length) === 'one' ? 'update' : 'updates'
   let dayNoun = pluralRules.select(minAge) === 'one' ? 'day' : 'days'
 
   console.info(
     pc.gray(
-      `\n⏳ Skipped ${blocked.length} ${updateNoun} released less than ` +
+      `\n⏳ Skipped ${grouped.length} ${updateNoun} released less than ` +
         `${minAge} ${dayNoun} ago (cool-down, use --min-age 0 to disable)`,
     ),
   )
-  for (let update of blocked) {
-    let identifier =
-      update.action.uses ??
-      `${update.action.name}@${update.currentVersion ?? 'unknown'}`
-    console.info(pc.gray(`   • ${identifier}`))
+  for (let { identifier, count } of grouped) {
+    let suffix = count > 1 ? ` (×${count})` : ''
+    console.info(pc.gray(`   • ${identifier}${suffix}`))
   }
 }

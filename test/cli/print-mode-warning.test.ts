@@ -144,4 +144,26 @@ describe('printModeWarning', () => {
       expect.stringContaining('actions/checkout@unknown'),
     )
   })
+
+  it('deduplicates repeated identifiers and shows occurrence count', () => {
+    let entry = {
+      action: {
+        uses: 'actions/checkout@v3',
+        name: 'actions/checkout',
+        version: 'v3',
+      },
+      currentVersion: 'v3',
+    }
+    let blocked = [entry, entry]
+
+    printModeWarning(blocked, 'patch')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action due to major/minor updates'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@v3 (×2)'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
+  })
 })
