@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.17.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.17.0...v1.17.1)
+
+### 🐞 Bug Fixes
+
+- Deduplicate repeated actions in skipped update warnings
+  ([68abea9](https://github.com/azat-io/actions-up/commit/68abea9))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.17.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.16.0...v1.17.0)
