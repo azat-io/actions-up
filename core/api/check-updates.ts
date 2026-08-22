@@ -87,12 +87,19 @@ export async function checkUpdates(
   options?: {
     includeBranches?: boolean
     client?: GitHubClient
+    preferTags?: boolean
     style?: UpdateStyle
   },
 ): Promise<ActionUpdate[]> {
   let client = options?.client ?? createGitHubClient(token)
   let includeBranches = options?.includeBranches ?? false
+  let preferTags = options?.preferTags ?? false
   let style = options?.style ?? 'sha'
+
+  /**
+   * Wider tag window when tags may compete with releases.
+   */
+  let tagFetchLimit = preferTags ? 100 : 30
 
   /**
    * Filter external actions and reusable workflows.
@@ -231,7 +238,8 @@ export async function checkUpdates(
           /**
            * Consider tags when:
            *
-           * - Release version is missing/empty
+           * - Tags are explicitly preferred (opt-in)
+           * - Or release version is missing/empty
            * - Or it's a moving major (v1)
            * - Or it doesn't parse as valid semver after normalization.
            */
@@ -240,11 +248,15 @@ export async function checkUpdates(
           let majorOnly = hasVersion && /^v?\d+$/u.test(version.trim())
           let valid = semver.valid(normalized)
           considerTags =
-            !hasVersion || majorOnly || !valid || !isSemverLike(version)
+            preferTags ||
+            !hasVersion ||
+            majorOnly ||
+            !valid ||
+            !isSemverLike(version)
         }
 
         if (considerTags) {
-          let tags = await client.getAllTags(owner, repo, 30)
+          let tags = await client.getAllTags(owner, repo, tagFetchLimit)
           if (tags.length > 0) {
             let semverCandidates = tags
               .filter(tag => isSemverLike(tag.tag))
@@ -337,7 +349,7 @@ export async function checkUpdates(
       /**
        * No releases found: fetch tags and choose the best semver tag.
        */
-      let tags = await client.getAllTags(owner, repo, 30)
+      let tags = await client.getAllTags(owner, repo, tagFetchLimit)
       if (tags.length > 0) {
         /**
          * Prefer the highest semver tag; among equal numeric versions, prefer

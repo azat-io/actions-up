@@ -14,6 +14,7 @@ Options:
   --json              Output update information as machine-readable JSON
   --min-age <days>    Minimum age in days for updates (default: 1, use 0 to disable)
   --mode <mode>       Update mode: major, minor, or patch (default: major)
+  --prefer-tags       Also check tags when a release exists; use the higher version
   --style <style>     Update style: sha, preserve or semver (default: sha)
   -r, --recursive     Recursively scan directories for YAML files
   -y, --yes           Skip all confirmations
@@ -36,6 +37,7 @@ let parserOptions = {
   quiet: { type: 'boolean', short: 'q' },
   help: { type: 'boolean', short: 'h' },
   yes: { type: 'boolean', short: 'y' },
+  'prefer-tags': { type: 'boolean' },
   'dry-run': { type: 'boolean' },
   'min-age': { type: 'string' },
   style: { type: 'string' },
@@ -61,6 +63,12 @@ export interface CLIOptions {
    * Custom directory name (e.g., '.gitea' instead of '.github').
    */
   dir?: string[] | string
+
+  /**
+   * Also inspect repository tags when a release exists and take whichever
+   * version is higher.
+   */
+  preferTags?: boolean
 
   /**
    * Recursively scan directories for YAML files.
@@ -161,6 +169,7 @@ export function parseArguments(
       options: {
         includeBranches: values['include-branches'],
         dryRun: values['dry-run'] ?? false,
+        preferTags: values['prefer-tags'],
         style: values.style ?? 'sha',
         mode: values.mode ?? 'major',
         recursive: values.recursive,

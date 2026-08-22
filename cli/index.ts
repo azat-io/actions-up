@@ -111,6 +111,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     resolve(root, dir),
   )
   let includeBranches = options.includeBranches ?? false
+  let preferTags = options.preferTags ?? false
   let mode = normalizeUpdateMode(options.mode)
   let style = normalizeUpdateStyle(options.style)
   let rawExcludes: string[] = []
@@ -155,6 +156,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             actionsToCheckCount,
             includeBranches,
             blockedByMode,
+            preferTags,
             scanResult,
             outdated,
             skipped,
@@ -253,6 +255,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let updates = await checkUpdates(actionsToCheck, token, {
       client: githubClient,
       includeBranches,
+      preferTags,
       style,
     })
 

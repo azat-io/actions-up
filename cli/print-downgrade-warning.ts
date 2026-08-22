@@ -29,7 +29,8 @@ export function printDowngradeWarning(
   console.info(
     pc.gray(
       `\n⛔ Skipped ${grouped.length} ${updateNoun} that would downgrade ` +
-        `${actionNoun} (resolved latest version is older than the pinned version)`,
+        `${actionNoun} (resolved latest version is older than the pinned ` +
+        `version, try --prefer-tags)`,
     ),
   )
   for (let { identifier, count } of grouped) {

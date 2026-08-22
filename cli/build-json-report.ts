@@ -61,6 +61,11 @@ interface BuildJsonReportOptions {
   directories: string[]
 
   /**
+   * Whether tags were inspected alongside releases.
+   */
+  preferTags: boolean
+
+  /**
    * Whether recursive scanning mode is enabled.
    */
   recursive: boolean
@@ -152,6 +157,61 @@ interface JsonReportUpdate {
 }
 
 /**
+ * Effective CLI options serialized into the report.
+ */
+interface JsonReportOptions {
+  /**
+   * Regex patterns supplied through `--exclude`.
+   */
+  excludePatterns: string[]
+
+  /**
+   * Whether branch references were checked.
+   */
+  includeBranches: boolean
+
+  /**
+   * Resolved scan directories.
+   */
+  directories: string[]
+
+  /**
+   * Whether tags were inspected alongside releases.
+   */
+  preferTags: boolean
+
+  /**
+   * Whether recursive scanning mode is enabled.
+   */
+  recursive: boolean
+
+  /**
+   * Effective update style.
+   */
+  style: UpdateStyle
+
+  /**
+   * Effective update mode.
+   */
+  mode: UpdateMode
+
+  /**
+   * Indicates that JSON mode never applies changes.
+   */
+  reportOnly: true
+
+  /**
+   * Minimum age filter in days.
+   */
+  minAge: number
+
+  /**
+   * Indicates that this payload came from `--json`.
+   */
+  json: true
+}
+
+/**
  * Aggregate counts included in the JSON report.
  */
 interface JsonReportSummary {
@@ -194,56 +254,6 @@ interface JsonReportSummary {
    * Number of actionable updates in the report.
    */
   totalUpdates: number
-}
-
-/**
- * Effective CLI options serialized into the report.
- */
-interface JsonReportOptions {
-  /**
-   * Regex patterns supplied through `--exclude`.
-   */
-  excludePatterns: string[]
-
-  /**
-   * Whether branch references were checked.
-   */
-  includeBranches: boolean
-
-  /**
-   * Resolved scan directories.
-   */
-  directories: string[]
-
-  /**
-   * Whether recursive scanning mode is enabled.
-   */
-  recursive: boolean
-
-  /**
-   * Effective update style.
-   */
-  style: UpdateStyle
-
-  /**
-   * Effective update mode.
-   */
-  mode: UpdateMode
-
-  /**
-   * Indicates that JSON mode never applies changes.
-   */
-  reportOnly: true
-
-  /**
-   * Minimum age filter in days.
-   */
-  minAge: number
-
-  /**
-   * Indicates that this payload came from `--json`.
-   */
-  json: true
 }
 
 /**
@@ -358,6 +368,7 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       ),
       excludePatterns: options.excludePatterns,
       includeBranches: options.includeBranches,
+      preferTags: options.preferTags,
       recursive: options.recursive,
       minAge: options.minAge,
       style: options.style,

@@ -71,6 +71,25 @@ describe('printDowngradeWarning', () => {
     )
   })
 
+  it('suggests --prefer-tags', () => {
+    let blocked = [
+      {
+        action: {
+          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+          name: 'owner/repo',
+        },
+        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+      },
+    ]
+
+    printDowngradeWarning(blocked)
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('--prefer-tags'),
+    )
+  })
+
   it('explains that the latest version is older than the pinned one', () => {
     let blocked = [
       {

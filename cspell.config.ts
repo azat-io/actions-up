@@ -3,6 +3,7 @@ import { defineConfig } from 'cspell'
 export default defineConfig({
   words: [
     'azat',
+    'bridgecrewio',
     'changelogen',
     'changelogithub',
     'commitish',

@@ -107,6 +107,7 @@ describe('buildJsonReport', () => {
       status: 'updates-available',
       actionsToCheckCount: 2,
       includeBranches: false,
+      preferTags: false,
       style: 'preserve',
       recursive: true,
       blockedByMode,
@@ -198,6 +199,7 @@ describe('buildJsonReport', () => {
         directories: ['.', '.github'],
         excludePatterns: ['^local/'],
         includeBranches: false,
+        preferTags: false,
         style: 'preserve',
         reportOnly: true,
         recursive: true,
@@ -253,6 +255,7 @@ describe('buildJsonReport', () => {
       includeBranches: true,
       excludePatterns: [],
       blockedByMode: [],
+      preferTags: true,
       recursive: false,
       mode: 'major',
       style: 'sha',
@@ -262,6 +265,7 @@ describe('buildJsonReport', () => {
     })
 
     expect(report.options.directories).toEqual(['/tmp/shared'])
+    expect(report.options.preferTags).toBeTruthy()
     expect(report.updates[0]?.action.file).toBe('/tmp/shared/workflow.yml')
   })
 
@@ -312,6 +316,7 @@ describe('buildJsonReport', () => {
       includeBranches: false,
       status: 'up-to-date',
       excludePatterns: [],
+      preferTags: false,
       recursive: false,
       mode: 'major',
       style: 'sha',
@@ -361,6 +366,7 @@ describe('buildJsonReport', () => {
       includeBranches: false,
       excludePatterns: [],
       directories: [cwd],
+      preferTags: false,
       blockedByMode: [],
       recursive: false,
       mode: 'major',
@@ -402,6 +408,7 @@ describe('buildJsonReport', () => {
       actionsToCheckCount: 1,
       includeBranches: false,
       excludePatterns: [],
+      preferTags: false,
       blockedByMode: [],
       recursive: false,
       mode: 'major',

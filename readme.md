@@ -257,6 +257,28 @@ the publisher does not provide the preferred floating tag, the closest existing
 tag is used, falling back to the exact version. SHA-pinned references keep
 updating to the latest resolved SHA and are never converted to tags.
 
+### Prefer Tags
+
+Some repositories stop publishing GitHub Releases but keep tagging new versions
+(for example, `bridgecrewio/checkov-action`, whose latest release dates back to
+2022 while tags stay current). By default, Actions Up trusts the latest release,
+so such actions resolve to an outdated version.
+
+Use `--prefer-tags` to also inspect repository tags when a release exists and
+take whichever version is higher:
+
+```bash
+npx actions-up --prefer-tags
+```
+
+The comparison covers the first 100 tags returned by the GitHub API and costs
+one extra API request per action, plus a few more when a tag wins the
+comparison.
+
+Even without this flag, SHA-pinned actions whose inline version comment is
+higher than the resolved latest version are never downgraded: such updates are
+skipped with a warning suggesting `--prefer-tags`.
+
 ## GitHub Actions Integration
 
 ### Automated PR Checks
@@ -539,6 +561,9 @@ protects against supply-chain attacks through freshly published releases. Use
 ```bash
 npx actions-up --min-age 7
 ```
+
+Versions resolved from tags (repositories without releases, or `--prefer-tags`
+results) honor the cool-down using the tag's commit or tagger date.
 
 Ignore comments (file/block/next-line/inline):
 

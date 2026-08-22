@@ -163,6 +163,22 @@ describe('parseArguments', () => {
     })
   })
 
+  it('parses --prefer-tags', () => {
+    let result = parseArguments(['--prefer-tags'], 'x')
+
+    expect(result).toEqual({
+      options: {
+        preferTags: true,
+        mode: 'major',
+        dryRun: false,
+        style: 'sha',
+        yes: false,
+        minAge: 1,
+      },
+      kind: 'options',
+    })
+  })
+
   it('parses short boolean aliases', () => {
     let result = parseArguments(['-r', '-y', '-q'], 'x')
 
