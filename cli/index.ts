@@ -466,7 +466,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         printMinAgeWarning(blockedByAge, options.minAge)
       }
       if (!quiet && blockedAsDowngrade.length > 0) {
-        printDowngradeWarning(blockedAsDowngrade)
+        printDowngradeWarning(blockedAsDowngrade, preferTags)
       }
       console.info(
         pc.green('\n✨ Everything is already at the latest version!\n'),
@@ -506,7 +506,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       printMinAgeWarning(blockedByAge, options.minAge)
     }
     if (!quiet && blockedAsDowngrade.length > 0) {
-      printDowngradeWarning(blockedAsDowngrade)
+      printDowngradeWarning(blockedAsDowngrade, preferTags)
     }
     if (!quiet && rateLimitedFallbacks.length > 0) {
       printRateLimitWarning(rateLimitedFallbacks)

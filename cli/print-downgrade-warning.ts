@@ -8,12 +8,15 @@ import { groupByIdentifier } from './group-by-identifier'
  *
  * @param blocked - Array of actions whose resolved latest version is older than
  *   the version pinned in the file.
+ * @param preferTags - Whether tags are already preferred for the current run;
+ *   suppresses the `--prefer-tags` hint.
  */
 export function printDowngradeWarning(
   blocked: {
     action: { version?: string | null; uses?: string; name: string }
     currentVersion: string | null
   }[],
+  preferTags: boolean,
 ): void {
   if (blocked.length === 0) {
     return
@@ -26,11 +29,13 @@ export function printDowngradeWarning(
   let updateNoun = isSingle ? 'update' : 'updates'
   let actionNoun = isSingle ? 'a SHA-pinned action' : 'SHA-pinned actions'
 
+  let hint = preferTags ? '' : ', try --prefer-tags'
+
   console.info(
     pc.gray(
       `\n⛔ Skipped ${grouped.length} ${updateNoun} that would downgrade ` +
         `${actionNoun} (resolved latest version is older than the pinned ` +
-        `version, try --prefer-tags)`,
+        `version${hint})`,
     ),
   )
   for (let { identifier, count } of grouped) {

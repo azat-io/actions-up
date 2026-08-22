@@ -175,6 +175,49 @@ describe('filterDowngradeUpdates', () => {
     expect(kept).toEqual([update])
   })
 
+  it('keeps updates when latest resolves to a floating major', async () => {
+    /**
+     * A floating tag like v12 moves with releases, so its SHA can be ahead of
+     * the pin even though the coerced version (12.0.0) compares lower.
+     */
+    let update = createUpdate({ latestVersion: 'v12' })
+    let fileCache = createFileCache(
+      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.3119.0',
+    )
+
+    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+
+    expect(blocked).toEqual([])
+    expect(kept).toEqual([update])
+  })
+
+  it('keeps updates when latest resolves to a floating minor', async () => {
+    let update = createUpdate({ latestVersion: 'v12.1' })
+    let fileCache = createFileCache(
+      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.1.5',
+    )
+
+    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+
+    expect(blocked).toEqual([])
+    expect(kept).toEqual([update])
+  })
+
+  it('keeps updates with a date-like comment', async () => {
+    /**
+     * Comments such as audit dates must not masquerade as version claims.
+     */
+    let update = createUpdate()
+    let fileCache = createFileCache(
+      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # 2024-05-01 audited',
+    )
+
+    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+
+    expect(blocked).toEqual([])
+    expect(kept).toEqual([update])
+  })
+
   it('keeps updates with a non-semver latest version', async () => {
     let update = createUpdate({ latestVersion: 'nightly' })
     let fileCache = createFileCache(

@@ -74,20 +74,32 @@ async function isDowngrade(
     return false
   }
 
-  let latestNormalized =
-    update.latestVersion ?
-      semver.valid(normalizeVersion(update.latestVersion))
-    : null
-  if (!latestNormalized) {
+  /**
+   * Floating versions (v12, v12.1) resolve to moving tags whose SHA can be
+   * ahead of the pin, so only fully specified versions are comparable.
+   */
+  let latest = update.latestVersion
+  if (!latest || !/^v?\d+\.\d+\.\d+/u.test(latest.trim())) {
     return false
   }
+
+  /**
+   * Coercion always succeeds for a fully specified version.
+   */
+  let latestNormalized = semver.valid(normalizeVersion(latest))!
 
   let inline = await readInlineVersionComment(
     update.action.file,
     update.action.line,
     fileCache,
   )
-  let inlineNormalized = inline ? semver.valid(normalizeVersion(inline)) : null
+
+  /**
+   * Require a dotted version so date- or ticket-like comments (e.g. "#
+   * 2024-05-01") cannot masquerade as version claims.
+   */
+  let inlineNormalized =
+    inline?.includes('.') ? semver.valid(normalizeVersion(inline)) : null
 
   return Boolean(
     inlineNormalized && semver.gt(inlineNormalized, latestNormalized),

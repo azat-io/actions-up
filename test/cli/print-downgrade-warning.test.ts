@@ -16,7 +16,7 @@ describe('printDowngradeWarning', () => {
   })
 
   it('does nothing for empty array', () => {
-    printDowngradeWarning([])
+    printDowngradeWarning([], false)
 
     expect(consoleInfoSpy).not.toHaveBeenCalled()
   })
@@ -33,7 +33,7 @@ describe('printDowngradeWarning', () => {
       },
     ]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -62,7 +62,7 @@ describe('printDowngradeWarning', () => {
       },
     ]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -83,9 +83,28 @@ describe('printDowngradeWarning', () => {
       },
     ]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('--prefer-tags'),
+    )
+  })
+
+  it('omits the hint when prefer-tags is already active', () => {
+    let blocked = [
+      {
+        action: {
+          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+          name: 'owner/repo',
+        },
+        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+      },
+    ]
+
+    printDowngradeWarning(blocked, true)
+
+    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('--prefer-tags'),
     )
   })
@@ -102,7 +121,7 @@ describe('printDowngradeWarning', () => {
       },
     ]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining('older than the pinned version'),
@@ -121,7 +140,7 @@ describe('printDowngradeWarning', () => {
       },
     ]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -141,7 +160,7 @@ describe('printDowngradeWarning', () => {
       },
     ]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -161,7 +180,7 @@ describe('printDowngradeWarning', () => {
     }
     let blocked = [entry, entry, entry]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -184,7 +203,7 @@ describe('printDowngradeWarning', () => {
       },
     ]
 
-    printDowngradeWarning(blocked)
+    printDowngradeWarning(blocked, false)
 
     expect(consoleInfoSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('×'),
