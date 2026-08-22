@@ -13,9 +13,11 @@ import { promptUpdateSelection } from '../core/interactive/prompt-update-selecti
 import { resolveTargetReference } from '../core/updates/resolve-target-reference'
 import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { createGitHubClient } from '../core/api/create-github-client'
+import { filterDowngradeUpdates } from './filter-downgrade-updates'
 import { resolveScanDirectories } from './resolve-scan-directories'
 import { getUpdateLevel } from '../core/versions/get-update-level'
 import { printRateLimitWarning } from './print-rate-limit-warning'
+import { printDowngradeWarning } from './print-downgrade-warning'
 import { anchorDirectoryInputs } from './anchor-directory-inputs'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { normalizeUpdateStyle } from './normalize-update-style'
@@ -278,6 +280,16 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let outdated = filtered.filter(update => update.hasUpdate)
 
     /**
+     * Block downgrades of SHA-pinned actions detected via inline comments.
+     */
+    let fileCache = new Map<string, string>()
+    let { blocked: blockedAsDowngrade, kept } = await filterDowngradeUpdates(
+      outdated,
+      fileCache,
+    )
+    outdated = kept
+
+    /**
      * Filter by minimum age if publishedAt is available.
      */
     let minAgeMs = options.minAge * 24 * 60 * 60 * 1000
@@ -302,7 +314,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         Awaited<ReturnType<typeof githubClient.getAllTags>>
       >()
       let shaCache = new Map<string, string | null>()
-      let fileCache = new Map<string, string>()
       let decisions = await Promise.all(
         outdated.map(async update => {
           let effectiveCurrentVersion = update.currentVersion
@@ -451,6 +462,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       if (!quiet && blockedByAge.length > 0) {
         printMinAgeWarning(blockedByAge, options.minAge)
       }
+      if (!quiet && blockedAsDowngrade.length > 0) {
+        printDowngradeWarning(blockedAsDowngrade)
+      }
       console.info(
         pc.green('\n✨ Everything is already at the latest version!\n'),
       )
@@ -487,6 +501,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
     if (!quiet && blockedByAge.length > 0) {
       printMinAgeWarning(blockedByAge, options.minAge)
+    }
+    if (!quiet && blockedAsDowngrade.length > 0) {
+      printDowngradeWarning(blockedAsDowngrade)
     }
     if (!quiet && rateLimitedFallbacks.length > 0) {
       printRateLimitWarning(rateLimitedFallbacks)
@@ -531,6 +548,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         (skipped.length > 0 ||
           blockedByMode.length > 0 ||
           blockedByAge.length > 0 ||
+          blockedAsDowngrade.length > 0 ||
           rateLimitedFallbacks.length > 0)
       ) {
         console.info('')
