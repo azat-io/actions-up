@@ -282,7 +282,12 @@ export async function checkUpdates(
                   /\d+\.\d+/u.test(best.tag))
               ) {
                 let tagVersion = best.tag
-                let tagSha = best.sha?.length ? best.sha : null
+                let tagMeta = await resolveTagMeta(client, {
+                  tag: tagVersion,
+                  owner,
+                  repo,
+                })
+                let tagSha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
                 if (!tagSha && tagVersion) {
                   try {
                     tagSha = await client.getTagSha(owner, repo, tagVersion)
@@ -294,8 +299,8 @@ export async function checkUpdates(
                 }
                 return {
                   currentRefType: currentReferenceType,
+                  publishedAt: tagMeta.date,
                   version: tagVersion,
-                  publishedAt: null,
                   sha: tagSha,
                   actionName,
                 }
@@ -366,7 +371,12 @@ export async function checkUpdates(
         }
 
         let version = best.tag
-        let sha = best.sha?.length ? best.sha : null
+        let tagMeta = await resolveTagMeta(client, {
+          tag: version,
+          owner,
+          repo,
+        })
+        let sha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
         if (!sha && version) {
           try {
             sha = await client.getTagSha(owner, repo, version)
@@ -381,8 +391,8 @@ export async function checkUpdates(
         }
         return {
           currentRefType: currentReferenceType,
+          publishedAt: tagMeta.date,
           status: 'ok' as const,
-          publishedAt: null,
           actionName,
           version,
           sha,
@@ -625,6 +635,35 @@ function createUpdate(
     hasUpdate,
     action,
     status,
+  }
+}
+
+/**
+ * Resolve publication date and commit SHA for a chosen tag, best-effort.
+ *
+ * Rate limit errors are rethrown; any other failure falls back to nulls so
+ * callers can use their own SHA resolution chain.
+ *
+ * @param client - GitHub API client.
+ * @param parameters - Request parameters.
+ * @param parameters.owner - Repository owner.
+ * @param parameters.repo - Repository name.
+ * @param parameters.tag - Tag name to resolve.
+ * @returns Tag date and commit SHA, or nulls when the lookup fails.
+ */
+async function resolveTagMeta(
+  client: GitHubClient,
+  parameters: { owner: string; repo: string; tag: string },
+): Promise<{ sha: string | null; date: Date | null }> {
+  try {
+    let { owner, repo, tag } = parameters
+    let info = await client.getTagInfo(owner, repo, tag)
+    return { date: info?.date ?? null, sha: info?.sha ?? null }
+  } catch (error) {
+    if (isRateLimitError(error)) {
+      throw error
+    }
+    return { date: null, sha: null }
   }
 }
 
