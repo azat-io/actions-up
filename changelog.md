@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.18.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.17.1...v1.18.0)
+
+### 🚀 Features
+
+- Add prefer-tags flag to check repository tags when a release exists
+  ([3833ee4](https://github.com/azat-io/actions-up/commit/3833ee4))
+
+### 🐞 Bug Fixes
+
+- Prevent downgrades of sha-pinned actions when resolved version is older
+  ([e0d0b63](https://github.com/azat-io/actions-up/commit/e0d0b63))
+- Resolve publication date for tag-resolved versions
+  ([89665bb](https://github.com/azat-io/actions-up/commit/89665bb))
+- Harden downgrade guard against floating versions and non-version comments
+  ([984681a](https://github.com/azat-io/actions-up/commit/984681a))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.17.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.17.0...v1.17.1)
