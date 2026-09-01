@@ -894,4 +894,41 @@ describe('applyUpdates', () => {
     expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
     expect(consoleSpy).toHaveBeenCalledWith('Invalid target ref: v3.2.0\n')
   })
+
+  it('leaves skipped updates untouched even when a latest SHA is known', async () => {
+    let filePath = '/repo/.github/workflows/skipped.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+        },
+        latestSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+        skipReason: 'unsupported-style',
+        latestVersion: 'v4.2.0',
+        currentRefType: 'tag',
+        currentVersion: 'v3',
+        status: 'skipped',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: false,
+        targetRef: null,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      original,
+      'utf8',
+    )
+  })
 })

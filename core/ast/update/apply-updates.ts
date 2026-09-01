@@ -57,6 +57,15 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
     let content = await readFile(filePath, 'utf8')
 
     for (let update of fileUpdates) {
+      /**
+       * Skipped entries carry lookup data (including `latestSha`) that must
+       * never be written back, so they are dropped before the fallback chain
+       * below can turn that data into a reference.
+       */
+      if (update.status === 'skipped') {
+        continue
+      }
+
       let targetReference = update.targetRef ?? update.latestSha
       let targetReferenceStyle =
         update.targetRefStyle ?? (update.latestSha ? 'sha' : null)
