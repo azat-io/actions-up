@@ -3013,4 +3013,89 @@ describe('checkUpdates', () => {
       30,
     )
   })
+
+  it('skips a candidate from a different tag family', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01T00:00:00Z'),
+        isPrerelease: false,
+        description: null,
+        version: 'v0.2.3',
+        name: 'v0.2.3',
+        sha: 'sha023',
+        url: 'u',
+      }),
+      getTagSha: vi.fn().mockResolvedValue('sha023'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        ref: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        name: 'christopher-buss/bedrock/packages/actions/deploy',
+        version: 'actions-v0.1.1',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      currentVersion: 'actions-v0.1.1',
+      skipReason: 'tag-family',
+      latestVersion: 'v0.2.3',
+      status: 'skipped',
+      isBreaking: false,
+      hasUpdate: false,
+    })
+  })
+
+  it('keeps updating within the same prefixed tag family', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01T00:00:00Z'),
+        version: 'actions-v0.2.0',
+        name: 'actions-v0.2.0',
+        isPrerelease: false,
+        description: null,
+        sha: 'sha020',
+        url: 'u',
+      }),
+      getTagSha: vi.fn().mockResolvedValue('sha020'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        ref: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        name: 'christopher-buss/bedrock/packages/actions/deploy',
+        version: 'actions-v0.1.1',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      currentVersion: 'actions-v0.1.1',
+      latestVersion: 'actions-v0.2.0',
+      skipReason: undefined,
+      hasUpdate: true,
+      status: 'ok',
+    })
+  })
 })

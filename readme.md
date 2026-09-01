@@ -187,6 +187,14 @@ skipped to avoid changing intentionally floating references. Skipped entries are
 listed in the output. To include them in update checks, pass
 `--include-branches`.
 
+### Tag Families
+
+Some repositories publish several independent tag families at once — npm
+releases under `v1.2.3` and an action under `actions-v1.2.3`, for example. A
+candidate from the wrong family resolves to a real commit but to the wrong
+artifact, so references whose tag family differs from the repository's latest
+release are listed in the output instead of being rewritten.
+
 ### Quiet Mode
 
 Use `--quiet` (`-q`) to hide the skipped and blocked-update warnings (for

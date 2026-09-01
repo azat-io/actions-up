@@ -7,7 +7,7 @@ export interface ActionUpdate {
   /**
    * Reason for skipping the update check.
    */
-  skipReason?: 'unsupported-style' | 'unknown' | 'branch'
+  skipReason?: 'unsupported-style' | 'tag-family' | 'unknown' | 'branch'
 
   /**
    * Detected style of the current reference in the source file.

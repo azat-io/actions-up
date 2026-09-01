@@ -214,6 +214,28 @@ describe('printSkippedWarning', () => {
     )
   })
 
+  it('prints a dedicated warning for tag family mismatches', () => {
+    let skipped = [
+      {
+        action: {
+          name: 'christopher-buss/bedrock/packages/actions/deploy',
+          version: 'actions-v0.1.1',
+        },
+        skipReason: 'tag-family' as const,
+        currentVersion: 'actions-v0.1.1',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('tag family differs from the latest release'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('check them manually'),
+    )
+  })
+
   it('deduplicates repeated identifiers and shows occurrence count', () => {
     let entry = {
       action: { name: 'actions/checkout', version: 'main' },

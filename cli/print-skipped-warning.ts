@@ -27,17 +27,19 @@ export function printSkippedWarning(
   let unsupportedStyleSkipped = skipped.filter(
     update => update.skipReason === 'unsupported-style',
   )
+  let tagFamilySkipped = skipped.filter(
+    update => update.skipReason === 'tag-family',
+  )
 
   /**
    * Every reason without a dedicated group still has to reach the user, so a
    * new `skipReason` is reported here until it gets its own wording instead of
    * disappearing from the output.
    */
+  let groupedReasons = new Set(['unsupported-style', 'tag-family', 'branch'])
   let otherSkipped = skipped.filter(
     update =>
-      update.skipReason !== undefined &&
-      update.skipReason !== 'branch' &&
-      update.skipReason !== 'unsupported-style',
+      update.skipReason !== undefined && !groupedReasons.has(update.skipReason),
   )
 
   if (branchSkipped.length > 0) {
@@ -55,6 +57,13 @@ export function printSkippedWarning(
         'whose current ref style could not be preserved'
       : 'that could not be updated with the current style'
     printSkippedGroup(unsupportedStyleSkipped, reason)
+  }
+
+  if (tagFamilySkipped.length > 0) {
+    printSkippedGroup(
+      tagFamilySkipped,
+      'whose tag family differs from the latest release (check them manually)',
+    )
   }
 
   if (otherSkipped.length > 0) {

@@ -8,6 +8,7 @@ import type { ReleaseInfo } from '../../types/release-info'
 import type { TagInfo } from '../../types/tag-info'
 
 import { preserveTagFormat } from '../versions/preserve-tag-format'
+import { isSameTagFamily } from '../versions/is-same-tag-family'
 import { normalizeVersion } from '../versions/normalize-version'
 import { createGitHubClient } from './create-github-client'
 import { isSemverLike } from '../versions/is-semver-like'
@@ -602,6 +603,20 @@ function createUpdate(
    */
   let status: ActionUpdate['status'] = meta.status ?? 'ok'
   let skipReason: ActionUpdate['skipReason'] = meta.skipReason
+
+  /**
+   * A repository can publish several disjoint tag families, and a candidate
+   * from the wrong one resolves to an existing but unrelated commit, so the
+   * reference is reported instead of rewritten. Branch refs keep their own
+   * handling; SHA refs never reach this because they carry no family.
+   */
+  if (
+    currentReferenceType !== 'branch' &&
+    !isSameTagFamily(currentVersionRaw, latestVersion)
+  ) {
+    status = 'skipped'
+    skipReason = 'tag-family'
+  }
 
   if (status === 'skipped') {
     return {
