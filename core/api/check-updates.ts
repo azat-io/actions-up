@@ -4,6 +4,8 @@ import type { GitHubClient } from '../../types/github-client'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
 import type { UpdateStyle } from '../../types/update-style'
+import type { ReleaseInfo } from '../../types/release-info'
+import type { TagInfo } from '../../types/tag-info'
 
 import { preserveTagFormat } from '../versions/preserve-tag-format'
 import { normalizeVersion } from '../versions/normalize-version'
@@ -31,9 +33,9 @@ interface ReleaseCheckResult extends LatestInfo {
   skipReason?: 'branch'
 
   /**
-   * Action name this result belongs to.
+   * Lookup key this result belongs to (action name plus current reference).
    */
-  actionName: string
+  actionKey: string
 }
 
 /**
@@ -113,15 +115,27 @@ export async function checkUpdates(
   }
 
   /**
-   * Group by action name to avoid duplicate API calls.
+   * Group by action name and current reference to avoid duplicate API calls
+   * while keeping occurrences pinned to different references independent: they
+   * resolve to different reference types and must not share a verdict.
    */
   let uniqueActions = new Map<string, GitHubAction[]>()
 
   for (let action of externalActions) {
-    let group = uniqueActions.get(action.name) ?? []
+    let key = buildActionKey(action)
+    let group = uniqueActions.get(key) ?? []
     group.push(action)
-    uniqueActions.set(action.name, group)
+    uniqueActions.set(key, group)
   }
+
+  /**
+   * Repository-scoped responses are memoized for the whole run so that
+   * splitting the groups above does not multiply requests when one repository
+   * is pinned at several references.
+   */
+  let latestReleaseMemo = new Map<string, ReleaseInfo | null>()
+  let allReleasesMemo = new Map<string, ReleaseInfo[]>()
+  let tagsMemo = new Map<string, TagInfo[]>()
 
   /**
    * Track rate limit errors with shared state.
@@ -137,14 +151,15 @@ export async function checkUpdates(
   let releaseResults: ReleaseCheckResult[] = []
 
   /**
-   * Resolve the latest release/tag info for a single action.
+   * Resolve the latest release/tag info for a single action occurrence.
    *
-   * @param actionName - Owner/repo[/path] identifier of the action.
+   * @param actionKey - Lookup key produced by `buildActionKey`.
    * @returns The resolved release/tag information for the action.
    */
-  async function resolveAction(
-    actionName: string,
-  ): Promise<ReleaseCheckResult> {
+  async function resolveAction(actionKey: string): Promise<ReleaseCheckResult> {
+    let currentVersions = uniqueActions.get(actionKey)!
+    let { name: actionName } = currentVersions[0]!
+
     /**
      * Skip remaining if rate limit hit.
      */
@@ -153,7 +168,7 @@ export async function checkUpdates(
         currentRefType: 'unknown',
         publishedAt: null,
         version: null,
-        actionName,
+        actionKey,
         sha: null,
       }
     }
@@ -167,7 +182,7 @@ export async function checkUpdates(
         currentRefType: 'unknown',
         publishedAt: null,
         version: null,
-        actionName,
+        actionKey,
         sha: null,
       }
     }
@@ -178,17 +193,18 @@ export async function checkUpdates(
         currentRefType: 'unknown',
         publishedAt: null,
         version: null,
-        actionName,
+        actionKey,
         sha: null,
       }
     }
+
+    let repoKey = `${owner}/${repo}`
 
     try {
       /**
        * First check if current versions are branches - if so, skip update check
        * unless explicitly allowed.
        */
-      let currentVersions = uniqueActions.get(actionName)!
       let firstVersion = currentVersions[0]?.version
       let currentReferenceType = deriveCurrentReferenceType(firstVersion)
       if (firstVersion && !isSha(firstVersion) && !isSemverLike(firstVersion)) {
@@ -207,7 +223,7 @@ export async function checkUpdates(
             status: 'skipped' as const,
             publishedAt: null,
             version: null,
-            actionName,
+            actionKey,
             sha: null,
           }
         }
@@ -216,10 +232,14 @@ export async function checkUpdates(
       /**
        * Get latest release first to minimize requests.
        */
-      let release = await client.getLatestRelease(owner, repo)
+      let release = await memoize(latestReleaseMemo, repoKey, () =>
+        client.getLatestRelease(owner, repo),
+      )
 
       if (!release) {
-        let allReleases = await client.getAllReleases(owner, repo, 1)
+        let allReleases = await memoize(allReleasesMemo, repoKey, () =>
+          client.getAllReleases(owner, repo, 1),
+        )
         let stableRelease = allReleases.find(
           currentRelease => !currentRelease.isPrerelease,
         )
@@ -256,7 +276,9 @@ export async function checkUpdates(
         }
 
         if (considerTags) {
-          let tags = await client.getAllTags(owner, repo, tagFetchLimit)
+          let tags = await memoize(tagsMemo, repoKey, () =>
+            client.getAllTags(owner, repo, tagFetchLimit),
+          )
           if (tags.length > 0) {
             let semverCandidates = tags
               .filter(tag => isSemverLike(tag.tag))
@@ -314,7 +336,7 @@ export async function checkUpdates(
                   publishedAt: tagMeta.date,
                   version: tagVersion,
                   sha: tagSha,
-                  actionName,
+                  actionKey,
                 }
               }
             }
@@ -340,7 +362,7 @@ export async function checkUpdates(
           currentRefType: currentReferenceType,
           status: 'ok' as const,
           publishedAt,
-          actionName,
+          actionKey,
           version,
           sha,
         }
@@ -349,7 +371,9 @@ export async function checkUpdates(
       /**
        * No releases found: fetch tags and choose the best semver tag.
        */
-      let tags = await client.getAllTags(owner, repo, tagFetchLimit)
+      let tags = await memoize(tagsMemo, repoKey, () =>
+        client.getAllTags(owner, repo, tagFetchLimit),
+      )
       if (tags.length > 0) {
         /**
          * Prefer the highest semver tag; among equal numeric versions, prefer
@@ -405,7 +429,7 @@ export async function checkUpdates(
           currentRefType: currentReferenceType,
           publishedAt: tagMeta.date,
           status: 'ok' as const,
-          actionName,
+          actionKey,
           version,
           sha,
         }
@@ -415,7 +439,7 @@ export async function checkUpdates(
         currentRefType: currentReferenceType,
         publishedAt: null,
         version: null,
-        actionName,
+        actionKey,
         sha: null,
       }
     } catch (error: unknown) {
@@ -432,7 +456,7 @@ export async function checkUpdates(
           currentRefType: 'unknown',
           publishedAt: null,
           version: null,
-          actionName,
+          actionKey,
           sha: null,
         }
       }
@@ -444,7 +468,7 @@ export async function checkUpdates(
         currentRefType: 'unknown',
         publishedAt: null,
         version: null,
-        actionName,
+        actionKey,
         sha: null,
       }
     }
@@ -490,11 +514,11 @@ export async function checkUpdates(
    */
   let cache = new Map<string, ReleaseCheckResult>()
   for (let result of releaseResults) {
-    cache.set(result.actionName, {
+    cache.set(result.actionKey, {
       currentRefType: result.currentRefType,
       publishedAt: result.publishedAt,
-      actionName: result.actionName,
       skipReason: result.skipReason,
+      actionKey: result.actionKey,
       version: result.version,
       status: result.status,
       sha: result.sha,
@@ -507,7 +531,7 @@ export async function checkUpdates(
   let updates: ActionUpdate[] = []
 
   for (let action of externalActions) {
-    let cached = cache.get(action.name)
+    let cached = cache.get(buildActionKey(action))
     if (cached) {
       updates.push(
         createUpdate(
@@ -719,6 +743,41 @@ function deriveCurrentReferenceType(
   return 'unknown'
 }
 
+/**
+ * Read a value from a run-local memo, loading it on first request.
+ *
+ * @param memo - Memo holding values already loaded during this run.
+ * @param key - Key the value is stored under.
+ * @param load - Loader invoked only when the memo has no entry yet.
+ * @returns Memoized value.
+ */
+async function memoize<Value>(
+  memo: Map<string, Value>,
+  key: string,
+  load: () => Promise<Value>,
+): Promise<Value> {
+  if (memo.has(key)) {
+    return memo.get(key)!
+  }
+
+  let value = await load()
+  memo.set(key, value)
+  return value
+}
+
 function isRateLimitError(error: unknown): error is Error {
   return error instanceof Error && error.name === 'GitHubRateLimitError'
+}
+
+/**
+ * Build the lookup key of a single action occurrence.
+ *
+ * Occurrences of one action pinned at different references are checked
+ * independently, so the current reference is part of the key.
+ *
+ * @param action - Action occurrence found during the scan.
+ * @returns Key combining the action name and its current reference.
+ */
+function buildActionKey(action: GitHubAction): string {
+  return `${action.name}@${action.version ?? ''}`
 }
