@@ -1,4 +1,4 @@
-import { parseTagFamily } from './parse-tag-family'
+import { getFamilyPrefix } from './get-family-prefix'
 
 /**
  * Check whether two tag references may be compared as versions of the same
@@ -8,10 +8,6 @@ import { parseTagFamily } from './parse-tag-family'
  * under `v<x.y.z>` and an action under `actions-v<x.y.z>`, for example — and a
  * candidate from the wrong family resolves to an existing but unrelated
  * commit.
- *
- * A single trailing `v` is stripped from both prefixes before they are
- * compared, so `v1.2.3` and `1.2.3` belong to one family and a publisher adding
- * a `v` mid-history does not strand anyone.
  *
  * References whose family cannot be determined (branches, SHA pins,
  * four-segment versions) are reported as compatible: the check exists to block
@@ -32,26 +28,12 @@ export function isSameTagFamily(
   currentVersion: undefined | string | null,
   candidateVersion: undefined | string | null,
 ): boolean {
-  let current = parseTagFamily(currentVersion)
-  let candidate = parseTagFamily(candidateVersion)
+  let current = getFamilyPrefix(currentVersion)
+  let candidate = getFamilyPrefix(candidateVersion)
 
-  if (!current || !candidate) {
+  if (current === null || candidate === null) {
     return true
   }
 
-  return (
-    normalizeFamilyPrefix(current.prefix) ===
-    normalizeFamilyPrefix(candidate.prefix)
-  )
-}
-
-/**
- * Drop a single trailing `v` so that `v` and `actions-v` compare equal to their
- * unprefixed counterparts.
- *
- * @param prefix - Literal prefix of a parsed tag family.
- * @returns Prefix without its trailing version marker.
- */
-function normalizeFamilyPrefix(prefix: string): string {
-  return prefix.replace(/v$/iu, '')
+  return current === candidate
 }

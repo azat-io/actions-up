@@ -6,6 +6,7 @@ import { getCompatibleUpdate } from '../../core/api/get-compatible-update'
 
 function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
   return {
+    getMatchingTagReferences: vi.fn().mockResolvedValue([]),
     getTagSha: vi.fn().mockResolvedValue(null),
     getAllTags: vi.fn().mockResolvedValue([]),
     shouldWaitForRateLimit: vi.fn(),

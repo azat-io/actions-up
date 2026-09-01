@@ -7,9 +7,11 @@ import type { UpdateStyle } from '../../types/update-style'
 import type { ReleaseInfo } from '../../types/release-info'
 import type { TagInfo } from '../../types/tag-info'
 
+import { selectLatestFamilyTag } from '../versions/select-latest-family-tag'
 import { preserveTagFormat } from '../versions/preserve-tag-format'
 import { isSameTagFamily } from '../versions/is-same-tag-family'
 import { normalizeVersion } from '../versions/normalize-version'
+import { getFamilyPrefix } from '../versions/get-family-prefix'
 import { createGitHubClient } from './create-github-client'
 import { isSemverLike } from '../versions/is-semver-like'
 import { compareSha } from '../versions/compare-sha'
@@ -24,14 +26,14 @@ interface ReleaseCheckResult extends LatestInfo {
   currentRefType?: ActionUpdate['currentRefType']
 
   /**
+   * Reason why lookup was skipped, if applicable.
+   */
+  skipReason?: 'tag-family' | 'branch'
+
+  /**
    * Whether lookup succeeded or was skipped (e.g., branch ref).
    */
   status?: 'skipped' | 'ok'
-
-  /**
-   * Reason why lookup was skipped, if applicable.
-   */
-  skipReason?: 'branch'
 
   /**
    * Lookup key this result belongs to (action name plus current reference).
@@ -137,6 +139,7 @@ export async function checkUpdates(
   let latestReleaseMemo = new Map<string, ReleaseInfo | null>()
   let allReleasesMemo = new Map<string, ReleaseInfo[]>()
   let tagsMemo = new Map<string, TagInfo[]>()
+  let matchingReferencesMemo = new Map<string, TagInfo[]>()
 
   /**
    * Track rate limit errors with shared state.
@@ -227,6 +230,61 @@ export async function checkUpdates(
             actionKey,
             sha: null,
           }
+        }
+      }
+
+      /**
+       * A reference from a named tag family cannot be answered by the
+       * repository release channel, which belongs to whichever family the
+       * publisher releases from. Such families are resolved from their own tags
+       * instead, in a single prefix-filtered request.
+       */
+      let familyPrefix =
+        currentReferenceType === 'branch' ? null : getFamilyPrefix(firstVersion)
+
+      if (familyPrefix) {
+        let familyTags = await memoize(
+          matchingReferencesMemo,
+          `${repoKey}#${familyPrefix}`,
+          () => client.getMatchingTagReferences(owner, repo, familyPrefix),
+        )
+        let best = selectLatestFamilyTag(familyTags, firstVersion!)
+
+        if (!best) {
+          return {
+            currentRefType: currentReferenceType,
+            skipReason: 'tag-family' as const,
+            status: 'skipped' as const,
+            publishedAt: null,
+            version: null,
+            actionKey,
+            sha: null,
+          }
+        }
+
+        let tagMeta = await resolveTagMeta(client, {
+          tag: best.tag,
+          owner,
+          repo,
+        })
+        let familySha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
+        if (!familySha) {
+          try {
+            familySha = await client.getTagSha(owner, repo, best.tag)
+          } catch (error) {
+            if (isRateLimitError(error)) {
+              throw error
+            }
+          }
+        }
+
+        return {
+          currentRefType: currentReferenceType,
+          publishedAt: tagMeta.date,
+          status: 'ok' as const,
+          version: best.tag,
+          sha: familySha,
+          actionKey,
         }
       }
 
@@ -404,7 +462,8 @@ export async function checkUpdates(
           })
           best = semverCandidates[0]!.raw
         } else {
-          best = tags[0]!
+          best =
+            tags.find(tag => isSameTagFamily(firstVersion, tag.tag)) ?? tags[0]!
         }
 
         let version = best.tag

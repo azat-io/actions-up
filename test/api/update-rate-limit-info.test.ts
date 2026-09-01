@@ -7,7 +7,12 @@ import { updateRateLimitInfo } from '../../core/api/update-rate-limit-info'
 describe('updateRateLimitInfo', () => {
   it('updates remaining and reset time', () => {
     let context: GitHubClientContext = {
-      caches: { refType: new Map(), tagInfo: new Map(), tagSha: new Map() },
+      caches: {
+        matchingReferences: new Map(),
+        refType: new Map(),
+        tagInfo: new Map(),
+        tagSha: new Map(),
+      },
       baseUrl: 'https://api.github.com',
       rateLimitReset: new Date(0),
       rateLimitRemaining: 60,
@@ -25,7 +30,12 @@ describe('updateRateLimitInfo', () => {
 
   it('supports numeric header values', () => {
     let context: GitHubClientContext = {
-      caches: { refType: new Map(), tagInfo: new Map(), tagSha: new Map() },
+      caches: {
+        matchingReferences: new Map(),
+        refType: new Map(),
+        tagInfo: new Map(),
+        tagSha: new Map(),
+      },
       baseUrl: 'https://api.github.com',
       rateLimitReset: new Date(0),
       rateLimitRemaining: 60,

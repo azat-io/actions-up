@@ -61,6 +61,20 @@ describe('createGitHubClient', () => {
     expect(call[0]).toMatchObject({ baseUrl: 'https://api.github.com' })
   })
 
+  it('delegates getMatchingTagReferences with proper args', async () => {
+    let getMatchingTagReferencesMock = vi.fn().mockResolvedValue([])
+    vi.doMock('../../core/api/get-matching-tag-references', () => ({
+      getMatchingTagReferences: getMatchingTagReferencesMock,
+    }))
+    let { createGitHubClient } =
+      await import('../../core/api/create-github-client')
+    let client = createGitHubClient('t')
+    await client.getMatchingTagReferences('owner', 'repo', 'pkg-')
+    let call = getMatchingTagReferencesMock.mock.calls[0]!
+    expect(call[1]).toEqual({ prefix: 'pkg-', owner: 'owner', repo: 'repo' })
+    expect(call[0]).toMatchObject({ baseUrl: 'https://api.github.com' })
+  })
+
   it('delegates getRefType with proper args', async () => {
     let getReferenceTypeMock = vi.fn().mockResolvedValue('tag')
     vi.doMock('../../core/api/get-reference-type', () => ({

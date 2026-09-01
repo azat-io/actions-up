@@ -1,6 +1,7 @@
 import type { GitHubClientContext } from '../../types/github-client-context'
 import type { GitHubClient } from '../../types/github-client'
 
+import { getMatchingTagReferences } from './get-matching-tag-references'
 import { resolveGitHubTokenSync } from './resolve-github-token-sync'
 import { getReferenceType } from './get-reference-type'
 import { getLatestRelease } from './get-latest-release'
@@ -21,6 +22,7 @@ export function createGitHubClient(token?: string): GitHubClient {
 
   let context: GitHubClientContext = {
     caches: {
+      matchingReferences: new Map(),
       refType: new Map(),
       tagInfo: new Map(),
       tagSha: new Map(),
@@ -36,6 +38,8 @@ export function createGitHubClient(token?: string): GitHubClient {
       remaining: context.rateLimitRemaining,
       resetAt: context.rateLimitReset,
     }),
+    getMatchingTagReferences: (owner, repo, prefix) =>
+      getMatchingTagReferences(context, { prefix, owner, repo }),
     getRefType: (owner, repo, reference) =>
       getReferenceType(context, { reference, owner, repo }),
     shouldWaitForRateLimit: (threshold: number = 100) =>

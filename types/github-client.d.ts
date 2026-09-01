@@ -19,6 +19,15 @@ export interface GitHubClient {
   ): Promise<'branch' | 'tag' | null>
 
   /**
+   * List tag references whose name starts with the given prefix.
+   */
+  getMatchingTagReferences(
+    owner: string,
+    repo: string,
+    prefix: string,
+  ): Promise<TagInfo[]>
+
+  /**
    * List releases with minimal enrichment.
    */
   getAllReleases(

@@ -9,7 +9,12 @@ describe('makeRequest', () => {
 
   function context(token?: string): GitHubClientContext {
     return {
-      caches: { refType: new Map(), tagInfo: new Map(), tagSha: new Map() },
+      caches: {
+        matchingReferences: new Map(),
+        refType: new Map(),
+        tagInfo: new Map(),
+        tagSha: new Map(),
+      },
       rateLimitRemaining: token ? 5000 : 60,
       baseUrl: 'https://api.github.com',
       rateLimitReset: new Date(0),

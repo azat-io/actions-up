@@ -31,6 +31,7 @@ describe('checkUpdates', () => {
         sha: 'abc',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -76,6 +77,7 @@ describe('checkUpdates', () => {
         sha: 'abc',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -109,6 +111,7 @@ describe('checkUpdates', () => {
 
   it('returns empty array when no external actions provided', async () => {
     let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
       getLatestRelease: vi.fn(),
@@ -138,6 +141,7 @@ describe('checkUpdates', () => {
   it('logs warning when request fails with non rate-limit error', async () => {
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(new Error('boom')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -170,6 +174,7 @@ describe('checkUpdates', () => {
 
   it('skips branch references', async () => {
     let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('branch'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -212,6 +217,7 @@ describe('checkUpdates', () => {
         name: 'v1.2.3',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('branch'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -248,6 +254,7 @@ describe('checkUpdates', () => {
 
   it('handles action name without owner/repo gracefully', async () => {
     let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
       getLatestRelease: vi.fn(),
@@ -276,6 +283,7 @@ describe('checkUpdates', () => {
 
   it('handles action name with missing repository segment', async () => {
     let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
       getLatestRelease: vi.fn(),
@@ -324,6 +332,7 @@ describe('checkUpdates', () => {
           sha: 's',
         },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -364,6 +373,7 @@ describe('checkUpdates', () => {
         sha: null,
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getTagSha: vi.fn().mockResolvedValue(null),
       shouldWaitForRateLimit: vi.fn(),
@@ -398,6 +408,7 @@ describe('checkUpdates', () => {
         sha: 'abcdef1',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -432,6 +443,7 @@ describe('checkUpdates', () => {
         sha: 'abcd',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -462,6 +474,7 @@ describe('checkUpdates', () => {
         { tag: 'non-semver', message: null, date: null, sha: 'a' },
         { tag: 'v1.1.0', message: null, date: null, sha: 'b' },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -495,6 +508,7 @@ describe('checkUpdates', () => {
         { tag: 'nightly', sha: 'ccc333', message: null, date: null },
         { tag: 'build-123', sha: 'ddd444', message: null, date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -537,6 +551,7 @@ describe('checkUpdates', () => {
         { sha: 'abc1234', tag: 'v1.2.3', message: null, date: null },
         { sha: 'def5678', message: null, date: null, tag: 'v1' },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -575,6 +590,7 @@ describe('checkUpdates', () => {
 
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(rateLimitError),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -628,6 +644,7 @@ describe('checkUpdates', () => {
         { sha: 'def5678', message: null, date: null, tag: 'v1' },
         { sha: 'abc1234', tag: 'v1.0.0', message: null, date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -671,6 +688,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { tag: 'v1.2.3', message: null, date: null, sha: '' },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockResolvedValue('resolved-v123'),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -722,6 +740,7 @@ describe('checkUpdates', () => {
         { tag: 'v0.9.0', message: null, date: null, sha: 'old' },
         { tag: 'v1.0.0', message: null, date: null, sha: 'new' },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -764,6 +783,7 @@ describe('checkUpdates', () => {
         name: '',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -814,6 +834,7 @@ describe('checkUpdates', () => {
         { tag: 'v1.5.0', message: null, date: null, sha: 'old' },
       ]),
       getTagSha: vi.fn().mockRejectedValue(new Error('fail sha')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -865,6 +886,7 @@ describe('checkUpdates', () => {
         { tag: 'v2.0.0', message: null, date: null, sha: '' },
         { tag: 'v1.5.0', message: null, date: null, sha: 'old' },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockRejectedValue(rateLimitError),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -908,6 +930,7 @@ describe('checkUpdates', () => {
         /* Cspell:disable-next-line */
         { sha: 'othersha', message: null, date: null, tag: 'v1' },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -956,6 +979,7 @@ describe('checkUpdates', () => {
         { tag: 'v1.0.0', message: null, sha: 'sha1', date: null },
         { message: null, tag: '1.0.0', sha: 'sha2', date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -993,6 +1017,7 @@ describe('checkUpdates', () => {
         { sha: 'sha-plain', message: null, tag: '1.0.0', date: null },
         { tag: 'v1.0.0', message: null, sha: 'sha-v', date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -1026,6 +1051,7 @@ describe('checkUpdates', () => {
         { tag: 'v1.0.0', message: null, sha: 'sha-v', date: null },
         { sha: 'sha-plain', message: null, tag: '1.0.0', date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -1059,6 +1085,7 @@ describe('checkUpdates', () => {
         { sha: 'sha-major', message: null, date: null, tag: 'v1' },
         { sha: 'sha-specific', tag: 'v1.0.0', message: null, date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -1092,6 +1119,7 @@ describe('checkUpdates', () => {
         { sha: 'sha-specific', tag: 'v1.0.0', message: null, date: null },
         { sha: 'sha-major', message: null, date: null, tag: 'v1' },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -1127,6 +1155,7 @@ describe('checkUpdates', () => {
           { tag: 'v3.0.0', message: null, date: null, sha: '' },
         ]),
       getTagSha: vi.fn().mockRejectedValue(new Error('fail sha')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -1166,6 +1195,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { tag: 'v3.0.0', message: null, date: null, sha: '' },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockRejectedValue(rateLimitError),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
@@ -1199,6 +1229,7 @@ describe('checkUpdates', () => {
         /* Cspell:disable-next-line */
         { tag: 'v2.0.0', message: null, sha: 'oldsha', date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getTagSha: vi.fn().mockResolvedValue('resolved'),
       getAllReleases: vi.fn().mockResolvedValue([]),
@@ -1243,6 +1274,7 @@ describe('checkUpdates', () => {
         url: 'u',
       }),
       getTagSha: vi.fn().mockRejectedValue(new Error('temporary')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -1271,6 +1303,7 @@ describe('checkUpdates', () => {
 
   it('uses "unknown" when action version is missing', async () => {
     let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1310,6 +1343,7 @@ describe('checkUpdates', () => {
         sha: null,
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockResolvedValue('sha-from-tag'),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -1351,6 +1385,7 @@ describe('checkUpdates', () => {
       getTagSha: vi
         .fn()
         .mockResolvedValue('63ac138db421d586de61f7f5ac3bcef6a2e6c78c'),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -1390,6 +1425,7 @@ describe('checkUpdates', () => {
         name: 'v5.1.0',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getTagSha: vi.fn().mockResolvedValue(null),
       shouldWaitForRateLimit: vi.fn(),
@@ -1430,6 +1466,7 @@ describe('checkUpdates', () => {
         url: 'u',
       }),
       getTagSha: vi.fn().mockRejectedValue(new Error('temporary')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -1469,6 +1506,7 @@ describe('checkUpdates', () => {
         name: 'v5.1.0',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockRejectedValue(rateLimitError),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -1499,6 +1537,7 @@ describe('checkUpdates', () => {
     let errorObject = new GitHubRateLimitError('rate')
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(errorObject),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -1531,6 +1570,7 @@ describe('checkUpdates', () => {
 
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(errorObject),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -1564,6 +1604,7 @@ describe('checkUpdates', () => {
 
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockRejectedValue(errorObject),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -1603,6 +1644,7 @@ describe('checkUpdates', () => {
         name: 'v1.0.0',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -1654,6 +1696,7 @@ describe('checkUpdates', () => {
           url: 'u',
         })
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1683,6 +1726,7 @@ describe('checkUpdates', () => {
         sha: 'abcdef1',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1745,6 +1789,7 @@ describe('checkUpdates', () => {
         sha: 'tagSha',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1776,6 +1821,7 @@ describe('checkUpdates', () => {
         sha: 'tagSha',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1820,6 +1866,7 @@ describe('checkUpdates', () => {
         sha: 'tagSha',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1863,6 +1910,7 @@ describe('checkUpdates', () => {
         sha: 'tagSha',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1906,6 +1954,7 @@ describe('checkUpdates', () => {
         sha: 'tagSha',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1950,6 +1999,7 @@ describe('checkUpdates', () => {
         sha: 'tagSha',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue(null),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -1991,6 +2041,7 @@ describe('checkUpdates', () => {
         },
         { sha: 'validSha', tag: 'v1.1.0', message: null, date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -2040,6 +2091,7 @@ describe('checkUpdates', () => {
         }
         return Promise.reject(rateLimitError)
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -2095,6 +2147,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { sha: 'tag-sha', tag: 'v2.0.0', message: null, date: null },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -2136,6 +2189,7 @@ describe('checkUpdates', () => {
         { sha: 'tag-sha', message: null, date: null, tag: 'v2' },
         { sha: 'tag-old', tag: 'v1.9.0', message: null, date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -2177,6 +2231,7 @@ describe('checkUpdates', () => {
         { tag: 'latest', message: null, sha: 'tag-a', date: null },
         { tag: 'release', message: null, sha: 'tag-b', date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -2214,6 +2269,7 @@ describe('checkUpdates', () => {
         sha: null,
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getTagSha: vi.fn().mockResolvedValue(null),
@@ -2244,6 +2300,7 @@ describe('checkUpdates', () => {
 
   it('does not flag update when SHA has no latest version', async () => {
     let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -2284,6 +2341,7 @@ describe('checkUpdates', () => {
         sha: null,
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getTagSha: vi.fn().mockResolvedValue(null),
@@ -2322,6 +2380,7 @@ describe('checkUpdates', () => {
         sha: null,
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getTagSha: vi.fn().mockResolvedValue(null),
@@ -2370,6 +2429,7 @@ describe('checkUpdates', () => {
         description: null,
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -2415,6 +2475,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { tag: 'v2.0.0', message: null, date: null, sha: '' },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -2471,6 +2532,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { tag: 'v1.2.3', message: null, date: null, sha: '' },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -2505,6 +2567,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { sha: 'abc1234', tag: 'v2.0.0', message: null, date: null },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -2542,6 +2605,7 @@ describe('checkUpdates', () => {
           { tag: 'v2.0.0', message: null, date: null, sha: '' },
         ]),
       getTagInfo: vi.fn().mockRejectedValue(new Error('boom')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockResolvedValue('fallback-sha'),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
@@ -2588,6 +2652,7 @@ describe('checkUpdates', () => {
       getTagSha: vi
         .fn()
         .mockResolvedValue('99bb2caf247dfd9f03cf984373bc6043d4e32ebf'),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -2641,6 +2706,7 @@ describe('checkUpdates', () => {
         sha: null,
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
@@ -2701,6 +2767,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { sha: 'abc1234', tag: 'v2.9.0', message: null, date: null },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockResolvedValue('release-sha'),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -2748,6 +2815,7 @@ describe('checkUpdates', () => {
         { tag: 'nightly', sha: 'ccc333', message: null, date: null },
         { tag: 'latest', sha: 'ddd444', message: null, date: null },
       ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getTagSha: vi.fn().mockResolvedValue('release-sha'),
       getRefType: vi.fn().mockResolvedValue('tag'),
       shouldWaitForRateLimit: vi.fn(),
@@ -2782,6 +2850,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { sha: 'abc1234', tag: 'v2.0.0', message: null, date: null },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -2827,6 +2896,7 @@ describe('checkUpdates', () => {
         .mockRejectedValue(
           new GitHubRateLimitError('GitHub API rate limit exceeded.'),
         ),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
@@ -2861,6 +2931,7 @@ describe('checkUpdates', () => {
         sha: 'sha420',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('branch'),
       getTagSha: vi.fn().mockResolvedValue('sha420'),
       getAllReleases: vi.fn().mockResolvedValue([]),
@@ -2917,6 +2988,7 @@ describe('checkUpdates', () => {
         sha: 'sha420',
         url: 'u',
       }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('branch'),
       getTagSha: vi.fn().mockResolvedValue('sha420'),
       getAllReleases: vi.fn().mockResolvedValue([]),
@@ -2966,6 +3038,7 @@ describe('checkUpdates', () => {
         .mockResolvedValue([
           { sha: 'sha420', tag: 'v4.2.0', message: null, date: null },
         ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
       getLatestRelease: vi.fn().mockResolvedValue(null),
       getTagSha: vi.fn().mockResolvedValue('sha420'),
       getAllReleases: vi.fn().mockResolvedValue([]),
@@ -3014,24 +3087,247 @@ describe('checkUpdates', () => {
     )
   })
 
-  it('skips a candidate from a different tag family', async () => {
+  it('resolves updates inside the prefixed tag family', async () => {
     let client: GitHubClient = {
-      getLatestRelease: vi.fn().mockResolvedValue({
-        publishedAt: new Date('2024-01-01T00:00:00Z'),
-        isPrerelease: false,
-        description: null,
-        version: 'v0.2.3',
-        name: 'v0.2.3',
-        sha: 'sha023',
-        url: 'u',
-      }),
-      getTagSha: vi.fn().mockResolvedValue('sha023'),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([
+        { tag: 'actions-v0.1.0', sha: 'sha010', message: null, date: null },
+        { tag: 'actions-v0.1.2', sha: 'sha012', message: null, date: null },
+        { tag: 'actions-v0', sha: 'sha000', message: null, date: null },
+      ]),
+      getTagSha: vi.fn().mockResolvedValue('sha012'),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
       shouldWaitForRateLimit: vi.fn(),
       getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
       getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        ref: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        name: 'christopher-buss/bedrock/packages/actions/deploy',
+        version: 'actions-v0.1.1',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      currentVersion: 'actions-v0.1.1',
+      latestVersion: 'actions-v0.1.2',
+      skipReason: undefined,
+      latestSha: 'sha012',
+      hasUpdate: true,
+      status: 'ok',
+    })
+    expect(client.getMatchingTagReferences).toHaveBeenCalledExactlyOnceWith(
+      'christopher-buss',
+      'bedrock',
+      'actions-',
+    )
+    expect(client.getLatestRelease).not.toHaveBeenCalled()
+  })
+
+  it('reports no update when the family has nothing newer', async () => {
+    let client: GitHubClient = {
+      getMatchingTagReferences: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'actions-v0.1.1', sha: 'sha011', message: null, date: null },
+        ]),
+      getTagSha: vi.fn().mockResolvedValue('sha011'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        ref: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
+        name: 'christopher-buss/bedrock/packages/actions/deploy',
+        version: 'actions-v0.1.1',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'actions-v0.1.1',
+      skipReason: undefined,
+      status: 'ok',
+    })
+  })
+
+  it('dereferences an annotated family tag through getTagSha', async () => {
+    let client: GitHubClient = {
+      getMatchingTagReferences: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'actions-v0.1.2', message: null, date: null, sha: null },
+        ]),
+      getTagSha: vi.fn().mockResolvedValue('sha-deref'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagInfo: vi.fn().mockResolvedValue(null),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo/deploy@actions-v0.1.1',
+        ref: 'owner/repo/deploy@actions-v0.1.1',
+        version: 'actions-v0.1.1',
+        name: 'owner/repo/deploy',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'actions-v0.1.2',
+      latestSha: 'sha-deref',
+      hasUpdate: true,
+    })
+  })
+
+  it('ignores a failed SHA lookup for a family tag', async () => {
+    let client: GitHubClient = {
+      getMatchingTagReferences: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'actions-v0.1.2', message: null, date: null, sha: null },
+        ]),
+      getTagSha: vi.fn().mockRejectedValue(new Error('boom')),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagInfo: vi.fn().mockResolvedValue(null),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo/deploy@actions-v0.1.1',
+        ref: 'owner/repo/deploy@actions-v0.1.1',
+        version: 'actions-v0.1.1',
+        name: 'owner/repo/deploy',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'actions-v0.1.2',
+      latestSha: null,
+    })
+  })
+
+  it('propagates rate limit errors from a family tag SHA lookup', async () => {
+    let client: GitHubClient = {
+      getMatchingTagReferences: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'actions-v0.1.2', message: null, date: null, sha: null },
+        ]),
+      getTagSha: vi
+        .fn()
+        .mockRejectedValue(
+          new GitHubRateLimitError('GitHub API rate limit exceeded.'),
+        ),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagInfo: vi.fn().mockResolvedValue(null),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo/deploy@actions-v0.1.1',
+        ref: 'owner/repo/deploy@actions-v0.1.1',
+        version: 'actions-v0.1.1',
+        name: 'owner/repo/deploy',
+        type: 'external',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toMatchObject({
+      name: 'GitHubRateLimitError',
+    })
+  })
+
+  it('falls back to the first tag when none shares the family', async () => {
+    let client: GitHubClient = {
+      getAllTags: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'nightly-v2.0.0', message: null, sha: 'shan', date: null },
+        ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getTagSha: vi.fn().mockResolvedValue('shan'),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getTagInfo: vi.fn().mockResolvedValue(null),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1.0.0',
+        ref: 'owner/repo@v1.0.0',
+        name: 'owner/repo',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'nightly-v2.0.0',
+      skipReason: 'tag-family',
+      status: 'skipped',
+    })
+  })
+
+  it('skips when the tag family has no members', async () => {
+    let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
     }
     vi.mocked(createGitHubClient).mockReturnValue(client)
 
@@ -3050,25 +3346,25 @@ describe('checkUpdates', () => {
     expect(result[0]).toMatchObject({
       currentVersion: 'actions-v0.1.1',
       skipReason: 'tag-family',
-      latestVersion: 'v0.2.3',
+      latestVersion: null,
       status: 'skipped',
-      isBreaking: false,
       hasUpdate: false,
     })
   })
 
-  it('keeps updating within the same prefixed tag family', async () => {
+  it('skips when the release belongs to another family than a plain ref', async () => {
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
         publishedAt: new Date('2024-01-01T00:00:00Z'),
-        version: 'actions-v0.2.0',
-        name: 'actions-v0.2.0',
+        version: 'codeql-bundle-v2.20.0',
+        name: 'codeql-bundle-v2.20.0',
         isPrerelease: false,
         description: null,
-        sha: 'sha020',
+        sha: 'sha-bundle',
         url: 'u',
       }),
-      getTagSha: vi.fn().mockResolvedValue('sha020'),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getTagSha: vi.fn().mockResolvedValue('sha-bundle'),
       getAllReleases: vi.fn().mockResolvedValue([]),
       getRefType: vi.fn().mockResolvedValue('tag'),
       getAllTags: vi.fn().mockResolvedValue([]),
@@ -3080,10 +3376,10 @@ describe('checkUpdates', () => {
 
     let actions: GitHubAction[] = [
       {
-        uses: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
-        ref: 'christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1',
-        name: 'christopher-buss/bedrock/packages/actions/deploy',
-        version: 'actions-v0.1.1',
+        uses: 'github/codeql-action/init@v4.0.0',
+        ref: 'github/codeql-action/init@v4.0.0',
+        name: 'github/codeql-action/init',
+        version: 'v4.0.0',
         type: 'external',
       },
     ]
@@ -3091,11 +3387,11 @@ describe('checkUpdates', () => {
     let result = await checkUpdates(actions)
 
     expect(result[0]).toMatchObject({
-      currentVersion: 'actions-v0.1.1',
-      latestVersion: 'actions-v0.2.0',
-      skipReason: undefined,
-      hasUpdate: true,
-      status: 'ok',
+      latestVersion: 'codeql-bundle-v2.20.0',
+      skipReason: 'tag-family',
+      status: 'skipped',
+      hasUpdate: false,
     })
+    expect(client.getMatchingTagReferences).not.toHaveBeenCalled()
   })
 })

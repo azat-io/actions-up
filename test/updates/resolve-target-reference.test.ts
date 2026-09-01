@@ -17,6 +17,7 @@ function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
     getTagSha: vi
       .fn()
       .mockResolvedValue('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    getMatchingTagReferences: vi.fn().mockResolvedValue([]),
     getAllTags: vi.fn().mockResolvedValue([]),
     shouldWaitForRateLimit: vi.fn(),
     getRateLimitStatus: vi.fn(),

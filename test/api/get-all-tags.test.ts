@@ -9,7 +9,12 @@ describe('getAllTags', () => {
 
   function context(): GitHubClientContext {
     return {
-      caches: { refType: new Map(), tagInfo: new Map(), tagSha: new Map() },
+      caches: {
+        matchingReferences: new Map(),
+        refType: new Map(),
+        tagInfo: new Map(),
+        tagSha: new Map(),
+      },
       baseUrl: 'https://api.github.com',
       rateLimitReset: new Date(0),
       rateLimitRemaining: 5000,

@@ -17,6 +17,11 @@ export interface GitHubClientContext {
     refType: Map<string, 'branch' | 'tag' | null>
 
     /**
+     * Cache of tag references resolved by name prefix.
+     */
+    matchingReferences: Map<string, TagInfo[]>
+
+    /**
      * Cache of resolved tag metadata (message/date/SHA).
      */
     tagInfo: Map<string, TagInfo | null>
