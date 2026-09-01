@@ -163,6 +163,57 @@ describe('printSkippedWarning', () => {
     )
   })
 
+  it('reports skip reasons that have no dedicated group', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'stable' },
+        skipReason: 'unknown' as const,
+        currentVersion: 'stable',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('could not be checked'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('actions/checkout@stable'),
+    )
+  })
+
+  it('keeps unrelated skip reasons in their own groups', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'main' },
+        skipReason: 'branch' as const,
+        currentVersion: 'main',
+      },
+      {
+        action: { name: 'actions/cache', version: 'stable' },
+        skipReason: 'unsupported-style' as const,
+        currentVersion: 'stable',
+      },
+      {
+        action: { name: 'actions/setup-node', version: 'latest' },
+        skipReason: 'unknown' as const,
+        currentVersion: 'latest',
+      },
+    ]
+
+    printSkippedWarning(skipped, true, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action pinned to branches'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action that could not be updated'),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action that could not be checked'),
+    )
+  })
+
   it('deduplicates repeated identifiers and shows occurrence count', () => {
     let entry = {
       action: { name: 'actions/checkout', version: 'main' },

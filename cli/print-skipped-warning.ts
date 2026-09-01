@@ -1,5 +1,6 @@
 import pc from 'picocolors'
 
+import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
 
 import { groupByIdentifier } from './group-by-identifier'
@@ -14,7 +15,7 @@ import { groupByIdentifier } from './group-by-identifier'
 export function printSkippedWarning(
   skipped: {
     action: { version?: string | null; uses?: string; name: string }
-    skipReason?: 'unsupported-style' | 'unknown' | 'branch'
+    skipReason?: ActionUpdate['skipReason']
     currentVersion: string | null
   }[],
   includeBranches: boolean,
@@ -25,6 +26,18 @@ export function printSkippedWarning(
   )
   let unsupportedStyleSkipped = skipped.filter(
     update => update.skipReason === 'unsupported-style',
+  )
+
+  /**
+   * Every reason without a dedicated group still has to reach the user, so a
+   * new `skipReason` is reported here until it gets its own wording instead of
+   * disappearing from the output.
+   */
+  let otherSkipped = skipped.filter(
+    update =>
+      update.skipReason !== undefined &&
+      update.skipReason !== 'branch' &&
+      update.skipReason !== 'unsupported-style',
   )
 
   if (branchSkipped.length > 0) {
@@ -42,6 +55,10 @@ export function printSkippedWarning(
         'whose current ref style could not be preserved'
       : 'that could not be updated with the current style'
     printSkippedGroup(unsupportedStyleSkipped, reason)
+  }
+
+  if (otherSkipped.length > 0) {
+    printSkippedGroup(otherSkipped, 'that could not be checked')
   }
 }
 
