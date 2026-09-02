@@ -272,4 +272,40 @@ describe('filterDowngradeUpdates', () => {
     expect(blocked).toEqual([downgrade])
     expect(kept).toEqual([upgrade])
   })
+
+  it('blocks a downgrade inside a prefixed tag family', async () => {
+    let update = createUpdate({ latestVersion: 'actions-v0.1.1' })
+    let fileCache = createFileCache(
+      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # actions-v0.2.0',
+    )
+
+    let result = await filterDowngradeUpdates([update], fileCache)
+
+    expect(result.blocked).toHaveLength(1)
+    expect(result.kept).toHaveLength(0)
+  })
+
+  it('keeps an upgrade inside a prefixed tag family', async () => {
+    let update = createUpdate({ latestVersion: 'actions-v0.2.0' })
+    let fileCache = createFileCache(
+      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # actions-v0.1.1',
+    )
+
+    let result = await filterDowngradeUpdates([update], fileCache)
+
+    expect(result.kept).toHaveLength(1)
+    expect(result.blocked).toHaveLength(0)
+  })
+
+  it('never compares versions across tag families', async () => {
+    let update = createUpdate({ latestVersion: 'v0.1.0' })
+    let fileCache = createFileCache(
+      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # actions-v0.2.0',
+    )
+
+    let result = await filterDowngradeUpdates([update], fileCache)
+
+    expect(result.kept).toHaveLength(1)
+    expect(result.blocked).toHaveLength(0)
+  })
 })

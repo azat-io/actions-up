@@ -3,7 +3,8 @@ import semver from 'semver'
 import type { ActionUpdate } from '../types/action-update'
 
 import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
-import { normalizeVersion } from '../core/versions/normalize-version'
+import { isSameTagFamily } from '../core/versions/is-same-tag-family'
+import { parseTagFamily } from '../core/versions/parse-tag-family'
 import { isSha } from '../core/versions/is-sha'
 
 /**
@@ -78,15 +79,10 @@ async function isDowngrade(
    * Floating versions (v12, v12.1) resolve to moving tags whose SHA can be
    * ahead of the pin, so only fully specified versions are comparable.
    */
-  let latest = update.latestVersion
-  if (!latest || !/^v?\d+\.\d+\.\d+/u.test(latest.trim())) {
+  let latest = parseTagFamily(update.latestVersion)
+  if (!latest || latest.specificity < 3) {
     return false
   }
-
-  /**
-   * Coercion always succeeds for a fully specified version.
-   */
-  let latestNormalized = semver.valid(normalizeVersion(latest))!
 
   let inline = await readInlineVersionComment(
     update.action.file,
@@ -95,13 +91,18 @@ async function isDowngrade(
   )
 
   /**
-   * Require a dotted version so date- or ticket-like comments (e.g. "#
-   * 2024-05-01") cannot masquerade as version claims.
+   * Require a fully specified version so date- or ticket-like comments cannot
+   * masquerade as version claims, and require the same tag family so two
+   * unrelated numbering schemes are never compared.
    */
-  let inlineNormalized =
-    inline?.includes('.') ? semver.valid(normalizeVersion(inline)) : null
+  let pinned = parseTagFamily(inline)
+  if (!pinned || pinned.specificity < 3) {
+    return false
+  }
 
-  return Boolean(
-    inlineNormalized && semver.gt(inlineNormalized, latestNormalized),
-  )
+  if (!isSameTagFamily(inline, update.latestVersion)) {
+    return false
+  }
+
+  return semver.gt(pinned.version, latest.version)
 }

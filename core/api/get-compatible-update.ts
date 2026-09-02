@@ -3,7 +3,7 @@ import type { UpdateMode } from '../../types/update-mode'
 import type { TagInfo } from '../../types/tag-info'
 
 import { findCompatibleTag } from '../versions/find-compatible-tag'
-import { isSemverLike } from '../versions/is-semver-like'
+import { getFamilyPrefix } from '../versions/get-family-prefix'
 
 interface GetCompatibleUpdateParameters {
   /**
@@ -45,7 +45,9 @@ export async function getCompatibleUpdate(
 ): Promise<{ sha: string | null; version: string } | null> {
   let { currentVersion, actionName, mode } = parameters
 
-  if (!currentVersion || !isSemverLike(currentVersion)) {
+  let familyPrefix = getFamilyPrefix(currentVersion)
+
+  if (familyPrefix === null) {
     return null
   }
 
@@ -61,14 +63,22 @@ export async function getCompatibleUpdate(
   let tagsCache = parameters.tagsCache ?? new Map<string, TagInfo[]>()
   let shaCache = parameters.shaCache ?? new Map<string, string | null>()
 
-  let tags = tagsCache.get(actionName)
+  /**
+   * A named family is fetched by its own prefix, because it can otherwise fall
+   * outside the single page of tags the listing returns.
+   */
+  let tagsCacheKey = `${actionName}#${familyPrefix}`
+  let tags = tagsCache.get(tagsCacheKey)
   if (!tags) {
     try {
-      tags = await client.getAllTags(owner, repo, 100)
+      tags =
+        familyPrefix === '' ?
+          await client.getAllTags(owner, repo, 100)
+        : await client.getMatchingTagReferences(owner, repo, familyPrefix)
     } catch {
       return null
     }
-    tagsCache.set(actionName, tags)
+    tagsCache.set(tagsCacheKey, tags)
   }
 
   let compatibleTag = findCompatibleTag(tags, currentVersion, mode)

@@ -35,4 +35,19 @@ describe('preserveTagFormat', () => {
   it('returns null when the latest tag is less specific than the current tag', () => {
     expect(preserveTagFormat('v6.1', 'v7')).toBeNull()
   })
+
+  it('preserves prefixed tag families', () => {
+    expect(preserveTagFormat('actions-v0.1', 'actions-v0.2.3')).toBe(
+      'actions-v0.2',
+    )
+    expect(preserveTagFormat('actions-v0', 'actions-v0.2.3')).toBe('actions-v0')
+    expect(preserveTagFormat('@scope/pkg@1.2.3', '@scope/pkg@1.3.0')).toBe(
+      '@scope/pkg@1.3.0',
+    )
+  })
+
+  it('never projects a tag onto another family', () => {
+    expect(preserveTagFormat('actions-v0.1', 'v0.2.3')).toBeNull()
+    expect(preserveTagFormat('v0.1', 'actions-v0.2.3')).toBeNull()
+  })
 })

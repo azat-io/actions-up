@@ -37,4 +37,18 @@ describe('buildSemverTagCandidates', () => {
   it('returns empty array when latest version is not semver-like', () => {
     expect(buildSemverTagCandidates('nightly', 'major')).toEqual([])
   })
+
+  it('builds floating candidates inside a prefixed family', () => {
+    expect(buildSemverTagCandidates('actions-v0.2.3', 'major')).toEqual([
+      'actions-v0',
+    ])
+    expect(buildSemverTagCandidates('actions-v0.2.3', 'patch')).toEqual([
+      'actions-v0.2',
+      'actions-v0',
+    ])
+  })
+
+  it('returns nothing for a prerelease latest tag', () => {
+    expect(buildSemverTagCandidates('v2.0.0-rc.1', 'major')).toEqual([])
+  })
 })

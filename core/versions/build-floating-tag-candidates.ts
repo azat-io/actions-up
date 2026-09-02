@@ -1,4 +1,5 @@
-import { isSemverLike } from './is-semver-like'
+import { formatFamilyTag } from './format-family-tag'
+import { parseTagFamily } from './parse-tag-family'
 
 /**
  * Build floating tag candidates for the latest version, ordered from the
@@ -11,6 +12,7 @@ import { isSemverLike } from './is-semver-like'
  *
  * - `v6.1` + `v6.2.3` -> `['v6.2', 'v6']`
  * - `v7` + `v8.3.2` -> `['v8']`
+ * - `actions-v0` + `actions-v0.1.2` -> `['actions-v0']`
  * - `v1.2.3` + `v2.0.1` -> `[]`.
  *
  * @param currentVersion - Current tag reference found in the workflow.
@@ -21,36 +23,38 @@ export function buildFloatingTagCandidates(
   currentVersion: undefined | string | null,
   latestVersion: undefined | string | null,
 ): string[] {
-  if (!currentVersion || !latestVersion) {
+  let current = parseTagFamily(currentVersion)
+  let latest = parseTagFamily(latestVersion)
+
+  if (!current || !latest) {
     return []
   }
 
-  let current = currentVersion.trim()
-  let latest = latestVersion.trim()
-
-  if (!isSemverLike(current) || !isSemverLike(latest)) {
+  /**
+   * A prerelease or build qualifier is never carried by a floating tag.
+   */
+  if (current.qualifier !== '' || latest.qualifier !== '') {
     return []
   }
 
-  let currentHasVPrefix = current.startsWith('v')
-  let latestHasVPrefix = latest.startsWith('v')
-
-  if (currentHasVPrefix !== latestHasVPrefix) {
+  /**
+   * Compared literally rather than through `isSameTagFamily`, so that a tag
+   * written without its `v` is never projected onto one written with it.
+   */
+  if (current.prefix !== latest.prefix) {
     return []
   }
 
-  let currentParts = current.replace(/^v/u, '').split('.')
-  let latestParts = latest.replace(/^v/u, '').split('.')
+  let latestSegments = latest.core.split('.')
 
-  if (latestParts.length <= currentParts.length) {
+  if (latestSegments.length <= current.specificity) {
     return []
   }
 
-  let prefix = currentHasVPrefix ? 'v' : ''
   let candidates: string[] = []
 
-  for (let { length } = currentParts; length >= 1; length--) {
-    candidates.push(`${prefix}${latestParts.slice(0, length).join('.')}`)
+  for (let length = current.specificity; length >= 1; length--) {
+    candidates.push(formatFamilyTag(latest, latestSegments.slice(0, length)))
   }
 
   return candidates

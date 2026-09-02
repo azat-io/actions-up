@@ -44,4 +44,18 @@ describe('buildFloatingTagCandidates', () => {
   it('returns empty array when latest is less specific than current', () => {
     expect(buildFloatingTagCandidates('v1.2.3', 'v2')).toEqual([])
   })
+
+  it('builds floating candidates inside a prefixed family', () => {
+    expect(buildFloatingTagCandidates('actions-v0', 'actions-v0.1.2')).toEqual([
+      'actions-v0',
+    ])
+    expect(
+      buildFloatingTagCandidates('actions-v0.1', 'actions-v0.2.3'),
+    ).toEqual(['actions-v0.2', 'actions-v0'])
+  })
+
+  it('returns nothing across families or for prereleases', () => {
+    expect(buildFloatingTagCandidates('actions-v0.1', 'v0.2.3')).toEqual([])
+    expect(buildFloatingTagCandidates('v1.0', 'v1.2.3-rc.1')).toEqual([])
+  })
 })

@@ -132,4 +132,25 @@ describe('findCompatibleTag', () => {
     expect(result).toBeNull()
     validSpy.mockRestore()
   })
+
+  it('finds a compatible tag inside a prefixed family', () => {
+    let tags = [
+      { tag: 'actions-v0.1.2', message: null, date: null, sha: 'a' },
+      { tag: 'actions-v0.2.0', message: null, date: null, sha: 'b' },
+      { tag: 'v0.9.9', message: null, date: null, sha: 'c' },
+    ]
+
+    expect(findCompatibleTag(tags, 'actions-v0.1.1', 'patch')?.tag).toBe(
+      'actions-v0.1.2',
+    )
+    expect(findCompatibleTag(tags, 'actions-v0.1.1', 'minor')?.tag).toBe(
+      'actions-v0.2.0',
+    )
+  })
+
+  it('never crosses into another tag family', () => {
+    let tags = [{ tag: 'v0.9.9', message: null, date: null, sha: 'c' }]
+
+    expect(findCompatibleTag(tags, 'actions-v0.1.1', 'minor')).toBeNull()
+  })
 })

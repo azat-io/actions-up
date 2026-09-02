@@ -1,6 +1,7 @@
 import type { UpdateMode } from '../../types/update-mode'
 
-import { isSemverLike } from './is-semver-like'
+import { formatFamilyTag } from './format-family-tag'
+import { parseTagFamily } from './parse-tag-family'
 
 /**
  * Build canonical floating tag candidates for the latest version based on the
@@ -17,6 +18,7 @@ import { isSemverLike } from './is-semver-like'
  * - `v6.2.3` + `patch` -> `['v6.2', 'v6']`
  * - `v6.2.3` + `major` -> `['v6']`
  * - `v6.2` + `patch` -> `[]`
+ * - `actions-v0.2.3` + `major` -> `['actions-v0']`
  * - `v6` + `major` -> `[]`.
  *
  * @param latestVersion - Latest resolved tag reference.
@@ -27,32 +29,30 @@ export function buildSemverTagCandidates(
   latestVersion: undefined | string | null,
   mode: UpdateMode,
 ): string[] {
-  if (!latestVersion) {
+  let latest = parseTagFamily(latestVersion)
+
+  /**
+   * A prerelease or build qualifier is never carried by a floating tag.
+   */
+  if (latest?.qualifier !== '') {
     return []
   }
 
-  let latest = latestVersion.trim()
-
-  if (!isSemverLike(latest)) {
-    return []
-  }
-
-  let prefix = latest.startsWith('v') ? 'v' : ''
-  let latestParts = latest.replace(/^v/u, '').split('.')
+  let segments = latest.core.split('.')
   let preferredLength = mode === 'patch' ? 2 : 1
 
   /**
    * When the latest tag is already at or below the preferred granularity, it is
    * the canonical form itself and no floating candidates are needed.
    */
-  if (latestParts.length <= preferredLength) {
+  if (segments.length <= preferredLength) {
     return []
   }
 
   let candidates: string[] = []
 
   for (let length = preferredLength; length >= 1; length--) {
-    candidates.push(`${prefix}${latestParts.slice(0, length).join('.')}`)
+    candidates.push(formatFamilyTag(latest, segments.slice(0, length)))
   }
 
   return candidates

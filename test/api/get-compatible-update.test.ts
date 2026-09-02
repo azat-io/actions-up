@@ -149,7 +149,7 @@ describe('getCompatibleUpdate', () => {
 
   it('uses tags and sha caches when provided', async () => {
     let tagsCache = new Map([
-      ['owner/repo', [{ tag: 'v4.2.4', message: null, date: null, sha: '' }]],
+      ['owner/repo#', [{ tag: 'v4.2.4', message: null, date: null, sha: '' }]],
     ])
     let shaCache = new Map<string, string | null>([
       ['owner/repo@v4.2.4', 'cached-sha'],
@@ -172,7 +172,7 @@ describe('getCompatibleUpdate', () => {
 
   it('returns null sha from cache without calling getTagSha', async () => {
     let tagsCache = new Map([
-      ['owner/repo', [{ tag: 'v4.2.4', message: null, date: null, sha: '' }]],
+      ['owner/repo#', [{ tag: 'v4.2.4', message: null, date: null, sha: '' }]],
     ])
     let shaCache = new Map<string, string | null>([['owner/repo@v4.2.4', null]])
 
@@ -209,5 +209,29 @@ describe('getCompatibleUpdate', () => {
 
     expect(result).toEqual({ version: 'v2.1.0', sha: 'sha-210' })
     expect(client.getAllTags).toHaveBeenCalledWith('owner', 'repo', 100)
+  })
+
+  it('fetches a prefixed family by its own prefix', async () => {
+    let client = createClient({
+      getMatchingTagReferences: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'actions-v0.1.2', message: null, sha: 'sha012', date: null },
+        ]),
+    })
+
+    let result = await getCompatibleUpdate(client, {
+      currentVersion: 'actions-v0.1.1',
+      actionName: 'owner/repo',
+      mode: 'patch',
+    })
+
+    expect(result).toEqual({ version: 'actions-v0.1.2', sha: 'sha012' })
+    expect(client.getMatchingTagReferences).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'actions-',
+    )
+    expect(client.getAllTags).not.toHaveBeenCalled()
   })
 })
