@@ -2,7 +2,7 @@ import semver from 'semver'
 
 import type { ActionUpdate } from '../types/action-update'
 
-import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
+import { parseVersionComment } from '../core/versions/parse-version-comment'
 import { isSameTagFamily } from '../core/versions/is-same-tag-family'
 import { parseTagFamily } from '../core/versions/parse-tag-family'
 import { isSha } from '../core/versions/is-sha'
@@ -32,25 +32,16 @@ interface FilterDowngradeResult {
  * as a best-effort current version to detect and block such downgrades.
  *
  * @param updates - Outdated updates to inspect.
- * @param fileCache - Optional cache of file contents by path.
  * @returns Updates split into blocked downgrades and kept updates.
  */
-export async function filterDowngradeUpdates(
+export function filterDowngradeUpdates(
   updates: ActionUpdate[],
-  fileCache?: Map<string, string>,
-): Promise<FilterDowngradeResult> {
-  let verdicts = await Promise.all(
-    updates.map(async update => ({
-      downgrade: await isDowngrade(update, fileCache),
-      update,
-    })),
-  )
-
+): FilterDowngradeResult {
   let blocked: ActionUpdate[] = []
   let kept: ActionUpdate[] = []
 
-  for (let { downgrade, update } of verdicts) {
-    if (downgrade) {
+  for (let update of updates) {
+    if (isDowngrade(update)) {
       blocked.push(update)
     } else {
       kept.push(update)
@@ -64,13 +55,9 @@ export async function filterDowngradeUpdates(
  * Check whether an update would downgrade a SHA-pinned action.
  *
  * @param update - Update to inspect.
- * @param fileCache - Optional cache of file contents by path.
  * @returns True when the inline comment version is higher than the latest one.
  */
-async function isDowngrade(
-  update: ActionUpdate,
-  fileCache?: Map<string, string>,
-): Promise<boolean> {
+function isDowngrade(update: ActionUpdate): boolean {
   if (!isSha(update.currentVersion)) {
     return false
   }
@@ -84,11 +71,7 @@ async function isDowngrade(
     return false
   }
 
-  let inline = await readInlineVersionComment(
-    update.action.file,
-    update.action.line,
-    fileCache,
-  )
+  let inline = parseVersionComment(update.action.comment)
 
   /**
    * Require a fully specified version so date- or ticket-like comments cannot

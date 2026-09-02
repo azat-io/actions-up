@@ -35,117 +35,115 @@ function createAction(overrides: Partial<GitHubAction> = {}): GitHubAction {
   }
 }
 
-function createFileCache(usesLine: string): Map<string, string> {
-  return new Map([[workflowFile, `${usesLine}\n`]])
+function withComment(
+  update: ActionUpdate,
+  comment: string | null,
+): ActionUpdate {
+  return {
+    ...update,
+    action: { ...update.action, comment: comment ?? undefined },
+  }
 }
 
 describe('filterDowngradeUpdates', () => {
-  it('blocks an update that would downgrade a sha-pinned action', async () => {
+  it('blocks an update that would downgrade a sha-pinned action', () => {
     let update = createUpdate()
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.3119.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v12.3119.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([update])
     expect(kept).toEqual([])
   })
 
-  it('blocks a downgrade even when the latest sha is unknown', async () => {
+  it('blocks a downgrade even when the latest sha is unknown', () => {
     /**
      * Check-updates marks sha-pinned actions as outdated unconditionally when
      * latestSha is missing; the guard compares versions only, so it still
      * protects that path.
      */
     let update = createUpdate({ latestSha: null })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.3119.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v12.3119.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([update])
     expect(kept).toEqual([])
   })
 
-  it('keeps an upgrade of a sha-pinned action', async () => {
+  it('keeps an upgrade of a sha-pinned action', () => {
     let update = createUpdate({ latestVersion: 'v1.3.0' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v1.2.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v1.2.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps an equal-version re-pin to the canonical sha', async () => {
+  it('keeps an equal-version re-pin to the canonical sha', () => {
     let update = createUpdate({ latestVersion: 'v1.2.0' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v1.2.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v1.2.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('blocks a prerelease pin above the latest version', async () => {
+  it('blocks a prerelease pin above the latest version', () => {
     /**
      * Version normalization coerces away prerelease suffixes, so the pin is
      * compared as 2.0.0.
      */
     let update = createUpdate({ latestVersion: 'v1.9.0' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v2.0.0-rc.1',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v2.0.0-rc.1')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([update])
     expect(kept).toEqual([])
   })
 
-  it('keeps a prerelease pin matching the latest version', async () => {
+  it('keeps a prerelease pin matching the latest version', () => {
     let update = createUpdate({ latestVersion: 'v2.0.0' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v2.0.0-rc.1',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v2.0.0-rc.1')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps updates without an inline version comment', async () => {
+  it('keeps updates without an inline version comment', () => {
     let update = createUpdate()
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, null)
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps updates with a non-version comment', async () => {
+  it('keeps updates with a non-version comment', () => {
     let update = createUpdate()
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # some note',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' some note')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('ignores actions referenced by tags', async () => {
+  it('ignores actions referenced by tags', () => {
     /**
      * The inline comment is only meaningful next to sha pins; a higher version
      * in a comment must not block tag references.
@@ -155,82 +153,78 @@ describe('filterDowngradeUpdates', () => {
       latestVersion: 'v2.0.0',
       currentVersion: 'v1',
     })
-    let fileCache = createFileCache('- uses: owner/repo@v1 # v99.0.0')
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v99.0.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps updates without a latest version', async () => {
+  it('keeps updates without a latest version', () => {
     let update = createUpdate({ latestVersion: null })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.3119.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v12.3119.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps updates when latest resolves to a floating major', async () => {
+  it('keeps updates when latest resolves to a floating major', () => {
     /**
      * A floating tag like v12 moves with releases, so its SHA can be ahead of
      * the pin even though the coerced version (12.0.0) compares lower.
      */
     let update = createUpdate({ latestVersion: 'v12' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.3119.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v12.3119.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps updates when latest resolves to a floating minor', async () => {
+  it('keeps updates when latest resolves to a floating minor', () => {
     let update = createUpdate({ latestVersion: 'v12.1' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.1.5',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v12.1.5')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps updates with a date-like comment', async () => {
+  it('keeps updates with a date-like comment', () => {
     /**
      * Comments such as audit dates must not masquerade as version claims.
      */
     let update = createUpdate()
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # 2024-05-01 audited',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' 2024-05-01 audited')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('keeps updates with a non-semver latest version', async () => {
+  it('keeps updates with a non-semver latest version', () => {
     let update = createUpdate({ latestVersion: 'nightly' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.3119.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v12.3119.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([])
     expect(kept).toEqual([update])
   })
 
-  it('blocks downgrades of sha-pinned reusable workflows', async () => {
+  it('blocks downgrades of sha-pinned reusable workflows', () => {
     let update = createUpdate({
       action: createAction({
         uses: 'owner/repo/.github/workflows/reusable.yml@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
@@ -239,17 +233,16 @@ describe('filterDowngradeUpdates', () => {
       }),
       latestVersion: 'v2.0.0',
     })
-    let fileCache = createFileCache(
-      'uses: owner/repo/.github/workflows/reusable.yml@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v3.0.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' v3.0.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([update])
 
     expect(blocked).toEqual([update])
     expect(kept).toEqual([])
   })
 
-  it('splits mixed updates preserving order', async () => {
+  it('splits mixed updates preserving order', () => {
     let downgrade = createUpdate()
     let upgrade = createUpdate({
       action: createAction({
@@ -260,50 +253,44 @@ describe('filterDowngradeUpdates', () => {
       latestVersion: 'v2.0.0',
       currentVersion: 'v1',
     })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # v12.3119.0',
-    )
 
-    let { blocked, kept } = await filterDowngradeUpdates(
-      [upgrade, downgrade],
-      fileCache,
-    )
+    upgrade = withComment(upgrade, ' v12.3119.0')
+    downgrade = withComment(downgrade, ' v12.3119.0')
+
+    let { blocked, kept } = filterDowngradeUpdates([upgrade, downgrade])
 
     expect(blocked).toEqual([downgrade])
     expect(kept).toEqual([upgrade])
   })
 
-  it('blocks a downgrade inside a prefixed tag family', async () => {
+  it('blocks a downgrade inside a prefixed tag family', () => {
     let update = createUpdate({ latestVersion: 'actions-v0.1.1' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # actions-v0.2.0',
-    )
 
-    let result = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' actions-v0.2.0')
+
+    let result = filterDowngradeUpdates([update])
 
     expect(result.blocked).toHaveLength(1)
     expect(result.kept).toHaveLength(0)
   })
 
-  it('keeps an upgrade inside a prefixed tag family', async () => {
+  it('keeps an upgrade inside a prefixed tag family', () => {
     let update = createUpdate({ latestVersion: 'actions-v0.2.0' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # actions-v0.1.1',
-    )
 
-    let result = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' actions-v0.1.1')
+
+    let result = filterDowngradeUpdates([update])
 
     expect(result.kept).toHaveLength(1)
     expect(result.blocked).toHaveLength(0)
   })
 
-  it('never compares versions across tag families', async () => {
+  it('never compares versions across tag families', () => {
     let update = createUpdate({ latestVersion: 'v0.1.0' })
-    let fileCache = createFileCache(
-      '- uses: owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8 # actions-v0.2.0',
-    )
 
-    let result = await filterDowngradeUpdates([update], fileCache)
+    update = withComment(update, ' actions-v0.2.0')
+
+    let result = filterDowngradeUpdates([update])
 
     expect(result.kept).toHaveLength(1)
     expect(result.blocked).toHaveLength(0)

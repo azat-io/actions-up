@@ -688,6 +688,7 @@ describe('promptUpdateSelection', () => {
           version: 'e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e',
           file: '/repo/.github/workflows/ci.yml',
           name: 'actions/checkout',
+          comment: ' v4.2.4',
           type: 'external',
           line: 4,
         },

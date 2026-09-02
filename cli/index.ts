@@ -8,9 +8,9 @@ import type { ActionUpdate } from '../types/action-update'
 import type { ScanResult } from '../types/scan-result'
 import type { CLIOptions } from './parse-arguments'
 
-import { readInlineVersionComment } from '../core/versions/read-inline-version-comment'
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
 import { resolveTargetReference } from '../core/updates/resolve-target-reference'
+import { parseVersionComment } from '../core/versions/parse-version-comment'
 import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { createGitHubClient } from '../core/api/create-github-client'
 import { filterDowngradeUpdates } from './filter-downgrade-updates'
@@ -285,11 +285,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * Block downgrades of SHA-pinned actions detected via inline comments.
      */
-    let fileCache = new Map<string, string>()
-    let { blocked: blockedAsDowngrade, kept } = await filterDowngradeUpdates(
-      outdated,
-      fileCache,
-    )
+    let { blocked: blockedAsDowngrade, kept } = filterDowngradeUpdates(outdated)
     outdated = kept
 
     /**
@@ -317,32 +313,26 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         Awaited<ReturnType<typeof githubClient.getAllTags>>
       >()
       let shaCache = new Map<string, string | null>()
-      let decisions = await Promise.all(
-        outdated.map(async update => {
-          let effectiveCurrentVersion = update.currentVersion
-          if (isSha(update.currentVersion)) {
-            let inline = await readInlineVersionComment(
-              update.action.file,
-              update.action.line,
-              fileCache,
-            )
-            if (inline) {
-              effectiveCurrentVersion = inline
-            }
+      let decisions = outdated.map(update => {
+        let effectiveCurrentVersion = update.currentVersion
+        if (isSha(update.currentVersion)) {
+          let inline = parseVersionComment(update.action.comment)
+          if (inline) {
+            effectiveCurrentVersion = inline
           }
+        }
 
-          let level = getUpdateLevel(
-            effectiveCurrentVersion,
-            update.latestVersion,
-          )
-          let allowed = (
-            mode === 'minor' ?
-              ['minor', 'patch', 'none']
-            : ['patch', 'none']).includes(level)
+        let level = getUpdateLevel(
+          effectiveCurrentVersion,
+          update.latestVersion,
+        )
+        let allowed = (
+          mode === 'minor' ?
+            ['minor', 'patch', 'none']
+          : ['patch', 'none']).includes(level)
 
-          return { effectiveCurrentVersion, allowed, update }
-        }),
-      )
+        return { effectiveCurrentVersion, allowed, update }
+      })
 
       let allowedByMode: typeof outdated = []
       let compatibleFallbacks = await Promise.all(

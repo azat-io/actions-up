@@ -5,7 +5,7 @@ import pc from 'picocolors'
 
 import type { ActionUpdate } from '../../types/action-update'
 
-import { readInlineVersionComment } from '../versions/read-inline-version-comment'
+import { parseVersionComment } from '../versions/parse-version-comment'
 import { formatVersion } from './format-version'
 import { GITHUB_DIRECTORY } from '../constants'
 import { isSha } from '../versions/is-sha'
@@ -327,33 +327,28 @@ export async function promptUpdateSelection(
    * (e.g. "# v5.0.0"), show that version instead of the SHA and use it for diff
    * coloring in the Target column.
    */
-  let currentComputedByIndex = await Promise.all(
-    outdated.map(async update => {
-      let display = formatVersionOrSha(update.currentVersion)
-      let effectiveForDiff: undefined | string =
-        update.currentVersion ?? undefined
-      let versionForPadding: string | null = null
-      let shortSha: string | null = null
+  let currentComputedByIndex = outdated.map(update => {
+    let display = formatVersionOrSha(update.currentVersion)
+    let effectiveForDiff: undefined | string =
+      update.currentVersion ?? undefined
+    let versionForPadding: string | null = null
+    let shortSha: string | null = null
 
-      if (!update.currentVersion || !isSha(update.currentVersion)) {
-        return { versionForPadding, effectiveForDiff, shortSha, display }
-      }
-
-      let versionFromComment = await readInlineVersionComment(
-        update.action.file,
-        update.action.line,
-      )
-
-      if (versionFromComment) {
-        shortSha = update.currentVersion.slice(0, 7)
-        versionForPadding = formatVersionOrSha(versionFromComment)
-        display = versionForPadding
-        effectiveForDiff = versionFromComment
-      }
-
+    if (!update.currentVersion || !isSha(update.currentVersion)) {
       return { versionForPadding, effectiveForDiff, shortSha, display }
-    }),
-  )
+    }
+
+    let versionFromComment = parseVersionComment(update.action.comment)
+
+    if (versionFromComment) {
+      shortSha = update.currentVersion.slice(0, 7)
+      versionForPadding = formatVersionOrSha(versionFromComment)
+      display = versionForPadding
+      effectiveForDiff = versionFromComment
+    }
+
+    return { versionForPadding, effectiveForDiff, shortSha, display }
+  })
 
   let choices: (ChoiceSeparator | ChoiceItem)[] = []
 
