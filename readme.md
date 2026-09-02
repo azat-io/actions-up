@@ -192,8 +192,14 @@ listed in the output. To include them in update checks, pass
 Some repositories publish several independent tag families at once — npm
 releases under `v1.2.3` and an action under `actions-v1.2.3`, for example. A
 candidate from the wrong family resolves to a real commit but to the wrong
-artifact, so references whose tag family differs from the repository's latest
-release are listed in the output instead of being rewritten.
+artifact, so a reference from a named family is resolved from that family's own
+tags rather than from the repository's latest release.
+
+This works for every update style: `actions-v1.2.3` updates to `actions-v1.3.0`,
+and a SHA pin is matched by family through the `# actions-v1.2.3` comment
+written next to it. When the family cannot be resolved — it has no other
+members, or the repository answers with an unrelated family — the reference is
+listed in the output instead of being rewritten.
 
 ### Quiet Mode
 
