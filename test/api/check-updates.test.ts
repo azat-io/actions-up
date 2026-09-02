@@ -1756,29 +1756,6 @@ describe('checkUpdates', () => {
   })
 
   it('suggests pinning to SHA when unpinned tag resolves to a known commit', async () => {
-    let accessCount = 0
-    let action = {
-      uses: 'owner/repo@v1',
-      ref: 'owner/repo@v1',
-      name: 'owner/repo',
-      type: 'external',
-    } as GitHubAction
-
-    /**
-     * The version is read twice while building the lookup key, once while
-     * resolving the action, once while normalizing the current version and
-     * finally by the SHA check the assertions below target — only that last
-     * read is unset.
-     */
-    Object.defineProperty(action, 'version', {
-      get() {
-        accessCount += 1
-        return accessCount === 5 ? undefined : 'v1.0.0'
-      },
-      configurable: true,
-      enumerable: true,
-    })
-
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
         publishedAt: new Date('2024-01-01'),
@@ -1800,7 +1777,17 @@ describe('checkUpdates', () => {
     }
     vi.mocked(createGitHubClient).mockReturnValue(client)
 
-    let result = await checkUpdates([action])
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1.0.0',
+        ref: 'owner/repo@v1.0.0',
+        name: 'owner/repo',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
     let [update] = result
     expect(update?.action.name).toBe('owner/repo')
     expect(update?.currentVersion).toBe('v1.0.0')
@@ -3315,6 +3302,92 @@ describe('checkUpdates', () => {
       skipReason: 'tag-family',
       status: 'skipped',
     })
+  })
+
+  it('recovers the tag family of a SHA pin from its version comment', async () => {
+    let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([
+        { tag: 'actions-v0.1.1', sha: 'sha011', message: null, date: null },
+        { tag: 'actions-v0.1.2', sha: 'sha012', message: null, date: null },
+      ]),
+      getTagSha: vi.fn().mockResolvedValue('sha012'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo/deploy@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        ref: 'owner/repo/deploy@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        version: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        comment: ' actions-v0.1.1',
+        name: 'owner/repo/deploy',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'actions-v0.1.2',
+      latestSha: 'sha012',
+      hasUpdate: true,
+      status: 'ok',
+    })
+    expect(client.getMatchingTagReferences).toHaveBeenCalledExactlyOnceWith(
+      'owner',
+      'repo',
+      'actions-',
+    )
+    expect(client.getLatestRelease).not.toHaveBeenCalled()
+  })
+
+  it('leaves a SHA pin on the repository path when its comment is prose', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01T00:00:00Z'),
+        isPrerelease: false,
+        description: null,
+        version: 'v7.0.0',
+        name: 'v7.0.0',
+        sha: 'sha700',
+        url: 'u',
+      }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getTagSha: vi.fn().mockResolvedValue('sha700'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        ref: 'actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        version: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        comment: ' renovate: pin',
+        name: 'actions/checkout',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v7.0.0',
+      hasUpdate: true,
+    })
+    expect(client.getMatchingTagReferences).not.toHaveBeenCalled()
   })
 
   it('skips when the tag family has no members', async () => {

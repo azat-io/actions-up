@@ -8,6 +8,7 @@ import type { ReleaseInfo } from '../../types/release-info'
 import type { TagInfo } from '../../types/tag-info'
 
 import { selectLatestFamilyTag } from '../versions/select-latest-family-tag'
+import { parseVersionComment } from '../versions/parse-version-comment'
 import { preserveTagFormat } from '../versions/preserve-tag-format'
 import { isSameTagFamily } from '../versions/is-same-tag-family'
 import { normalizeVersion } from '../versions/normalize-version'
@@ -15,6 +16,7 @@ import { getFamilyPrefix } from '../versions/get-family-prefix'
 import { createGitHubClient } from './create-github-client'
 import { isSemverLike } from '../versions/is-semver-like'
 import { compareSha } from '../versions/compare-sha'
+import { isSha } from '../versions/is-sha'
 
 /**
  * Internal result for a single release/tag lookup, enriched with status info.
@@ -239,8 +241,11 @@ export async function checkUpdates(
        * publisher releases from. Such families are resolved from their own tags
        * instead, in a single prefix-filtered request.
        */
+      let familyReference = resolveFamilyReference(currentVersions[0]!)
       let familyPrefix =
-        currentReferenceType === 'branch' ? null : getFamilyPrefix(firstVersion)
+        currentReferenceType === 'branch' ? null : (
+          getFamilyPrefix(familyReference)
+        )
 
       if (familyPrefix) {
         let familyTags = await memoize(
@@ -248,7 +253,7 @@ export async function checkUpdates(
           `${repoKey}#${familyPrefix}`,
           () => client.getMatchingTagReferences(owner, repo, familyPrefix),
         )
-        let best = selectLatestFamilyTag(familyTags, firstVersion!)
+        let best = selectLatestFamilyTag(familyTags, familyReference!)
 
         if (!best) {
           return {
@@ -671,7 +676,7 @@ function createUpdate(
    */
   if (
     currentReferenceType !== 'branch' &&
-    !isSameTagFamily(currentVersionRaw, latestVersion)
+    !isSameTagFamily(resolveFamilyReference(action), latestVersion)
   ) {
     status = 'skipped'
     skipReason = 'tag-family'
@@ -777,28 +782,6 @@ async function resolveTagMeta(
   }
 }
 
-/**
- * Check if a string is a Git SHA hash.
- *
- * @param value - String to check.
- * @returns True if the string is a SHA hash.
- */
-function isSha(value: undefined | string | null): boolean {
-  if (!value) {
-    return false
-  }
-
-  /**
-   * Remove 'v' prefix if present.
-   */
-  let normalized = value.replace(/^v/u, '')
-
-  /**
-   * Check if it matches SHA pattern (7-40 hex characters).
-   */
-  return /^[0-9a-f]{7,40}$/iu.test(normalized)
-}
-
 function deriveCurrentReferenceType(
   version: undefined | string | null,
 ): ActionUpdate['currentRefType'] {
@@ -837,6 +820,26 @@ async function memoize<Value>(
   let value = await load()
   memo.set(key, value)
   return value
+}
+
+/**
+ * Resolve the reference whose tag family should drive the lookup.
+ *
+ * A SHA carries no family of its own, so the version comment written next to it
+ * is used instead: it is the only record of which tag, and therefore which
+ * family, the pin came from.
+ *
+ * @param action - Action occurrence found during the scan.
+ * @returns Reference to derive the tag family from, or null when unknown.
+ */
+function resolveFamilyReference(action: GitHubAction): string | null {
+  let { version } = action
+
+  if (version && isSha(version)) {
+    return parseVersionComment(action.comment)
+  }
+
+  return version ?? null
 }
 
 function isRateLimitError(error: unknown): error is Error {

@@ -78,6 +78,9 @@ export function extractUsesFromSteps(
       if (jobName) {
         action.job = jobName
       }
+      if (isScalar(usesPair?.value) && usesPair.value.comment) {
+        action.comment = usesPair.value.comment
+      }
       actions.push(action)
     }
   }

@@ -77,6 +77,23 @@ describe('scanWorkflowAst', () => {
     warnSpy.mockRestore()
   })
 
+  it('records the trailing comment of a job-level uses', () => {
+    let content = `${[
+      'name: Test',
+      'on: push',
+      'jobs:',
+      '  call-workflow:',
+      '    uses: org/repo/.github/workflows/x.yml@abc1234 # flows-v2.0.0',
+      '  plain:',
+      '    uses: org/repo/.github/workflows/y.yml@v1.0.0',
+    ].join('\n')}\n`
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(document_, content, '.github/workflows/t.yml')
+
+    expect(actions[0]).toMatchObject({ comment: ' flows-v2.0.0' })
+    expect(actions[1]!.comment).toBeUndefined()
+  })
+
   it('detects job-level uses for reusable workflows', () => {
     let content = `${[
       'name: Test',

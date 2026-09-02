@@ -67,6 +67,9 @@ export function scanWorkflowAst(
         if (jobName) {
           action.job = jobName
         }
+        if (usesPair.value.comment) {
+          action.comment = usesPair.value.comment
+        }
         actions.push(action)
       }
     }

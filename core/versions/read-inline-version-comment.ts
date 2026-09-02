@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
+import { parseVersionComment } from './parse-version-comment'
+
 /**
  * Best-effort extraction of version number from an inline comment on the same
  * line as `uses:`. Expected shape after update is, for example: `uses:
@@ -36,11 +38,9 @@ export async function readInlineVersionComment(
     }
 
     let line = lines[index]!
-    let match = line.match(
-      /#\s*(?<version>[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?)/u,
-    )
-    if (match?.groups?.['version']) {
-      return match.groups['version']
+    let commentStart = line.indexOf('#')
+    if (commentStart !== -1) {
+      return parseVersionComment(line.slice(commentStart))
     }
   } catch {
     /**

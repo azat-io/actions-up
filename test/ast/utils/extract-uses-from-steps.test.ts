@@ -35,6 +35,29 @@ describe('extractUsesFromSteps', () => {
     expect(typeof actions[0]!.line).toBe('number')
   })
 
+  it('records the trailing comment of the uses line', () => {
+    let content = `${[
+      'jobs:',
+      '  build:',
+      '    steps:',
+      '      - uses: owner/repo@abc1234 # actions-v0.1.1',
+      '      - uses: actions/checkout@v4',
+    ].join('\n')}\n`
+    let document_ = parseDocument(content)
+    let jobs = findMapPair(document_.contents, 'jobs')
+    let build = jobs?.value ? findMapPair(jobs.value, 'build') : null
+    let steps = build?.value ? findMapPair(build.value, 'steps') : null
+
+    let actions = extractUsesFromSteps({
+      filePath: '.github/workflows/ci.yml',
+      stepsNode: steps!.value,
+      content,
+    })
+
+    expect(actions[0]).toMatchObject({ comment: ' actions-v0.1.1' })
+    expect(actions[1]!.comment).toBeUndefined()
+  })
+
   it('returns empty when steps node is not a YAML sequence', () => {
     let actions = extractUsesFromSteps({
       filePath: 'file.yml',

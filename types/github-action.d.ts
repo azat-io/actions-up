@@ -13,6 +13,11 @@ export interface GitHubAction {
   version?: string | null
 
   /**
+   * Trailing inline comment on the `uses:` line, without its leading `#`.
+   */
+  comment?: string
+
+  /**
    * Line number where the action is used in the file.
    */
   line?: number
