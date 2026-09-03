@@ -931,4 +931,86 @@ describe('applyUpdates', () => {
       'utf8',
     )
   })
+
+  it('rewrites only the occurrence the update was scanned from', async () => {
+    let filePath = '/repo/.github/workflows/duplicate.yml'
+    let original = [
+      'jobs:',
+      '  build:',
+      '    steps:',
+      '      - uses: actions/checkout@v3',
+      '      - uses: actions/checkout@v3',
+      '',
+    ].join('\n')
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+          line: 5,
+        },
+        latestVersion: 'v4.2.0',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v3',
+        targetRef: 'v4.2.0',
+        isBreaking: false,
+        publishedAt: null,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    let [, content] = vi.mocked(writeFile).mock.calls[0]!
+    assertString(content)
+    expect(content.split('\n', 4)[3]).toBe('      - uses: actions/checkout@v3')
+    expect(content.split('\n', 5)[4]).toBe(
+      '      - uses: actions/checkout@v4.2.0',
+    )
+  })
+
+  it('leaves the file untouched when the recorded line does not exist', async () => {
+    let filePath = '/repo/.github/workflows/stale-line.yml'
+    let original = `steps:\n  - uses: actions/cache@v3\n`
+
+    let { writeFile, readFile } = await import('node:fs/promises')
+    vi.mocked(readFile).mockResolvedValue(original)
+
+    let updates: ActionUpdate[] = [
+      {
+        action: {
+          name: 'actions/cache',
+          type: 'external',
+          file: filePath,
+          version: 'v3',
+          line: 99,
+        },
+        latestVersion: 'v4.2.0',
+        currentRefType: 'tag',
+        targetRefStyle: 'tag',
+        currentVersion: 'v3',
+        targetRef: 'v4.2.0',
+        isBreaking: false,
+        publishedAt: null,
+        latestSha: null,
+        hasUpdate: true,
+      },
+    ]
+
+    await applyUpdates(updates)
+
+    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+      filePath,
+      original,
+      'utf8',
+    )
+  })
 })

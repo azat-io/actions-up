@@ -156,45 +156,73 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
         'gm',
       )
 
-      content = content.replace(
-        pattern,
-        (matched: string, ...captures: unknown[]) => {
-          let offset = captures.at(-3) as number
-          let source = captures.at(-2) as string
-          let groups = captures.at(-1) as MatchGroups
-          let nextLineBreak = source.indexOf('\n', offset + matched.length)
-          let restOfLine =
-            nextLineBreak === -1 ?
-              source.slice(offset + matched.length)
-            : source.slice(offset + matched.length, nextLineBreak)
+      function rewrite(input: string): string {
+        return input.replace(
+          pattern,
+          (matched: string, ...captures: unknown[]) => {
+            let offset = captures.at(-3) as number
+            let source = captures.at(-2) as string
+            let groups = captures.at(-1) as MatchGroups
+            let nextLineBreak = source.indexOf('\n', offset + matched.length)
+            let restOfLine =
+              nextLineBreak === -1 ?
+                source.slice(offset + matched.length)
+              : source.slice(offset + matched.length, nextLineBreak)
 
-          /**
-           * Avoid inserting a comment mid-line when more content follows.
-           * Exception: when currentVersion is missing, trailing content may be
-           * the original unparsed version suffix — allow comment in that case.
-           */
-          let hasTrailingContent = restOfLine.trim().length > 0
-          let spacer = groups.after.endsWith(' ') ? '' : ' '
-          let comment = ''
+            /**
+             * Avoid inserting a comment mid-line when more content follows.
+             * Exception: when currentVersion is missing, trailing content may
+             * be the original unparsed version suffix — allow comment in that
+             * case.
+             */
+            let hasTrailingContent = restOfLine.trim().length > 0
+            let spacer = groups.after.endsWith(' ') ? '' : ' '
+            let comment = ''
 
-          if (targetReferenceStyle === 'sha') {
-            let skipComment =
-              hasTrailingContent && !groups.comment && escapedVersion !== ''
-            comment = skipComment ? '' : `${spacer}# ${update.latestVersion}`
-          } else if (
-            groups.comment &&
-            !looksLikeInlineVersionComment(groups.comment)
-          ) {
-            let { comment: existingComment } = groups
-            comment = existingComment
-          }
+            if (targetReferenceStyle === 'sha') {
+              let skipComment =
+                hasTrailingContent && !groups.comment && escapedVersion !== ''
+              comment = skipComment ? '' : `${spacer}# ${update.latestVersion}`
+            } else if (
+              groups.comment &&
+              !looksLikeInlineVersionComment(groups.comment)
+            ) {
+              let { comment: existingComment } = groups
+              comment = existingComment
+            }
 
-          let action = `${groups.prefix}${groups.quote}${groups.name}`
-          let version = `${targetReference}${groups.quote}${groups.after}${comment}`
+            let action = `${groups.prefix}${groups.quote}${groups.name}`
+            let version = `${targetReference}${groups.quote}${groups.after}${comment}`
 
-          return `${action}@${version}`
-        },
-      )
+            return `${action}@${version}`
+          },
+        )
+      }
+
+      /**
+       * Rewrite only the occurrence the update was scanned from, so accepting
+       * one entry never touches an identical reference the user left alone.
+       * Without a line number every match is rewritten, which is the only
+       * sensible reading for a caller that did not record positions.
+       */
+      let lineNumber = update.action.line
+
+      if (lineNumber && lineNumber > 0) {
+        let lines = content.split('\n')
+        let lineIndex = lineNumber - 1
+
+        /**
+         * A recorded line that no longer exists means the scan is stale, which
+         * is a reason to write nothing rather than to fall back to rewriting
+         * every match.
+         */
+        if (lineIndex < lines.length) {
+          lines[lineIndex] = rewrite(lines[lineIndex]!)
+          content = lines.join('\n')
+        }
+      } else {
+        content = rewrite(content)
+      }
     }
 
     await writeFile(filePath, content, 'utf8')
