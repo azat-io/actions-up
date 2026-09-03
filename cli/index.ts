@@ -116,13 +116,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let preferTags = options.preferTags ?? false
     let mode = normalizeUpdateMode(options.mode)
     let style = normalizeUpdateStyle(options.style)
-    let rawExcludes: string[] = []
-    if (Array.isArray(options.exclude)) {
-      rawExcludes.push(...options.exclude)
-    } else if (typeof options.exclude === 'string') {
-      rawExcludes.push(options.exclude)
-    }
-    let normalizedExcludes = rawExcludes
+    let normalizedExcludes = (options.exclude ?? [])
       .flatMap(item => item.split(','))
       .map(item => item.trim())
       .filter(Boolean)
@@ -510,7 +504,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         let target =
           update.targetRefStyle === 'sha' && update.targetRef ?
             `${update.latestVersion} ${pc.gray(`(${update.targetRef.slice(0, 7)})`)}`
-          : (update.targetRef ?? update.latestVersion)
+          : update.targetRef
         console.info(
           `${pc.cyan(update.action.file ?? 'unknown')}:\n` +
             `${update.action.name}: ${pc.redBright(update.currentVersion)} → ${pc.green(
@@ -527,15 +521,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       /**
        * Auto-update all actions with the resolved target ref.
        */
-      let toUpdate = outdated.filter(update => update.targetRef)
-      if (toUpdate.length === 0) {
-        console.info(pc.yellow('\n⚠️ No actionable updates available\n'))
-        return
-      }
+      console.info(pc.yellow(`\n🔄 Updating ${outdated.length} actions...\n`))
 
-      console.info(pc.yellow(`\n🔄 Updating ${toUpdate.length} actions...\n`))
-
-      await applyUpdates(toUpdate)
+      await applyUpdates(outdated)
     } else {
       if (
         !quiet &&

@@ -50,11 +50,6 @@ let parserOptions = {
  */
 export interface CLIOptions {
   /**
-   * Regex patterns to exclude actions by name (repeatable).
-   */
-  exclude?: string[] | string
-
-  /**
    * Whether to include branch references in update checks.
    */
   includeBranches?: boolean
@@ -74,6 +69,11 @@ export interface CLIOptions {
    * Recursively scan directories for YAML files.
    */
   recursive?: boolean
+
+  /**
+   * Regex patterns to exclude actions by name (repeatable).
+   */
+  exclude?: string[]
 
   /**
    * Suppress skipped and blocked-update warnings.
