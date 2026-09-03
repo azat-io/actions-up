@@ -100,32 +100,33 @@ async function runUpdate(options: CLIOptions): Promise<void> {
   let json = options.json ?? false
   let quiet = options.quiet ?? false
   let spinner: ReturnType<typeof createSpinner> | null = null
-  let cwd = process.cwd()
-  let repoRoot = options.recursive ? null : await findRepoRoot(cwd)
-  let directories = resolveScanDirectories({
-    dir: anchorDirectoryInputs({ dir: options.dir, root: repoRoot, cwd }),
-    recursive: options.recursive,
-    cwd,
-  })
-  let normalizedDirectories = directories.map(({ root, dir }) =>
-    resolve(root, dir),
-  )
-  let includeBranches = options.includeBranches ?? false
-  let preferTags = options.preferTags ?? false
-  let mode = normalizeUpdateMode(options.mode)
-  let style = normalizeUpdateStyle(options.style)
-  let rawExcludes: string[] = []
-  if (Array.isArray(options.exclude)) {
-    rawExcludes.push(...options.exclude)
-  } else if (typeof options.exclude === 'string') {
-    rawExcludes.push(options.exclude)
-  }
-  let normalizedExcludes = rawExcludes
-    .flatMap(item => item.split(','))
-    .map(item => item.trim())
-    .filter(Boolean)
 
   try {
+    let cwd = process.cwd()
+    let repoRoot = options.recursive ? null : await findRepoRoot(cwd)
+    let directories = resolveScanDirectories({
+      dir: anchorDirectoryInputs({ dir: options.dir, root: repoRoot, cwd }),
+      recursive: options.recursive,
+      cwd,
+    })
+    let normalizedDirectories = directories.map(({ root, dir }) =>
+      resolve(root, dir),
+    )
+    let includeBranches = options.includeBranches ?? false
+    let preferTags = options.preferTags ?? false
+    let mode = normalizeUpdateMode(options.mode)
+    let style = normalizeUpdateStyle(options.style)
+    let rawExcludes: string[] = []
+    if (Array.isArray(options.exclude)) {
+      rawExcludes.push(...options.exclude)
+    } else if (typeof options.exclude === 'string') {
+      rawExcludes.push(options.exclude)
+    }
+    let normalizedExcludes = rawExcludes
+      .flatMap(item => item.split(','))
+      .map(item => item.trim())
+      .filter(Boolean)
+
     validateCliOptions({ yes: options.yes, json })
 
     if (!json) {
