@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.19.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.18.0...v1.19.0)
+
+### 🚀 Features
+
+- Resolve updates within a prefixed tag family
+  ([5b17230](https://github.com/azat-io/actions-up/commit/5b17230))
+
+### 🐞 Bug Fixes
+
+- Detect reference type per pin instead of per action
+  ([95876c1](https://github.com/azat-io/actions-up/commit/95876c1))
+- Never write back updates that were skipped
+  ([bca48d1](https://github.com/azat-io/actions-up/commit/bca48d1))
+- Report every skipped action regardless of skip reason
+  ([d09c783](https://github.com/azat-io/actions-up/commit/d09c783))
+- Never update a reference across tag families
+  ([87f1e86](https://github.com/azat-io/actions-up/commit/87f1e86))
+- Recover the tag family of a sha pin from its version comment
+  ([98a7020](https://github.com/azat-io/actions-up/commit/98a7020))
+- Apply tag families to update styles and modes
+  ([332367c](https://github.com/azat-io/actions-up/commit/332367c))
+- Rewrite only the reference the update was scanned from
+  ([be33505](https://github.com/azat-io/actions-up/commit/be33505))
+- Report invalid mode and style as a normal cli error
+  ([4ba83c6](https://github.com/azat-io/actions-up/commit/4ba83c6))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.18.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.17.1...v1.18.0)
