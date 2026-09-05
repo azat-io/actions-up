@@ -7,6 +7,13 @@ import { getCompatibleUpdate } from '../../core/api/get-compatible-update'
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.parse('2026-09-04T00:00:00.000Z')
 
+class GitHubRateLimitError extends Error {
+  public constructor() {
+    super('API rate limit exceeded')
+    this.name = 'GitHubRateLimitError'
+  }
+}
+
 function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
   return {
     getMatchingTagReferences: vi.fn().mockResolvedValue([]),
@@ -378,6 +385,29 @@ describe('getCompatibleUpdate', () => {
       update: { publishedAt: null, version: 'v0.6.3', sha: 'sha-063' },
       reason: null,
     })
+  })
+
+  it('reports a rate limited date lookup instead of treating it as old enough', async () => {
+    let rateLimit = new GitHubRateLimitError()
+
+    let client = createClient({
+      getAllTags: vi
+        .fn()
+        .mockResolvedValue([
+          { sha: 'sha-063', tag: 'v0.6.3', message: null, date: null },
+        ]),
+      getTagInfo: vi.fn().mockRejectedValue(rateLimit),
+    })
+
+    await expect(
+      getCompatibleUpdate(client, {
+        actionName: 'owner/repo',
+        currentVersion: 'v0.6.0',
+        minAgeMs: 7 * DAY,
+        mode: 'major',
+        now: NOW,
+      }),
+    ).rejects.toThrow(rateLimit)
   })
 
   it('takes the tag sha from the date lookup when the listing has none', async () => {
