@@ -115,6 +115,8 @@ interface SelectedCandidate {
  * @param client - GitHub client instance.
  * @param parameters - Lookup parameters.
  * @returns The selected tag, or the reason no tag qualifies.
+ * @throws GitHubRateLimitError - When the cool-down needed a publication date
+ *   and the request for it was rate limited.
  */
 export async function getCompatibleUpdate(
   client: GitHubClient,
@@ -211,7 +213,8 @@ export async function getCompatibleUpdate(
  * are chained rather than run together, so a step-down of a single release does
  * not pay for the whole tag history. A date that cannot be determined counts as
  * old enough, which matches how an unknown publication date is treated
- * elsewhere.
+ * elsewhere. A rate limit is the exception: it is reported rather than read as
+ * an unknown date, because it can hide the date of every candidate at once.
  *
  * @param client - GitHub client instance.
  * @param parameters - Candidates and the cool-down to apply.
@@ -221,6 +224,7 @@ export async function getCompatibleUpdate(
  * @param parameters.repo - Repository name.
  * @param parameters.now - Clock used to measure the cool-down.
  * @returns The first old enough candidate, or null when none qualifies.
+ * @throws GitHubRateLimitError - When a candidate lookup was rate limited.
  */
 async function selectAgedCandidate(
   client: GitHubClient,
@@ -266,6 +270,9 @@ async function selectAgedCandidate(
  * @param parameters.repo - Repository name.
  * @param parameters.tag - Tag name to inspect.
  * @returns Tag date and SHA, both null when the lookup fails.
+ * @throws GitHubRateLimitError - When the request was rate limited, so the run
+ *   reports the rate limit instead of passing an undated tag off as old
+ *   enough.
  */
 async function resolveTagMeta(
   client: GitHubClient,
@@ -275,7 +282,10 @@ async function resolveTagMeta(
     let { owner, repo, tag } = parameters
     let info = await client.getTagInfo(owner, repo, tag)
     return { date: info?.date ?? null, sha: info?.sha ?? null }
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'GitHubRateLimitError') {
+      throw error
+    }
     return { date: null, sha: null }
   }
 }
