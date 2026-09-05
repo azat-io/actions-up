@@ -155,6 +155,11 @@ npx actions-up --json
 `--json` is report-only: it never writes files, skips the interactive prompt,
 and cannot be combined with `--yes`.
 
+Alongside `updates`, the report lists what was left out: `skipped`, plus
+`blockedByMode` for actions `--mode` held back and `blockedByAge` for actions
+the cool-down held back. `status` describes the actionable updates only, so it
+can read `up-to-date` while those lists are not empty.
+
 ### Custom Directory
 
 By default, Actions Up scans `.github`.

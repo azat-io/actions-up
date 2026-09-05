@@ -21,6 +21,11 @@ interface BuildJsonReportOptions {
   blockedByMode: ActionUpdate[]
 
   /**
+   * Updates held back by the release age cool-down.
+   */
+  blockedByAge: ActionUpdate[]
+
+  /**
    * Number of actions that were actually checked after excludes.
    */
   actionsToCheckCount: number
@@ -157,6 +162,56 @@ interface JsonReportUpdate {
 }
 
 /**
+ * Aggregate counts included in the JSON report.
+ */
+interface JsonReportSummary {
+  /**
+   * Number of composite actions discovered during scanning.
+   */
+  totalCompositeActions: number
+
+  /**
+   * Number of breaking updates among actionable updates.
+   */
+  totalBreakingUpdates: number
+
+  /**
+   * Number of actions checked after excludes.
+   */
+  totalActionsChecked: number
+
+  /**
+   * Number of updates filtered out by `--mode`.
+   */
+  totalBlockedByMode: number
+
+  /**
+   * Number of updates held back by `--min-age`.
+   */
+  totalBlockedByAge: number
+
+  /**
+   * Number of workflows discovered during scanning.
+   */
+  totalWorkflows: number
+
+  /**
+   * Total number of action references found during scanning.
+   */
+  totalActions: number
+
+  /**
+   * Number of skipped entries in the report.
+   */
+  totalSkipped: number
+
+  /**
+   * Number of actionable updates in the report.
+   */
+  totalUpdates: number
+}
+
+/**
  * Effective CLI options serialized into the report.
  */
 interface JsonReportOptions {
@@ -212,48 +267,48 @@ interface JsonReportOptions {
 }
 
 /**
- * Aggregate counts included in the JSON report.
+ * Top-level machine-readable report emitted by `--json`.
  */
-interface JsonReportSummary {
+interface JsonReport {
   /**
-   * Number of composite actions discovered during scanning.
+   * Entries filtered out by the selected update mode.
    */
-  totalCompositeActions: number
+  blockedByMode: JsonReportUpdate[]
 
   /**
-   * Number of breaking updates among actionable updates.
+   * Entries held back by the release age cool-down.
    */
-  totalBreakingUpdates: number
+  blockedByAge: JsonReportUpdate[]
 
   /**
-   * Number of actions checked after excludes.
+   * Entries skipped during update checks.
    */
-  totalActionsChecked: number
+  skipped: JsonReportUpdate[]
 
   /**
-   * Number of updates filtered out by `--mode`.
+   * Actionable updates after filtering.
    */
-  totalBlockedByMode: number
+  updates: JsonReportUpdate[]
 
   /**
-   * Number of workflows discovered during scanning.
+   * Effective options that shaped the report.
    */
-  totalWorkflows: number
+  options: JsonReportOptions
 
   /**
-   * Total number of action references found during scanning.
+   * Aggregate counts for the current run.
    */
-  totalActions: number
+  summary: JsonReportSummary
 
   /**
-   * Number of skipped entries in the report.
+   * Overall outcome for the current run.
    */
-  totalSkipped: number
+  status: JsonReportStatus
 
   /**
-   * Number of actionable updates in the report.
+   * Version of the JSON payload schema.
    */
-  totalUpdates: number
+  schemaVersion: 1
 }
 
 /**
@@ -302,46 +357,6 @@ interface JsonReportAction {
 }
 
 /**
- * Top-level machine-readable report emitted by `--json`.
- */
-interface JsonReport {
-  /**
-   * Entries filtered out by the selected update mode.
-   */
-  blockedByMode: JsonReportUpdate[]
-
-  /**
-   * Entries skipped during update checks.
-   */
-  skipped: JsonReportUpdate[]
-
-  /**
-   * Actionable updates after filtering.
-   */
-  updates: JsonReportUpdate[]
-
-  /**
-   * Effective options that shaped the report.
-   */
-  options: JsonReportOptions
-
-  /**
-   * Aggregate counts for the current run.
-   */
-  summary: JsonReportSummary
-
-  /**
-   * Overall outcome for the current run.
-   */
-  status: JsonReportStatus
-
-  /**
-   * Version of the JSON payload schema.
-   */
-  schemaVersion: 1
-}
-
-/**
  * Build the machine-readable JSON report returned by `--json`.
  *
  * @param options - Current CLI state and computed update data.
@@ -359,6 +374,7 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       totalActionsChecked: options.actionsToCheckCount,
       totalBlockedByMode: options.blockedByMode.length,
       totalActions: options.scanResult.actions.length,
+      totalBlockedByAge: options.blockedByAge.length,
       totalUpdates: options.outdated.length,
       totalSkipped: options.skipped.length,
     },
@@ -377,6 +393,9 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       json: true,
     },
     blockedByMode: options.blockedByMode.map(update =>
+      serializeUpdate(update, cwd),
+    ),
+    blockedByAge: options.blockedByAge.map(update =>
       serializeUpdate(update, cwd),
     ),
     updates: options.outdated.map(update => serializeUpdate(update, cwd)),

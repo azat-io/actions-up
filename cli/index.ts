@@ -48,6 +48,11 @@ interface WriteJsonReportOptions {
   blockedByMode?: ActionUpdate[]
 
   /**
+   * Updates held back by the release age cool-down.
+   */
+  blockedByAge?: ActionUpdate[]
+
+  /**
    * Number of actions checked after excludes.
    */
   actionsToCheckCount: number
@@ -137,6 +142,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     function writeJsonReport({
       actionsToCheckCount,
       blockedByMode = [],
+      blockedByAge = [],
       outdated = [],
       skipped = [],
       scanResult,
@@ -152,6 +158,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             actionsToCheckCount,
             includeBranches,
             blockedByMode,
+            blockedByAge,
             preferTags,
             scanResult,
             outdated,
@@ -462,6 +469,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           actionsToCheckCount: actionsToCheck.length,
           status: 'up-to-date',
           blockedByMode,
+          blockedByAge,
           scanResult,
           skipped,
         })
@@ -500,6 +508,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         actionsToCheckCount: actionsToCheck.length,
         status: 'updates-available',
         blockedByMode,
+        blockedByAge,
         scanResult,
         outdated,
         skipped,

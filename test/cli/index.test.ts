@@ -450,6 +450,38 @@ describe('run', () => {
     expect(payload.status).toBe('up-to-date')
   })
 
+  it('names the actions held by the cool-down in JSON mode', async () => {
+    process.argv = ['node', 'actions-up', '--json', '--min-age', '7']
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v0.6.0',
+        publishedAt: new Date(),
+        latestVersion: 'v0.6.3',
+        isBreaking: false,
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'cool-down',
+      update: null,
+    })
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(stdoutWriteSpy.mock.calls).toHaveLength(1)
+    })
+
+    let payload = JSON.parse(String(stdoutWriteSpy.mock.calls[0]![0])) as {
+      blockedByAge: { latestVersion: string }[]
+      summary: { totalBlockedByAge: number }
+    }
+    expect(payload.summary.totalBlockedByAge).toBe(1)
+    expect(payload.blockedByAge).toHaveLength(1)
+    expect(payload.blockedByAge[0]?.latestVersion).toBe('v0.6.3')
+  })
+
   it('skips updates whose style cannot be resolved', async () => {
     process.argv = ['node', 'actions-up']
     let { action } = createUpdate()
