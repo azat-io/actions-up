@@ -155,6 +155,11 @@ npx actions-up --json
 `--json` is report-only: it never writes files, skips the interactive prompt,
 and cannot be combined with `--yes`.
 
+Alongside `updates`, the report lists what was left out: `skipped`, plus
+`blockedByMode` for actions `--mode` held back and `blockedByAge` for actions
+the cool-down held back. `status` describes the actionable updates only, so it
+can read `up-to-date` while those lists are not empty.
+
 ### Custom Directory
 
 By default, Actions Up scans `.github`.
@@ -578,6 +583,11 @@ npx actions-up --min-age 7
 
 Versions resolved from tags (repositories without releases, or `--prefer-tags`
 results) honor the cool-down using the tag's commit or tagger date.
+
+When the latest release is too new, the older releases are checked in turn and
+the newest one that clears the cool-down is offered instead. An action is
+reported as held back only when no release satisfies both the cool-down and
+`--mode`.
 
 Ignore comments (file/block/next-line/inline):
 

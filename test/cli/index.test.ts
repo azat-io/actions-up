@@ -375,14 +375,21 @@ describe('run', () => {
         currentVersion: 'c'.repeat(40),
         latestVersion: 'v4.0.0',
       }),
-      createUpdate({ publishedAt: new Date(), latestVersion: 'v4.0.0' }),
+      createUpdate({
+        currentVersion: 'v3.0.0',
+        publishedAt: new Date(),
+        latestVersion: 'v3.1.0',
+      }),
       createUpdate({
         publishedAt: new Date('2020-01-01T00:00:00Z'),
         currentVersion: 'v3.0.0',
         latestVersion: 'v4.0.0',
       }),
     ])
-    vi.mocked(getCompatibleUpdate).mockResolvedValue(null)
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'no-candidate',
+      update: null,
+    })
 
     run()
 
@@ -443,6 +450,38 @@ describe('run', () => {
     expect(payload.status).toBe('up-to-date')
   })
 
+  it('names the actions held by the cool-down in JSON mode', async () => {
+    process.argv = ['node', 'actions-up', '--json', '--min-age', '7']
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v0.6.0',
+        publishedAt: new Date(),
+        latestVersion: 'v0.6.3',
+        isBreaking: false,
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'cool-down',
+      update: null,
+    })
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(stdoutWriteSpy.mock.calls).toHaveLength(1)
+    })
+
+    let payload = JSON.parse(String(stdoutWriteSpy.mock.calls[0]![0])) as {
+      blockedByAge: { latestVersion: string }[]
+      summary: { totalBlockedByAge: number }
+    }
+    expect(payload.summary.totalBlockedByAge).toBe(1)
+    expect(payload.blockedByAge).toHaveLength(1)
+    expect(payload.blockedByAge[0]?.latestVersion).toBe('v0.6.3')
+  })
+
   it('skips updates whose style cannot be resolved', async () => {
     process.argv = ['node', 'actions-up']
     let { action } = createUpdate()
@@ -489,8 +528,8 @@ describe('run', () => {
       createUpdate({ currentVersion: 'v3.0.0', latestVersion: 'v4.0.0' }),
     ])
     vi.mocked(getCompatibleUpdate).mockResolvedValue({
-      sha: 'd'.repeat(40),
-      version: 'v3.0.1',
+      update: { sha: 'd'.repeat(40), version: 'v3.0.1', publishedAt: null },
+      reason: null,
     })
     vi.mocked(resolveTargetReference).mockResolvedValue(
       createUpdate({ targetRefStyle: 'tag', targetRef: 'v3.0.1' }),
@@ -505,6 +544,104 @@ describe('run', () => {
     })
 
     expect(vi.mocked(getCompatibleUpdate).mock.calls).toHaveLength(1)
+    expect(printModeWarning).not.toHaveBeenCalled()
+  })
+
+  it('steps down to an older release when the cool-down holds the latest', async () => {
+    process.argv = ['node', 'actions-up', '--min-age', '7', '--dry-run']
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v0.6.0',
+        publishedAt: new Date(),
+        latestVersion: 'v0.6.3',
+        isBreaking: false,
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      update: {
+        publishedAt: new Date('2026-08-01T00:00:00.000Z'),
+        sha: 'd'.repeat(40),
+        version: 'v0.6.2',
+      },
+      reason: null,
+    })
+    vi.mocked(resolveTargetReference).mockResolvedValue(
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v0.6.2' }),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('1 actions would be updated'),
+      )
+    })
+
+    expect(getCompatibleUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        minAgeMs: 7 * 24 * 60 * 60 * 1000,
+        currentVersion: 'v0.6.0',
+        mode: 'major',
+      }),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('v0.6.2'),
+    )
+    expect(printMinAgeWarning).not.toHaveBeenCalled()
+  })
+
+  it('reports the cool-down when no release clears it', async () => {
+    process.argv = ['node', 'actions-up', '--min-age', '7']
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v0.6.0',
+        publishedAt: new Date(),
+        latestVersion: 'v0.6.3',
+        isBreaking: false,
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'cool-down',
+      update: null,
+    })
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(printMinAgeWarning).mock.calls).toHaveLength(1)
+    })
+
+    expect(printModeWarning).not.toHaveBeenCalled()
+    expect(resolveTargetReference).not.toHaveBeenCalled()
+  })
+
+  it('blames the cool-down when the mode still had a candidate', async () => {
+    process.argv = ['node', 'actions-up', '--mode', 'minor', '--min-age', '7']
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        publishedAt: new Date('2020-01-01T00:00:00.000Z'),
+        currentVersion: 'v3.0.0',
+        latestVersion: 'v4.0.0',
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'cool-down',
+      update: null,
+    })
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(printMinAgeWarning).mock.calls).toHaveLength(1)
+    })
+
     expect(printModeWarning).not.toHaveBeenCalled()
   })
 
@@ -702,7 +839,10 @@ describe('run', () => {
     vi.mocked(checkUpdates).mockResolvedValue([
       createUpdate({ currentVersion: 'e'.repeat(40), action }),
     ])
-    vi.mocked(getCompatibleUpdate).mockResolvedValue(null)
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'no-candidate',
+      update: null,
+    })
 
     run()
 
@@ -731,7 +871,11 @@ describe('run', () => {
         currentVersion: 'c'.repeat(40),
         latestVersion: 'v4.0.0',
       }),
-      createUpdate({ publishedAt: new Date(), latestVersion: 'v4.0.0' }),
+      createUpdate({
+        currentVersion: 'v3.0.0',
+        publishedAt: new Date(),
+        latestVersion: 'v3.1.0',
+      }),
       createUpdate({
         publishedAt: new Date('2020-01-01T00:00:00Z'),
         currentVersion: 'v3.0.0',
@@ -744,7 +888,10 @@ describe('run', () => {
         latestVersion: 'v3.1.0',
       }),
     ])
-    vi.mocked(getCompatibleUpdate).mockResolvedValue(null)
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'no-candidate',
+      update: null,
+    })
     vi.mocked(resolveTargetReference).mockResolvedValue(
       createUpdate({
         targetRefRateLimited: true,

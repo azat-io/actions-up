@@ -47,6 +47,11 @@ interface WriteJsonReportOptions {
   blockedByMode?: ActionUpdate[]
 
   /**
+   * Updates held back by the release age cool-down.
+   */
+  blockedByAge?: ActionUpdate[]
+
+  /**
    * Number of actions checked after excludes.
    */
   actionsToCheckCount: number
@@ -136,6 +141,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     function writeJsonReport({
       actionsToCheckCount,
       blockedByMode = [],
+      blockedByAge = [],
       outdated = [],
       skipped = [],
       scanResult,
@@ -151,6 +157,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             actionsToCheckCount,
             includeBranches,
             blockedByMode,
+            blockedByAge,
             preferTags,
             scanResult,
             outdated,
@@ -284,31 +291,20 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     outdated = kept
 
     /**
-     * Filter by minimum age if publishedAt is available.
+     * Resolve the update mode and the release age cool-down together. An action
+     * held back by either constraint steps down to the newest release that
+     * clears both, and is reported as blocked only when no release does.
      */
     let minAgeMs = options.minAge * 24 * 60 * 60 * 1000
     let now = Date.now()
-    let blockedByAge: typeof outdated = []
-    outdated = outdated.filter(update => {
-      if (!update.publishedAt) {
-        return true
-      }
-      let age = now - update.publishedAt.getTime()
-      if (age < minAgeMs) {
-        blockedByAge.push(update)
-        return false
-      }
-      return true
-    })
+    let tagsCache = new Map<
+      string,
+      Awaited<ReturnType<typeof githubClient.getAllTags>>
+    >()
+    let shaCache = new Map<string, string | null>()
 
-    let blockedByMode: typeof outdated = []
-    if (mode !== 'major') {
-      let tagsCache = new Map<
-        string,
-        Awaited<ReturnType<typeof githubClient.getAllTags>>
-      >()
-      let shaCache = new Map<string, string | null>()
-      let decisions = outdated.map(update => {
+    let decisions = await Promise.all(
+      outdated.map(async update => {
         let effectiveCurrentVersion = update.currentVersion
         if (isSha(update.currentVersion)) {
           let inline = parseVersionComment(update.action.comment)
@@ -321,56 +317,73 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           effectiveCurrentVersion,
           update.latestVersion,
         )
-        let allowed = (
-          mode === 'minor' ?
+        let allowedByMode =
+          mode === 'major' ||
+          (mode === 'minor' ?
             ['minor', 'patch', 'none']
-          : ['patch', 'none']).includes(level)
+          : ['patch', 'none']
+          ).includes(level)
+        let allowedByAge =
+          !update.publishedAt || now - update.publishedAt.getTime() >= minAgeMs
 
-        return { effectiveCurrentVersion, allowed, update }
-      })
-
-      let allowedByMode: typeof outdated = []
-      let compatibleFallbacks = await Promise.all(
-        decisions.map(async decision => {
-          if (decision.allowed) {
-            return { update: decision.update }
-          }
-
-          let compatible = await getCompatibleUpdate(githubClient, {
-            currentVersion: decision.effectiveCurrentVersion,
-            actionName: decision.update.action.name,
-            tagsCache,
-            shaCache,
-            mode,
-          })
-
-          if (!compatible) {
-            return { blocked: decision.update }
-          }
-
-          return {
-            update: {
-              ...decision.update,
-              latestVersion: compatible.version,
-              latestSha: compatible.sha,
-              isBreaking: false,
-              hasUpdate: true,
-            },
-          }
-        }),
-      )
-
-      for (let decision of compatibleFallbacks) {
-        if (decision.update) {
-          allowedByMode.push(decision.update)
-          continue
+        if (allowedByMode && allowedByAge) {
+          return { blockedBy: null, update }
         }
 
-        blockedByMode.push(decision.blocked)
-      }
+        let compatible = await getCompatibleUpdate(githubClient, {
+          currentVersion: effectiveCurrentVersion,
+          actionName: update.action.name,
+          tagsCache,
+          minAgeMs,
+          shaCache,
+          mode,
+          now,
+        })
 
-      outdated = allowedByMode
+        if (!compatible.update) {
+          /**
+           * The cool-down owns the outcome whenever the mode itself had a
+           * candidate to offer, so the notice names the constraint that
+           * actually held the action back.
+           */
+          let blockedBy: 'mode' | 'age' =
+            allowedByMode || compatible.reason === 'cool-down' ? 'age' : 'mode'
+          return { blockedBy, update }
+        }
+
+        return {
+          update: {
+            ...update,
+            isBreaking:
+              getUpdateLevel(
+                effectiveCurrentVersion,
+                compatible.update.version,
+              ) === 'major',
+            publishedAt: compatible.update.publishedAt,
+            latestVersion: compatible.update.version,
+            latestSha: compatible.update.sha,
+            hasUpdate: true,
+          },
+          blockedBy: null,
+        }
+      }),
+    )
+
+    let blockedByAge: typeof outdated = []
+    let blockedByMode: typeof outdated = []
+    let eligible: typeof outdated = []
+
+    for (let decision of decisions) {
+      if (decision.blockedBy === 'age') {
+        blockedByAge.push(decision.update)
+      } else if (decision.blockedBy === 'mode') {
+        blockedByMode.push(decision.update)
+      } else {
+        eligible.push(decision.update)
+      }
     }
+
+    outdated = eligible
 
     /**
      * Deduplicate resolution per action and version, so repeated occurrences
@@ -436,6 +449,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           actionsToCheckCount: actionsToCheck.length,
           status: 'up-to-date',
           blockedByMode,
+          blockedByAge,
           scanResult,
           skipped,
         })
@@ -474,6 +488,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         actionsToCheckCount: actionsToCheck.length,
         status: 'updates-available',
         blockedByMode,
+        blockedByAge,
         scanResult,
         outdated,
         skipped,
