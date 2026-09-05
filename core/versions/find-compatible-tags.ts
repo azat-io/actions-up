@@ -7,29 +7,34 @@ import { isSameTagFamily } from './is-same-tag-family'
 import { parseTagFamily } from './parse-tag-family'
 
 /**
- * Pick the newest compatible tag for the provided update mode.
+ * Rank the compatible tags for the provided update mode, newest first.
  *
  * Compatibility rules:
  *
+ * - `major`: greater than current.
  * - `minor`: same major, greater than current.
  * - `patch`: same major and minor, greater than current.
  *
  * Only tags from the current reference's own tag family are considered.
  *
+ * A caller that needs one answer takes the first entry. A caller that applies a
+ * further constraint, such as the release age cool-down, walks the list until
+ * an entry satisfies it.
+ *
  * @param tags - Available tags from GitHub API.
  * @param currentVersion - Current action version.
  * @param mode - Mode that limits the allowed update level.
- * @returns Best compatible tag or null when no compatible candidate exists.
+ * @returns Compatible tags ordered newest first, empty when none qualify.
  */
-export function findCompatibleTag(
+export function findCompatibleTags(
   tags: TagInfo[],
   currentVersion: string | null,
-  mode: Exclude<UpdateMode, 'major'>,
-): TagInfo | null {
+  mode: UpdateMode,
+): TagInfo[] {
   let current = parseTagFamily(currentVersion)
 
   if (!current || tags.length === 0) {
-    return null
+    return []
   }
 
   let currentMajor = semver.major(current.version)
@@ -47,7 +52,7 @@ export function findCompatibleTag(
       continue
     }
 
-    if (semver.major(family.version) !== currentMajor) {
+    if (mode !== 'major' && semver.major(family.version) !== currentMajor) {
       continue
     }
 
@@ -56,10 +61,6 @@ export function findCompatibleTag(
     }
 
     candidates.push({ parsed: family.version, tag: tagInfo })
-  }
-
-  if (candidates.length === 0) {
-    return null
   }
 
   candidates.sort((a, b) => {
@@ -72,5 +73,5 @@ export function findCompatibleTag(
     return bSpecific - aSpecific
   })
 
-  return candidates[0]!.tag
+  return candidates.map(candidate => candidate.tag)
 }

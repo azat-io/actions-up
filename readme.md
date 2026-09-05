@@ -579,6 +579,11 @@ npx actions-up --min-age 7
 Versions resolved from tags (repositories without releases, or `--prefer-tags`
 results) honor the cool-down using the tag's commit or tagger date.
 
+When the latest release is too new, the older releases are checked in turn and
+the newest one that clears the cool-down is offered instead. An action is
+reported as held back only when no release satisfies both the cool-down and
+`--mode`.
+
 Ignore comments (file/block/next-line/inline):
 
 ```yaml
