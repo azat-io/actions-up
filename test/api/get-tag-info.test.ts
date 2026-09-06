@@ -1056,6 +1056,178 @@ describe('getTagInfo', () => {
       sha: null,
     })
   })
+
+  /**
+   * A fresh response per call, because the body is read once.
+   *
+   * @returns A rate-limited 403 response.
+   */
+  function rateLimited(): Promise<Response> {
+    return Promise.resolve(
+      new Response('API rate limit exceeded', {
+        statusText: 'Forbidden',
+        status: 403,
+      }),
+    )
+  }
+
+  function respond(body: unknown): Promise<Response> {
+    return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+  }
+
+  function notFound(): Promise<Response> {
+    return Promise.resolve(
+      new Response('Not Found', { statusText: 'Not Found', status: 404 }),
+    )
+  }
+
+  it('throws when the annotated tag lookup is rate limited after a release', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.endsWith('/releases/tags/v7.0.0')) {
+        return respond({
+          published_at: '2024-05-01T00:00:00Z',
+          target_commitish: null,
+          body: 'Release notes',
+        })
+      }
+      if (urlString.endsWith('/git/ref/tags/v7.0.0')) {
+        /* Cspell:disable-next-line */
+        return respond({ object: { sha: 'tagobj7', type: 'tag' } })
+      }
+      return rateLimited()
+    })
+
+    await expect(
+      getTagInfo(context, { tag: 'v7.0.0', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context.caches.tagInfo.has('o/r#v7.0.0')).toBeFalsy()
+  })
+
+  it('throws when the commit lookup is rate limited after a release', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.endsWith('/releases/tags/v7.1.0')) {
+        return respond({
+          target_commitish: null,
+          published_at: null,
+          body: null,
+        })
+      }
+      if (urlString.endsWith('/git/ref/tags/v7.1.0')) {
+        return respond({ object: { sha: 'commit71', type: 'commit' } })
+      }
+      return rateLimited()
+    })
+
+    await expect(
+      getTagInfo(context, { tag: 'v7.1.0', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context.caches.tagInfo.has('o/r#v7.1.0')).toBeFalsy()
+  })
+
+  it('throws when the reference lookup is rate limited after a release', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.endsWith('/releases/tags/v7.2.0')) {
+        return respond({
+          published_at: '2024-05-02T00:00:00Z',
+          target_commitish: 'abcdef1',
+          body: 'Release notes',
+        })
+      }
+      return rateLimited()
+    })
+
+    await expect(
+      getTagInfo(context, { tag: 'v7.2.0', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context.caches.tagInfo.has('o/r#v7.2.0')).toBeFalsy()
+  })
+
+  it('throws when the annotated tag lookup is rate limited without a release', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.endsWith('/releases/tags/v7.3.0')) {
+        return notFound()
+      }
+      if (urlString.endsWith('/git/ref/tags/v7.3.0')) {
+        /* Cspell:disable-next-line */
+        return respond({ object: { sha: 'tagobj73', type: 'tag' } })
+      }
+      return rateLimited()
+    })
+
+    await expect(
+      getTagInfo(context, { tag: 'v7.3.0', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context.caches.tagInfo.has('o/r#v7.3.0')).toBeFalsy()
+  })
+
+  it('throws when the commit lookup is rate limited without a release', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.endsWith('/releases/tags/v7.4.0')) {
+        return notFound()
+      }
+      if (urlString.endsWith('/git/ref/tags/v7.4.0')) {
+        return respond({ object: { sha: 'commit74', type: 'commit' } })
+      }
+      return rateLimited()
+    })
+
+    await expect(
+      getTagInfo(context, { tag: 'v7.4.0', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context.caches.tagInfo.has('o/r#v7.4.0')).toBeFalsy()
+  })
+
+  it('keeps the release metadata when the commit lookup fails outright', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.endsWith('/releases/tags/v7.5.0')) {
+        return respond({
+          target_commitish: null,
+          published_at: null,
+          body: null,
+        })
+      }
+      if (urlString.endsWith('/git/ref/tags/v7.5.0')) {
+        return respond({ object: { sha: 'commit75', type: 'commit' } })
+      }
+      return Promise.resolve(
+        new Response('Server Error', {
+          statusText: 'Server Error',
+          status: 500,
+        }),
+      )
+    })
+
+    let info = await getTagInfo(context, {
+      tag: 'v7.5.0',
+      owner: 'o',
+      repo: 'r',
+    })
+
+    expect(info).toEqual({
+      sha: 'commit75',
+      tag: 'v7.5.0',
+      message: null,
+      date: null,
+    })
+  })
 })
 
 /* eslint-enable camelcase */
