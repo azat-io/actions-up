@@ -90,6 +90,7 @@
     "vite-plugin-dts": "^5.1.0",
     "vitest": "^4.1.11"
   },
+  "packageManager": "pnpm@11.25.0",
   "engines": {
     "node": "^18.3.0 || >=20.0.0"
   }
