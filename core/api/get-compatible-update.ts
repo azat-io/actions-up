@@ -68,6 +68,13 @@ interface GetCompatibleUpdateParameters {
   currentVersion: string | null
 
   /**
+   * Newest version the caller already vetted, usually the release the update
+   * check settled on. The walk never rises above it, so a tag that was never
+   * released cannot be offered. Omit it to consider every compatible tag.
+   */
+  latestVersion?: string | null
+
+  /**
    * Action name in `owner/repo` format (path suffix is allowed).
    */
   actionName: string
@@ -162,7 +169,10 @@ export async function getCompatibleUpdate(
     tagsCache.set(tagsCacheKey, tags)
   }
 
-  let candidates = findCompatibleTags(tags, currentVersion, mode)
+  let candidates = findCompatibleTags(tags, currentVersion, {
+    latestVersion: parameters.latestVersion,
+    mode,
+  })
   if (candidates.length === 0) {
     return { reason: 'no-candidate', update: null }
   }

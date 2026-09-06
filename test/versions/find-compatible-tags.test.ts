@@ -8,7 +8,7 @@ describe('findCompatibleTags', () => {
     let result = findCompatibleTags(
       [{ sha: 'sha-420', tag: 'v4.2.0', message: null, date: null }],
       null,
-      'minor',
+      { mode: 'minor' },
     )
     expect(result).toEqual([])
   })
@@ -17,13 +17,13 @@ describe('findCompatibleTags', () => {
     let result = findCompatibleTags(
       [{ sha: 'sha-420', tag: 'v4.2.0', message: null, date: null }],
       'main',
-      'minor',
+      { mode: 'minor' },
     )
     expect(result).toEqual([])
   })
 
   it('returns nothing when tags list is empty', () => {
-    let result = findCompatibleTags([], 'v4.0.0', 'minor')
+    let result = findCompatibleTags([], 'v4.0.0', { mode: 'minor' })
     expect(result).toEqual([])
   })
 
@@ -33,7 +33,7 @@ describe('findCompatibleTags', () => {
     let result = findCompatibleTags(
       [{ sha: 'sha-420', tag: 'v4.2.0', message: null, date: null }],
       'v4.0.0',
-      'minor',
+      { mode: 'minor' },
     )
 
     expect(result).toEqual([])
@@ -48,7 +48,7 @@ describe('findCompatibleTags', () => {
         { sha: 'sha-429', tag: 'v4.2.9', message: null, date: null },
       ],
       'v4.1.0',
-      'minor',
+      { mode: 'minor' },
     )
     expect(result.map(tag => tag.tag)).toEqual(['v4.3.2', 'v4.2.9'])
     expect(result[0]?.sha).toBe('sha-432')
@@ -62,7 +62,7 @@ describe('findCompatibleTags', () => {
         { sha: 'sha-427', tag: 'v4.2.7', message: null, date: null },
       ],
       'v4.2.1',
-      'patch',
+      { mode: 'patch' },
     )
     expect(result.map(tag => tag.tag)).toEqual(['v4.2.7', 'v4.2.4'])
   })
@@ -75,7 +75,7 @@ describe('findCompatibleTags', () => {
         { sha: 'sha-410', tag: 'v4.1.0', message: null, date: null },
       ],
       'v4.0.0',
-      'major',
+      { mode: 'major' },
     )
     expect(result.map(tag => tag.tag)).toEqual(['v6.0.0', 'v5.0.0', 'v4.1.0'])
   })
@@ -87,7 +87,7 @@ describe('findCompatibleTags', () => {
         { sha: 'sha-399', tag: 'v3.9.9', message: null, date: null },
       ],
       'v4.0.0',
-      'minor',
+      { mode: 'minor' },
     )
     expect(result).toEqual([])
   })
@@ -99,7 +99,7 @@ describe('findCompatibleTags', () => {
         { sha: 'sha-specific', tag: 'v1.1.0', message: null, date: null },
       ],
       'v1.0.0',
-      'minor',
+      { mode: 'minor' },
     )
     expect(result.map(tag => tag.tag)).toEqual(['v1.1.0', 'v1.1'])
     expect(result[0]?.sha).toBe('sha-specific')
@@ -112,7 +112,7 @@ describe('findCompatibleTags', () => {
         { sha: 'sha-500', tag: 'v5.0.0', message: null, date: null },
       ],
       'v4.2.2',
-      'patch',
+      { mode: 'patch' },
     )
     expect(result).toEqual([])
   })
@@ -124,7 +124,7 @@ describe('findCompatibleTags', () => {
         { sha: 'sha-421', tag: 'v4.2.1', message: null, date: null },
       ],
       'v4.2.0',
-      'patch',
+      { mode: 'patch' },
     )
     expect(result.map(tag => tag.tag)).toEqual(['v4.2.1'])
   })
@@ -138,7 +138,7 @@ describe('findCompatibleTags', () => {
     let result = findCompatibleTags(
       [{ sha: 'sha-421', tag: 'v4.2.1', message: null, date: null }],
       'v4.0.0',
-      'minor',
+      { mode: 'minor' },
     )
 
     expect(result).toEqual([])
@@ -153,16 +153,75 @@ describe('findCompatibleTags', () => {
     ]
 
     expect(
-      findCompatibleTags(tags, 'actions-v0.1.1', 'patch').map(tag => tag.tag),
+      findCompatibleTags(tags, 'actions-v0.1.1', { mode: 'patch' }).map(
+        tag => tag.tag,
+      ),
     ).toEqual(['actions-v0.1.2'])
     expect(
-      findCompatibleTags(tags, 'actions-v0.1.1', 'minor').map(tag => tag.tag),
+      findCompatibleTags(tags, 'actions-v0.1.1', { mode: 'minor' }).map(
+        tag => tag.tag,
+      ),
     ).toEqual(['actions-v0.2.0', 'actions-v0.1.2'])
   })
 
   it('never crosses into another tag family', () => {
     let tags = [{ tag: 'v0.9.9', message: null, date: null, sha: 'c' }]
 
-    expect(findCompatibleTags(tags, 'actions-v0.1.1', 'minor')).toEqual([])
+    expect(
+      findCompatibleTags(tags, 'actions-v0.1.1', { mode: 'minor' }),
+    ).toEqual([])
+  })
+
+  it('skips prereleases when the current version is stable', () => {
+    let result = findCompatibleTags(
+      [
+        { tag: 'v4.1.0-rc.1', sha: 'sha-410-rc', message: null, date: null },
+        { sha: 'sha-401', tag: 'v4.0.1', message: null, date: null },
+      ],
+      'v4.0.0',
+      { mode: 'minor' },
+    )
+
+    expect(result.map(tag => tag.tag)).toEqual(['v4.0.1'])
+  })
+
+  it('keeps prereleases when the current version is a prerelease', () => {
+    let result = findCompatibleTags(
+      [
+        { sha: 'sha-410-rc2', tag: 'v4.1.0-rc.2', message: null, date: null },
+        { sha: 'sha-401', tag: 'v4.0.1', message: null, date: null },
+      ],
+      'v4.0.0-rc.1',
+      { mode: 'minor' },
+    )
+
+    expect(result.map(tag => tag.tag)).toEqual(['v4.1.0-rc.2', 'v4.0.1'])
+  })
+
+  it('ignores tags above the vetted latest version', () => {
+    let result = findCompatibleTags(
+      [
+        { sha: 'sha-500', tag: 'v5.0.0', message: null, date: null },
+        { sha: 'sha-430', tag: 'v4.3.0', message: null, date: null },
+        { sha: 'sha-420', tag: 'v4.2.0', message: null, date: null },
+      ],
+      'v4.1.0',
+      { latestVersion: 'v4.3.0', mode: 'major' },
+    )
+
+    expect(result.map(tag => tag.tag)).toEqual(['v4.3.0', 'v4.2.0'])
+  })
+
+  it('ranks every compatible tag when the latest version carries no core', () => {
+    let result = findCompatibleTags(
+      [
+        { sha: 'sha-500', tag: 'v5.0.0', message: null, date: null },
+        { sha: 'sha-430', tag: 'v4.3.0', message: null, date: null },
+      ],
+      'v4.1.0',
+      { latestVersion: 'main', mode: 'major' },
+    )
+
+    expect(result.map(tag => tag.tag)).toEqual(['v5.0.0', 'v4.3.0'])
   })
 })

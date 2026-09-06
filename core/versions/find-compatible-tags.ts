@@ -17,26 +17,38 @@ import { parseTagFamily } from './parse-tag-family'
  *
  * Only tags from the current reference's own tag family are considered.
  *
+ * Prerelease members are ignored unless the current version is itself a
+ * prerelease, so a step-down never lands on the release candidate that a stable
+ * release was cut from.
+ *
  * A caller that needs one answer takes the first entry. A caller that applies a
  * further constraint, such as the release age cool-down, walks the list until
  * an entry satisfies it.
  *
  * @param tags - Available tags from GitHub API.
  * @param currentVersion - Current action version.
- * @param mode - Mode that limits the allowed update level.
+ * @param parameters - Constraints applied to the ranking.
+ * @param parameters.latestVersion - Newest version the caller already vetted.
+ *   Tags above it are ignored, so the walk cannot offer a tag that was never
+ *   released. Omit it, or pass a version that carries no comparable core, to
+ *   rank every compatible tag.
+ * @param parameters.mode - Mode that limits the allowed update level.
  * @returns Compatible tags ordered newest first, empty when none qualify.
  */
 export function findCompatibleTags(
   tags: TagInfo[],
   currentVersion: string | null,
-  mode: UpdateMode,
+  parameters: { latestVersion?: string | null; mode: UpdateMode },
 ): TagInfo[] {
+  let { latestVersion, mode } = parameters
   let current = parseTagFamily(currentVersion)
 
   if (!current || tags.length === 0) {
     return []
   }
 
+  let ceiling = parseTagFamily(latestVersion)?.version ?? null
+  let allowPrerelease = semver.prerelease(current.version) !== null
   let currentMajor = semver.major(current.version)
   let currentMinor = semver.minor(current.version)
   let candidates: { parsed: string; tag: TagInfo }[] = []
@@ -49,6 +61,14 @@ export function findCompatibleTags(
     }
 
     if (!semver.gt(family.version, current.version)) {
+      continue
+    }
+
+    if (!allowPrerelease && semver.prerelease(family.version) !== null) {
+      continue
+    }
+
+    if (ceiling && semver.gt(family.version, ceiling)) {
       continue
     }
 

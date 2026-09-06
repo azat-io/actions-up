@@ -325,6 +325,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
         let compatible = await getCompatibleUpdate(githubClient, {
           currentVersion: effectiveCurrentVersion,
+          latestVersion: update.latestVersion,
           actionName: update.action.name,
           tagsCache,
           minAgeMs,
