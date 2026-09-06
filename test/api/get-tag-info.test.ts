@@ -881,6 +881,25 @@ describe('getTagInfo', () => {
     ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
   })
 
+  it('throws GitHubRateLimitError when the API answers 403 with a rate limit', async () => {
+    let context = makeContext()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      /**
+       * A fresh response per request, because the body is read once.
+       */
+      let response = new Response('API rate limit exceeded', {
+        statusText: 'Forbidden',
+        status: 403,
+      })
+      return Promise.resolve(response)
+    })
+
+    await expect(
+      getTagInfo(context, { tag: 'v5.1.0', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context.caches.tagInfo.has('o/r#v5.1.0')).toBeFalsy()
+  })
+
   it('rethrows unexpected errors from both release and fallback paths', async () => {
     let context = makeContext()
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fatal'))

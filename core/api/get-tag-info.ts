@@ -15,6 +15,8 @@ import { makeRequest } from './make-request'
  * @param parameters.repo - Repository name.
  * @param parameters.tag - Tag name (may include 'refs/tags/' prefix).
  * @returns TagInfo object or null when tag cannot be found.
+ * @throws GitHubRateLimitError - When a request was rate limited, so the caller
+ *   reports the rate limit instead of reading the tag as undated.
  */
 export async function getTagInfo(
   context: GitHubClientContext,
@@ -158,6 +160,18 @@ export async function getTagInfo(
         context.caches.tagInfo.set(cacheKey, result)
         return result
       } catch (tagError: unknown) {
+        /**
+         * A rate limit arrives as a 403, so it has to be recognized before the
+         * status check below turns every HTTP failure into "tag not found".
+         * Otherwise the caller reads a rate-limited lookup as a tag without a
+         * publication date.
+         */
+        if (
+          tagError instanceof Error &&
+          tagError.message.includes('rate limit')
+        ) {
+          throw tagError
+        }
         if (tagError && typeof tagError === 'object' && 'status' in tagError) {
           context.caches.tagInfo.set(cacheKey, null)
           return null
