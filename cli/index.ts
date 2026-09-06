@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import 'node:worker_threads'
 import pc from 'picocolors'
 
+import type { CompatibleUpdate } from '../core/api/get-compatible-update'
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
 import type { ScanResult } from '../types/scan-result'
@@ -296,6 +297,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     >()
     let shaCache = new Map<string, string | null>()
 
+    /**
+     * Deduplicate the compatible lookup per action and version. The same
+     * blocked action can appear in many workflows, and each uncached lookup
+     * costs a tag listing plus a date walk. Promises are stored rather than
+     * values, so occurrences that start together share one request.
+     */
+    let compatibleCache = new Map<string, Promise<CompatibleUpdate>>()
+
     let decisions = await Promise.all(
       outdated.map(async update => {
         let effectiveCurrentVersion = update.currentVersion
@@ -323,16 +332,26 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           return { blockedBy: null, update }
         }
 
-        let compatible = await getCompatibleUpdate(githubClient, {
-          currentVersion: effectiveCurrentVersion,
-          latestVersion: update.latestVersion,
-          actionName: update.action.name,
-          tagsCache,
-          minAgeMs,
-          shaCache,
-          mode,
-          now,
-        })
+        let compatibleKey = [
+          update.action.name,
+          effectiveCurrentVersion,
+          update.latestVersion,
+        ].join('@')
+        let pending = compatibleCache.get(compatibleKey)
+        if (!pending) {
+          pending = getCompatibleUpdate(githubClient, {
+            currentVersion: effectiveCurrentVersion,
+            latestVersion: update.latestVersion,
+            actionName: update.action.name,
+            tagsCache,
+            minAgeMs,
+            shaCache,
+            mode,
+            now,
+          })
+          compatibleCache.set(compatibleKey, pending)
+        }
+        let compatible = await pending
 
         if (!compatible.update) {
           /**

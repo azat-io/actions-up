@@ -515,6 +515,37 @@ describe('run', () => {
     expect(printModeWarning).not.toHaveBeenCalled()
   })
 
+  it('looks a blocked action up once for every occurrence of it', async () => {
+    process.argv = ['node', 'actions-up', '--mode', 'patch', '--dry-run']
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({ currentVersion: 'v3.0.0', latestVersion: 'v4.0.0' }),
+      createUpdate({
+        action: { ...action, file: '/repo/.github/workflows/release.yml' },
+        currentVersion: 'v3.0.0',
+        latestVersion: 'v4.0.0',
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      update: { sha: 'd'.repeat(40), version: 'v3.0.1', publishedAt: null },
+      reason: null,
+    })
+    vi.mocked(resolveTargetReference).mockResolvedValue(
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v3.0.1' }),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('2 actions would be updated'),
+      )
+    })
+
+    expect(vi.mocked(getCompatibleUpdate).mock.calls).toHaveLength(1)
+  })
+
   it('passes the vetted latest version as the step-down ceiling', async () => {
     process.argv = ['node', 'actions-up', '--mode', 'patch', '--dry-run']
     let { action } = createUpdate()
