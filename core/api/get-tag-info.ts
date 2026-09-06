@@ -9,12 +9,19 @@ import { makeRequest } from './make-request'
  * metadata (date/message), then resolves the commit SHA via refs. Falls back to
  * refs-only lookup when release-by-tag is not found.
  *
+ * Every metadata request here is best effort, but a rate limit is reported
+ * rather than absorbed, on every path. Absorbing it would answer with a tag
+ * that carries no publication date, which the caller reads as a tag old enough
+ * to offer.
+ *
  * @param context - Client context.
  * @param parameters - Request parameters.
  * @param parameters.owner - Repository owner.
  * @param parameters.repo - Repository name.
  * @param parameters.tag - Tag name (may include 'refs/tags/' prefix).
  * @returns TagInfo object or null when tag cannot be found.
+ * @throws GitHubRateLimitError - When a request was rate limited, so the caller
+ *   reports the rate limit instead of reading the tag as undated.
  */
 export async function getTagInfo(
   context: GitHubClientContext,
@@ -72,7 +79,10 @@ export async function getTagInfo(
             if (!message && typeof tagData.message === 'string') {
               ;({ message } = tagData)
             }
-          } catch {
+          } catch (tagObjectError: unknown) {
+            if (isRateLimit(tagObjectError)) {
+              throw tagObjectError
+            }
             sha = objectSha
           }
         } else if (objectSha && objectType === 'commit') {
@@ -94,12 +104,17 @@ export async function getTagInfo(
               if (!date && authorDate) {
                 date = new Date(authorDate)
               }
-            } catch {
-              /* Ignore commit fetch errors. */
+            } catch (commitError: unknown) {
+              if (isRateLimit(commitError)) {
+                throw commitError
+              }
             }
           }
         }
-      } catch {
+      } catch (referenceError: unknown) {
+        if (isRateLimit(referenceError)) {
+          throw referenceError
+        }
         if (isLikelySha(releaseData.target_commitish)) {
           sha = releaseData.target_commitish
         }
@@ -108,7 +123,16 @@ export async function getTagInfo(
       let result: TagInfo = { tag: displayTag, message, date, sha }
       context.caches.tagInfo.set(cacheKey, result)
       return result
-    } catch {
+    } catch (releaseError: unknown) {
+      /**
+       * A rate limit reaches here from the release request itself or from any
+       * of the metadata requests above. Retrying the refs fallback would spend
+       * another request on the same exhausted budget.
+       */
+      if (isRateLimit(releaseError)) {
+        throw releaseError
+      }
+
       try {
         let referenceResp = await makeRequest(
           context,
@@ -135,7 +159,11 @@ export async function getTagInfo(
             sha = tagData.object.sha ?? sha
             message = tagData.message ?? null
             date = tagData.tagger.date ? new Date(tagData.tagger.date) : null
-          } catch {}
+          } catch (tagObjectError: unknown) {
+            if (isRateLimit(tagObjectError)) {
+              throw tagObjectError
+            }
+          }
         } else {
           try {
             let commitResp = await makeRequest(
@@ -149,8 +177,10 @@ export async function getTagInfo(
             message = commitData.message ?? null
             date =
               commitData.author.date ? new Date(commitData.author.date) : null
-          } catch {
-            /* Ignore commit fetch errors. */
+          } catch (commitError: unknown) {
+            if (isRateLimit(commitError)) {
+              throw commitError
+            }
           }
         }
 
@@ -158,6 +188,15 @@ export async function getTagInfo(
         context.caches.tagInfo.set(cacheKey, result)
         return result
       } catch (tagError: unknown) {
+        /**
+         * A rate limit arrives as a 403, so it has to be recognized before the
+         * status check below turns every HTTP failure into "tag not found".
+         * Otherwise the caller reads a rate-limited lookup as a tag without a
+         * publication date.
+         */
+        if (isRateLimit(tagError)) {
+          throw tagError
+        }
         if (tagError && typeof tagError === 'object' && 'status' in tagError) {
           context.caches.tagInfo.set(cacheKey, null)
           return null
@@ -166,7 +205,7 @@ export async function getTagInfo(
       }
     }
   } catch (error) {
-    if (error instanceof Error && error.message.includes('rate limit')) {
+    if (isRateLimit(error)) {
       throw new GitHubRateLimitError(context.rateLimitReset)
     }
     throw error
@@ -179,4 +218,14 @@ function isLikelySha(value: unknown): value is string {
   }
   let normalized = value.replace(/^v/u, '')
   return /^[0-9a-f]{7,40}$/iu.test(normalized)
+}
+
+/**
+ * Recognize the rate limit that `makeRequest` reports as a rewritten message.
+ *
+ * @param error - Error thrown by a metadata request.
+ * @returns True when the request was rate limited.
+ */
+function isRateLimit(error: unknown): error is Error {
+  return error instanceof Error && error.message.includes('rate limit')
 }
