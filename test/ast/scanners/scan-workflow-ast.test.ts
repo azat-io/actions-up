@@ -118,6 +118,178 @@ describe('scanWorkflowAst', () => {
     expect(actions[0]?.line).toBeGreaterThan(0)
   })
 
+  it('detects a job-level runs-on with a known runner image', () => {
+    let content = `${[
+      'name: CI',
+      'on: push',
+      'jobs:',
+      '  build:',
+      '    runs-on: ubuntu-22.04',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+    ].join('\n')}\n`
+    let filePath = '.github/workflows/ci.yml'
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(document_, content, filePath)
+    expect(actions).toHaveLength(2)
+    expect(actions[0]).toMatchObject({
+      version: 'ubuntu-22.04',
+      name: 'runner/ubuntu',
+      file: filePath,
+      type: 'runner',
+      job: 'build',
+      line: 5,
+    })
+  })
+
+  it('reports a runner for every job that declares one', () => {
+    let content = `${[
+      'jobs:',
+      '  build:',
+      '    runs-on: ubuntu-22.04',
+      '  test:',
+      '    runs-on: windows-2022',
+      '  release:',
+      '    runs-on: macos-14',
+    ].join('\n')}\n`
+    let filePath = '.github/workflows/ci.yml'
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(document_, content, filePath)
+    expect(actions.map(action => action.version)).toStrictEqual([
+      'ubuntu-22.04',
+      'windows-2022',
+      'macos-14',
+    ])
+    expect(actions.map(action => action.line)).toStrictEqual([3, 5, 7])
+  })
+
+  it.each([
+    ['a floating alias', 'ubuntu-latest'],
+    ['an expression', `\${{ matrix.os }}`],
+    ['a self-hosted label', 'self-hosted'],
+    ['an arm variant', 'ubuntu-24.04-arm'],
+    ['a sized macos label', 'macos-15-large'],
+    ['a retired image', 'ubuntu-20.04'],
+  ])('ignores runs-on with %s', (_description, label) => {
+    let content = `${['jobs:', '  build:', `    runs-on: ${label}`].join(
+      '\n',
+    )}\n`
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(
+      document_,
+      content,
+      '.github/workflows/ci.yml',
+    )
+    expect(actions).toHaveLength(0)
+  })
+
+  it('ignores runs-on written as a sequence', () => {
+    let content = `${[
+      'jobs:',
+      '  build:',
+      '    runs-on: [self-hosted, linux, x64]',
+      '  other:',
+      '    runs-on:',
+      '      - self-hosted',
+      '      - ubuntu-22.04',
+    ].join('\n')}\n`
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(
+      document_,
+      content,
+      '.github/workflows/ci.yml',
+    )
+    expect(actions).toHaveLength(0)
+  })
+
+  it('ignores runs-on written as a group and labels map', () => {
+    let content = `${[
+      'jobs:',
+      '  build:',
+      '    runs-on:',
+      '      group: ubuntu-runners',
+      '      labels: ubuntu-22.04',
+    ].join('\n')}\n`
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(
+      document_,
+      content,
+      '.github/workflows/ci.yml',
+    )
+    expect(actions).toHaveLength(0)
+  })
+
+  it.each([
+    [
+      'an anchored value',
+      ['jobs:', '  build:', '    runs-on: &runner ubuntu-22.04'],
+    ],
+    [
+      'a value carried to the next line',
+      ['jobs:', '  build:', '    runs-on:', '      ubuntu-22.04'],
+    ],
+    [
+      'a key inside a flow mapping',
+      ['jobs:', '  build: { runs-on: ubuntu-22.04 }'],
+    ],
+  ])('ignores runs-on written as %s', (_description, lines) => {
+    let content = `${lines.join('\n')}\n`
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(
+      document_,
+      content,
+      '.github/workflows/ci.yml',
+    )
+    expect(actions).toHaveLength(0)
+  })
+
+  it('reports a runner in a file with CRLF line endings', () => {
+    let content = [
+      'jobs:',
+      '  build:',
+      '    runs-on: ubuntu-22.04 # pinned',
+      '',
+    ].join('\r\n')
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(
+      document_,
+      content,
+      '.github/workflows/ci.yml',
+    )
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toMatchObject({ version: 'ubuntu-22.04', line: 3 })
+  })
+
+  it('ignores an empty runs-on', () => {
+    let content = `${['jobs:', '  build:', '    runs-on:'].join('\n')}\n`
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(
+      document_,
+      content,
+      '.github/workflows/ci.yml',
+    )
+    expect(actions).toHaveLength(0)
+  })
+
+  it('omits the job name for a runner under a non-scalar job key', () => {
+    let warnSpy = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
+    let content = `${[
+      'jobs:',
+      '  ? [complex, key]',
+      '  :',
+      '    runs-on: ubuntu-22.04',
+    ].join('\n')}\n`
+    let document_ = parseDocument(content)
+    let actions = scanWorkflowAst(
+      document_,
+      content,
+      '.github/workflows/ci.yml',
+    )
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.job).toBeUndefined()
+    warnSpy.mockRestore()
+  })
+
   it('detects both step-level and job-level uses', () => {
     let content = `${[
       'name: Mixed',

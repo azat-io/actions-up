@@ -16,6 +16,7 @@ import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { createGitHubClient } from '../core/api/create-github-client'
 import { filterDowngradeUpdates } from './filter-downgrade-updates'
 import { resolveScanDirectories } from './resolve-scan-directories'
+import { getRunnerUpdate } from '../core/runners/get-runner-update'
 import { getUpdateLevel } from '../core/versions/get-update-level'
 import { printRateLimitWarning } from './print-rate-limit-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
@@ -78,9 +79,6 @@ interface WriteJsonReportOptions {
   scanResult: ScanResult
 }
 
-/**
- * Run the CLI.
- */
 export function run(): void {
   let parsed = parseArguments(process.argv.slice(2), version)
 
@@ -186,17 +184,48 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         )
     let scanResult = mergeScanResults(scanResults)
 
-    let totalActions = scanResult.actions.length
+    /**
+     * Runner labels ride along in the scan result but resolve from a local
+     * table, so they are split off before any lookup and merged back in right
+     * before the prompt.
+     */
+    let scannedRunners = scanResult.actions.filter(
+      action => action.type === 'runner',
+    )
+    let scannedActions = scanResult.actions.filter(
+      action => action.type !== 'runner',
+    )
+
+    let totalActions = scannedActions.length
+    let totalRunners = scannedRunners.length
     let totalWorkflows = scanResult.workflows.size
     let totalCompositeActions = scanResult.compositeActions.size
 
     spinner?.success(
-      `Found ${pc.yellow(totalActions)} actions in ` +
-        `${pc.yellow(totalWorkflows)} workflows and ` +
-        `${pc.yellow(totalCompositeActions)} composite actions`,
+      `Found ${pc.yellow(totalActions)} ${pluralize(
+        totalActions,
+        'action',
+        'actions',
+      )}${
+        totalRunners > 0 ?
+          ` and ${pc.yellow(totalRunners)} ${pluralize(
+            totalRunners,
+            'runner',
+            'runners',
+          )}`
+        : ''
+      } in ${pc.yellow(totalWorkflows)} ${pluralize(
+        totalWorkflows,
+        'workflow',
+        'workflows',
+      )} and ${pc.yellow(totalCompositeActions)} composite ${pluralize(
+        totalCompositeActions,
+        'action',
+        'actions',
+      )}`,
     )
 
-    if (totalActions === 0) {
+    if (totalActions === 0 && totalRunners === 0) {
       if (json) {
         writeJsonReport({
           status: 'no-actions-found',
@@ -212,22 +241,39 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * Prepare actions list and apply CLI excludes if provided.
      */
-    let actionsToCheck = scanResult.actions
+    let actionsToCheck = scannedActions
+    let runnersToCheck = scannedRunners
 
     if (normalizedExcludes.length > 0) {
       let { parseExcludePatterns } =
         await import('../core/filters/parse-exclude-patterns')
       let regexes = parseExcludePatterns(normalizedExcludes)
       if (regexes.length > 0) {
-        actionsToCheck = actionsToCheck.filter(action => {
+        /**
+         * Runner entries are named `runner/<family>`, so the same patterns that
+         * exclude actions can exclude runners too.
+         *
+         * @param action - Scanned entry to test against the patterns.
+         * @returns True when no exclude pattern matches the entry name.
+         */
+        function isIncluded(action: (typeof actionsToCheck)[number]): boolean {
           let { name } = action
           for (let rx of regexes) {
+            /**
+             * A user-supplied `/pattern/g` keeps its `lastIndex` between calls,
+             * so a repeated name would match only every other time. The same
+             * patterns are reused across actions and runners, which makes the
+             * carry-over span both passes.
+             */
+            rx.lastIndex = 0
             if (rx.test(name)) {
               return false
             }
           }
           return true
-        })
+        }
+        actionsToCheck = actionsToCheck.filter(element => isIncluded(element))
+        runnersToCheck = runnersToCheck.filter(element => isIncluded(element))
       }
     }
 
@@ -238,8 +284,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       spinner = createSpinner('Checking for updates...').start()
     }
 
-    if (actionsToCheck.length === 0) {
-      spinner?.success('No actions to check after excludes')
+    if (actionsToCheck.length === 0 && runnersToCheck.length === 0) {
+      spinner?.success('No entries to check after excludes')
       if (json) {
         writeJsonReport({
           status: 'nothing-to-check',
@@ -263,6 +309,34 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     })
 
     /**
+     * Runner labels resolve from a local table and have no release behind them,
+     * so they skip every stage that reasons about refs: the cool-down has no
+     * publish date to measure, downgrade detection reads inline version
+     * comments, and target ref resolution turns a tag into a SHA.
+     */
+    let runnerUpdates: ActionUpdate[] = runnersToCheck.flatMap(runner => {
+      let currentLabel = runner.version ?? ''
+      let targetLabel = getRunnerUpdate(currentLabel)
+      if (!targetLabel) {
+        return []
+      }
+      return [
+        {
+          currentVersion: currentLabel,
+          latestVersion: targetLabel,
+          targetRef: targetLabel,
+          targetRefStyle: 'tag',
+          publishedAt: null,
+          isBreaking: true,
+          latestSha: null,
+          hasUpdate: true,
+          action: runner,
+          status: 'ok',
+        } satisfies ActionUpdate,
+      ]
+    })
+
+    /**
      * Apply ignore comments (file/block/next-line/inline).
      */
     let filtered: typeof updates = []
@@ -271,6 +345,16 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         let ignored = await shouldIgnore(update.action.file, update.action.line)
         if (!ignored) {
           filtered.push(update)
+        }
+      }),
+    )
+
+    let filteredRunners: ActionUpdate[] = []
+    await Promise.all(
+      runnerUpdates.map(async update => {
+        let ignored = await shouldIgnore(update.action.file, update.action.line)
+        if (!ignored) {
+          filteredRunners.push(update)
         }
       }),
     )
@@ -455,6 +539,20 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     outdated = outdated.filter(update => update.targetRef)
 
     /**
+     * Runners join once every ref-specific stage is done, so they reach the
+     * preview, the prompt and the writer exactly like an action update.
+     *
+     * Moving a job to a newer image is a major-level change by nature, so a
+     * narrowed update mode holds runners back and reports them the same way it
+     * reports a held-back major action bump.
+     */
+    if (mode === 'major') {
+      outdated.push(...filteredRunners)
+    } else {
+      blockedByMode.push(...filteredRunners)
+    }
+
+    /**
      * Updates that fell back to exact versions because tag validation was rate
      * limited.
      */
@@ -496,7 +594,11 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let breaking = outdated.filter(update => update.isBreaking)
 
     spinner?.success(
-      `Found ${pc.yellow(outdated.length)} updates available${
+      `Found ${pc.yellow(outdated.length)} ${pluralize(
+        outdated.length,
+        'update',
+        'updates',
+      )} available${
         breaking.length > 0 ?
           ` (${pc.redBright(breaking.length)} breaking)`
         : ''
@@ -548,15 +650,24 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         )
       }
 
-      console.info(pc.gray(`\n${outdated.length} actions would be updated\n`))
+      let noun = pluralize(outdated.length, 'entry', 'entries')
+      console.info(pc.gray(`\n${outdated.length} ${noun} would be updated\n`))
       return
     }
 
     if (options.yes) {
       /**
-       * Auto-update all actions with the resolved target ref.
+       * Auto-update every eligible entry, actions and runners alike.
        */
-      console.info(pc.yellow(`\n🔄 Updating ${outdated.length} actions...\n`))
+      console.info(
+        pc.yellow(
+          `\n🔄 Updating ${outdated.length} ${pluralize(
+            outdated.length,
+            'entry',
+            'entries',
+          )}...\n`,
+        ),
+      )
 
       await applyUpdates(outdated)
     } else {
@@ -581,7 +692,13 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       }
 
       console.info(
-        pc.yellow(`\n🔄 Updating ${selected.length} selected actions...\n`),
+        pc.yellow(
+          `\n🔄 Updating ${selected.length} selected ${pluralize(
+            selected.length,
+            'entry',
+            'entries',
+          )}...\n`,
+        ),
       )
 
       await applyUpdates(selected)
@@ -605,4 +722,20 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
     process.exit(1)
   }
+}
+
+/**
+ * Run the CLI.
+ */
+/**
+ * Selects the English singular or plural form for a count.
+ *
+ * @param count - Number the noun describes.
+ * @param singular - Form used for exactly one.
+ * @param plural - Form used for every other count.
+ * @returns The form matching the count.
+ */
+function pluralize(count: number, singular: string, plural: string): string {
+  let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
+  return pluralRules.select(count) === 'one' ? singular : plural
 }

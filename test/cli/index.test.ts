@@ -18,6 +18,7 @@ import { printMinAgeWarning } from '../../cli/print-min-age-warning'
 import { applyUpdates } from '../../core/ast/update/apply-updates'
 import { printModeWarning } from '../../cli/print-mode-warning'
 import { shouldIgnore } from '../../core/ignore/should-ignore'
+import { stripAnsi } from '../../core/interactive/strip-ansi'
 import { findRepoRoot } from '../../core/fs/find-repo-root'
 import { checkUpdates } from '../../core/api/check-updates'
 import { scanRecursive } from '../../core/scan-recursive'
@@ -168,7 +169,7 @@ describe('run', () => {
       client: {},
     })
     expect(spinnerMock.success).toHaveBeenCalledWith(
-      expect.stringContaining('updates available'),
+      expect.stringContaining('update available'),
     )
     expect(createSpinnerMock).toHaveBeenCalledWith('Checking for updates...')
     expect(promptUpdateSelection).not.toHaveBeenCalled()
@@ -180,6 +181,204 @@ describe('run', () => {
     )
     expect(consoleErrorSpy).not.toHaveBeenCalled()
     expect(stdoutWriteSpy).not.toHaveBeenCalled()
+  })
+
+  it('updates an outdated runner label with --yes', async () => {
+    process.argv = ['node', 'actions-up', '--yes']
+
+    let runner = {
+      file: '/repo/.github/workflows/ci.yml',
+      version: 'ubuntu-22.04',
+      type: 'runner' as const,
+      name: 'runner/ubuntu',
+      job: 'build',
+      line: 4,
+    }
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([runner]))
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+        expect.objectContaining({
+          currentVersion: 'ubuntu-22.04',
+          latestVersion: 'ubuntu-24.04',
+          targetRef: 'ubuntu-24.04',
+          targetRefStyle: 'tag',
+          isBreaking: true,
+          action: runner,
+        }),
+      ])
+    })
+
+    expect(vi.mocked(checkUpdates).mock.calls[0]?.[0]).toStrictEqual([])
+    expect(resolveTargetReference).not.toHaveBeenCalled()
+    expect(getCompatibleUpdate).not.toHaveBeenCalled()
+    let scanMessage = vi.mocked(spinnerMock.success).mock.calls[0]?.[0]
+    expect(scanMessage).toBeTypeOf('string')
+    expect(stripAnsi(scanMessage as string)).toContain('0 actions and 1 runner')
+  })
+
+  it('leaves a runner alone when it is already current', async () => {
+    process.argv = ['node', 'actions-up', '--yes']
+
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([
+        {
+          file: '/repo/.github/workflows/ci.yml',
+          version: 'ubuntu-24.04',
+          type: 'runner' as const,
+          name: 'runner/ubuntu',
+          line: 4,
+        },
+      ]),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('latest version'),
+      )
+    })
+
+    expect(applyUpdates).not.toHaveBeenCalled()
+  })
+
+  it('leaves a runner alone when it carries no label', async () => {
+    process.argv = ['node', 'actions-up', '--yes']
+
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([
+        {
+          file: '/repo/.github/workflows/ci.yml',
+          type: 'runner' as const,
+          name: 'runner/ubuntu',
+          line: 4,
+        },
+      ]),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('latest version'),
+      )
+    })
+
+    expect(applyUpdates).not.toHaveBeenCalled()
+  })
+
+  it('holds runners back when the update mode is narrowed', async () => {
+    process.argv = ['node', 'actions-up', '--yes', '--mode', 'minor']
+
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([
+        {
+          file: '/repo/.github/workflows/ci.yml',
+          version: 'ubuntu-22.04',
+          type: 'runner' as const,
+          name: 'runner/ubuntu',
+          line: 4,
+        },
+      ]),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('latest version'),
+      )
+    })
+
+    expect(applyUpdates).not.toHaveBeenCalled()
+  })
+
+  it('skips a runner covered by an ignore comment', async () => {
+    process.argv = ['node', 'actions-up', '--yes']
+
+    vi.mocked(shouldIgnore).mockResolvedValue(true)
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([
+        {
+          file: '/repo/.github/workflows/ci.yml',
+          version: 'ubuntu-22.04',
+          type: 'runner' as const,
+          name: 'runner/ubuntu',
+          line: 4,
+        },
+      ]),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('latest version'),
+      )
+    })
+
+    expect(applyUpdates).not.toHaveBeenCalled()
+  })
+
+  it('excludes runners by name pattern', async () => {
+    process.argv = ['node', 'actions-up', '--yes', '--exclude', '^runner/']
+
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([
+        {
+          file: '/repo/.github/workflows/ci.yml',
+          version: 'ubuntu-22.04',
+          type: 'runner' as const,
+          name: 'runner/ubuntu',
+          line: 4,
+        },
+      ]),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(spinnerMock.success).toHaveBeenCalledWith(
+        'No entries to check after excludes',
+      )
+    })
+
+    expect(applyUpdates).not.toHaveBeenCalled()
+    expect(checkUpdates).not.toHaveBeenCalled()
+  })
+
+  it('excludes every occurrence when the pattern carries the global flag', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--yes',
+      '--exclude',
+      String.raw`/^runner\//g`,
+    ]
+
+    let runner = {
+      file: '/repo/.github/workflows/ci.yml',
+      version: 'ubuntu-22.04',
+      type: 'runner' as const,
+      name: 'runner/ubuntu',
+      line: 4,
+    }
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([runner, { ...runner, line: 9 }]),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(spinnerMock.success).toHaveBeenCalledWith(
+        'No entries to check after excludes',
+      )
+    })
+
+    expect(applyUpdates).not.toHaveBeenCalled()
   })
 
   it('prints help without running the pipeline', () => {
@@ -513,7 +712,7 @@ describe('run', () => {
 
     await vi.waitFor(() => {
       expect(consoleInfoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('2 actions would be updated'),
+        expect.stringContaining('2 entries would be updated'),
       )
     })
 
@@ -539,7 +738,7 @@ describe('run', () => {
 
     await vi.waitFor(() => {
       expect(consoleInfoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('1 actions would be updated'),
+        expect.stringContaining('1 entry would be updated'),
       )
     })
 
@@ -571,7 +770,7 @@ describe('run', () => {
 
     await vi.waitFor(() => {
       expect(consoleInfoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('2 actions would be updated'),
+        expect.stringContaining('2 entries would be updated'),
       )
     })
 
@@ -597,7 +796,7 @@ describe('run', () => {
 
     await vi.waitFor(() => {
       expect(consoleInfoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('1 actions would be updated'),
+        expect.stringContaining('1 entry would be updated'),
       )
     })
 
@@ -635,7 +834,7 @@ describe('run', () => {
 
     await vi.waitFor(() => {
       expect(consoleInfoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('1 actions would be updated'),
+        expect.stringContaining('1 entry would be updated'),
       )
     })
 
@@ -724,7 +923,7 @@ describe('run', () => {
 
     await vi.waitFor(() => {
       expect(consoleInfoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('1 actions would be updated'),
+        expect.stringContaining('1 entry would be updated'),
       )
     })
 

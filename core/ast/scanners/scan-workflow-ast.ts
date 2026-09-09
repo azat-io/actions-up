@@ -4,7 +4,9 @@ import type { GitHubAction } from '../../../types/github-action'
 
 import { isWorkflowStructure } from '../../schema/workflow/is-workflow-structure'
 import { parseActionReference } from '../../parsing/parse-action-reference'
+import { buildRunsOnPattern, getLine } from '../../runners/runs-on-line'
 import { extractUsesFromSteps } from '../utils/extract-uses-from-steps'
+import { parseRunnerLabel } from '../../runners/parse-runner-label'
 import { getLineNumberForKey } from '../utils/get-line-number'
 import { findMapPair } from '../utils/find-map-pair'
 import { isYAMLMap } from '../guards/is-yaml-map'
@@ -17,7 +19,8 @@ import { isNode } from '../guards/is-node'
  *
  * Navigates AST structure `jobs -> <job> -> steps` and extracts `uses` entries
  * with corresponding line numbers. Also scans for job-level `uses` fields that
- * indicate Reusable Workflows.
+ * indicate Reusable Workflows, and for job-level `runs-on` labels that name a
+ * known GitHub-hosted runner image.
  *
  * @param document - Parsed YAML document of a workflow file.
  * @param content - Original file content.
@@ -71,6 +74,39 @@ export function scanWorkflowAst(
           action.comment = usesPair.value.comment
         }
         actions.push(action)
+      }
+    }
+
+    /**
+     * Check for GitHub-hosted runner labels.
+     *
+     * Only a plain scalar is considered. Sequences (`[self-hosted, linux]`),
+     * the `{ group, labels }` form, expressions and floating aliases carry no
+     * single image version to compare against, so they are left alone.
+     *
+     * The source line is matched against the very pattern the writer uses, so a
+     * form the writer cannot rewrite — an anchored value, a value carried to
+     * the next line, a key inside a flow mapping — is never offered as an
+     * update that would then silently do nothing.
+     */
+    let runsOnPair = findMapPair(jobNode.value, 'runs-on')
+    if (runsOnPair?.value && runsOnPair.key && isScalar(runsOnPair.value)) {
+      let label = String(runsOnPair.value.value)
+      let parsed = parseRunnerLabel(label)
+      let lineNumber = getLineNumberForKey(content, runsOnPair.key)
+      let line = getLine(content, lineNumber)
+      if (parsed && line !== null && buildRunsOnPattern(label).test(line)) {
+        let runner: GitHubAction = {
+          name: `runner/${parsed.family}`,
+          line: lineNumber,
+          type: 'runner',
+          version: label,
+          file: filePath,
+        }
+        if (jobName) {
+          runner.job = jobName
+        }
+        actions.push(runner)
       }
     }
 

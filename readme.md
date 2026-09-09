@@ -24,6 +24,8 @@ reproducible CI, or preserve tag-style references when you need to stay on tags.
   `action.yml`/`action.yaml`)
 - **Reusable Workflows**: Detects and updates reusable workflow calls at the job
   level
+- **Runner Images**: Detects outdated `runs-on` labels and moves them to the
+  newest generally available GitHub-hosted image
 - **Flexible update styles**: Use SHA pinning by default, or preserve tag-style
   references with `--style preserve`
 - **Batch Updates**: Update multiple actions at once
@@ -160,6 +162,10 @@ Alongside `updates`, the report lists what was left out: `skipped`, plus
 the cool-down held back. `status` describes the actionable updates only, so it
 can read `up-to-date` while those lists are not empty.
 
+Runner updates appear in `runners`, with `summary.totalRunnerUpdates` and
+`summary.totalRunners` counting available updates and scanned labels. `updates`,
+`summary.totalUpdates` and `summary.totalActions` exclude runners.
+
 ### Custom Directory
 
 By default, Actions Up scans `.github`.
@@ -206,6 +212,23 @@ written next to it. When the family cannot be resolved — it has no other
 members, or the repository answers with an unrelated family — the reference is
 listed in the output instead of being rewritten.
 
+### Runner Images
+
+Actions Up updates `runs-on` labels, such as `ubuntu-22.04` → `ubuntu-24.04`, to
+the newest stable GitHub-hosted image in its bundled catalog. Upgrade Actions Up
+to receive new images.
+
+Only known, versioned `ubuntu-*`, `macos-*` and `windows-*` labels without
+suffixes are supported. The key and string value must share a line; quotes and
+comments are preserved.
+
+Arrays, runner groups, self-hosted/custom labels, `*-latest`, expressions,
+matrix values, YAML anchors and flow mappings are skipped. Retired and unknown
+images are ignored; preview images are never update targets.
+
+Runner updates appear as `runner/<family>` in the interactive list. Use
+`--exclude '^runner/'` or `# actions-up-ignore` to skip them.
+
 ### Quiet Mode
 
 Use `--quiet` (`-q`) to hide the skipped and blocked-update warnings (for
@@ -228,6 +251,9 @@ npx actions-up --mode patch
 In `minor` and `patch` modes, Actions Up tries to find the newest compatible tag
 first (for example, from `@v4` in `minor` mode it will choose the latest
 `v4.x.y`). If no compatible version exists, that action is skipped.
+
+`runs-on` updates count as major changes and appear in `blockedByMode` when
+`--mode minor` or `--mode patch` is used.
 
 ### Update Style
 
