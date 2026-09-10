@@ -199,6 +199,41 @@ describe('resolveTargetReference', () => {
     expect(result.targetRefStyle).toBe('tag')
   })
 
+  it('falls back to the exact tag in semver style when the latest sha is unknown', async () => {
+    let client = createClient()
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        currentVersion: 'v7.1.2',
+        latestVersion: 'v8.3.2',
+        latestSha: null,
+      }),
+      { style: 'semver', mode: 'major', client },
+    )
+
+    expect(result.targetRef).toBe('v8.3.2')
+    expect(result.targetRefStyle).toBe('tag')
+    expect(client.getTagSha).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the exact tag in preserve style when the latest sha is unknown', async () => {
+    let client = createClient()
+
+    let result = await resolveTargetReference(
+      createUpdate({
+        action: { name: 'actions/checkout', type: 'external', version: 'v7' },
+        latestVersion: 'v8.3.2',
+        currentVersion: 'v7',
+        latestSha: null,
+      }),
+      { style: 'preserve', client },
+    )
+
+    expect(result.targetRef).toBe('v8.3.2')
+    expect(result.targetRefStyle).toBe('tag')
+    expect(client.getTagSha).not.toHaveBeenCalled()
+  })
+
   it('defaults to major granularity in semver style without explicit mode', async () => {
     let client = createClient()
 
