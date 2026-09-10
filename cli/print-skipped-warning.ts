@@ -30,13 +30,21 @@ export function printSkippedWarning(
   let tagFamilySkipped = skipped.filter(
     update => update.skipReason === 'tag-family',
   )
+  let notComparableSkipped = skipped.filter(
+    update => update.skipReason === 'not-comparable',
+  )
 
   /**
    * Every reason without a dedicated group still has to reach the user, so a
    * new `skipReason` is reported here until it gets its own wording instead of
    * disappearing from the output.
    */
-  let groupedReasons = new Set(['unsupported-style', 'tag-family', 'branch'])
+  let groupedReasons = new Set([
+    'unsupported-style',
+    'not-comparable',
+    'tag-family',
+    'branch',
+  ])
   let otherSkipped = skipped.filter(
     update =>
       update.skipReason !== undefined && !groupedReasons.has(update.skipReason),
@@ -63,6 +71,13 @@ export function printSkippedWarning(
     printSkippedGroup(
       tagFamilySkipped,
       'whose tag family differs from the latest release (check them manually)',
+    )
+  }
+
+  if (notComparableSkipped.length > 0) {
+    printSkippedGroup(
+      notComparableSkipped,
+      'that cannot be compared with the latest tag as versions (check them manually)',
     )
   }
 

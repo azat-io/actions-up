@@ -252,6 +252,50 @@ describe('checkUpdates', () => {
     })
   })
 
+  it('moves an included branch ref that carries no version', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v1.2.3',
+        name: 'v1.2.3',
+        sha: 'aaa111',
+        url: 'u',
+      }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('branch'),
+      getTagSha: vi.fn().mockResolvedValue('aaa111'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@main',
+        ref: 'owner/repo@main',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'main',
+      },
+    ]
+
+    let result = await checkUpdates(actions, undefined, {
+      includeBranches: true,
+    })
+
+    expect(result[0]).toMatchObject({
+      currentRefType: 'branch',
+      latestVersion: 'v1.2.3',
+      hasUpdate: true,
+      status: 'ok',
+    })
+  })
+
   it('handles action name without owner/repo gracefully', async () => {
     let client: GitHubClient = {
       getMatchingTagReferences: vi.fn().mockResolvedValue([]),
@@ -2317,7 +2361,7 @@ describe('checkUpdates', () => {
     })
   })
 
-  it('flags update when non-semver versions differ', async () => {
+  it('skips references that cannot be compared as versions', async () => {
     let client: GitHubClient = {
       getLatestRelease: vi.fn().mockResolvedValue({
         publishedAt: new Date('2024-01-01'),
@@ -2351,8 +2395,128 @@ describe('checkUpdates', () => {
 
     let result = await checkUpdates(actions)
     expect(result[0]).toMatchObject({
+      skipReason: 'not-comparable',
       latestVersion: 'latest',
-      hasUpdate: true,
+      status: 'skipped',
+      hasUpdate: false,
+    })
+  })
+
+  it('skips a version pin when the newest tag carries no version', async () => {
+    let client: GitHubClient = {
+      getAllTags: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'nightly', sha: 'ccc333', message: null, date: null },
+        ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getTagSha: vi.fn().mockResolvedValue('ccc333'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@v1.0.0',
+        ref: 'owner/repo@v1.0.0',
+        name: 'owner/repo',
+        version: 'v1.0.0',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      skipReason: 'not-comparable',
+      latestVersion: 'nightly',
+      status: 'skipped',
+      hasUpdate: false,
+    })
+  })
+
+  it('skips a sha pin when the newest tag carries no version', async () => {
+    let client: GitHubClient = {
+      getAllTags: vi
+        .fn()
+        .mockResolvedValue([
+          { tag: 'nightly', sha: 'ccc333', message: null, date: null },
+        ]),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getTagSha: vi.fn().mockResolvedValue('ccc333'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getRefType: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        ref: 'owner/repo@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        version: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        comment: ' v1.0.0',
+        name: 'owner/repo',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      skipReason: 'not-comparable',
+      latestVersion: 'nightly',
+      status: 'skipped',
+      hasUpdate: false,
+    })
+  })
+
+  it('skips a reference without a version of its own', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01'),
+        isPrerelease: false,
+        description: null,
+        version: 'v1.2.3',
+        name: 'v1.2.3',
+        sha: 'aaa111',
+        url: 'u',
+      }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getTagSha: vi.fn().mockResolvedValue('aaa111'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getAllTags: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getRefType: vi.fn(),
+      getTagInfo: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@',
+        ref: 'owner/repo@',
+        name: 'owner/repo',
+        type: 'external',
+        version: '',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      skipReason: 'not-comparable',
+      status: 'skipped',
+      hasUpdate: false,
     })
   })
 
@@ -2390,7 +2554,9 @@ describe('checkUpdates', () => {
 
     let result = await checkUpdates(actions)
     expect(result[0]).toMatchObject({
+      skipReason: 'not-comparable',
       latestVersion: 'dev-build',
+      status: 'skipped',
       hasUpdate: false,
     })
   })
