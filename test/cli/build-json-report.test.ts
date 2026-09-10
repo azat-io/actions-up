@@ -243,6 +243,19 @@ describe('buildJsonReport', () => {
           targetRef: null,
         },
       ],
+      summary: {
+        totalCompositeActions: 1,
+        totalBreakingUpdates: 1,
+        totalActionsChecked: 2,
+        totalRunnerUpdates: 0,
+        totalBlockedByMode: 1,
+        totalBlockedByAge: 1,
+        totalWorkflows: 2,
+        totalActions: 2,
+        totalSkipped: 1,
+        totalUpdates: 1,
+        totalRunners: 0,
+      },
       options: {
         directories: ['.', '.github'],
         excludePatterns: ['^local/'],
@@ -255,20 +268,93 @@ describe('buildJsonReport', () => {
         json: true,
         minAge: 3,
       },
-      summary: {
-        totalCompositeActions: 1,
-        totalBreakingUpdates: 1,
-        totalActionsChecked: 2,
-        totalBlockedByMode: 1,
-        totalBlockedByAge: 1,
-        totalWorkflows: 2,
-        totalActions: 2,
-        totalSkipped: 1,
-        totalUpdates: 1,
-      },
       status: 'updates-available',
       schemaVersion: 1,
+      runners: [],
     })
+  })
+
+  it('reports runner updates apart from action updates', () => {
+    let runnerAction = {
+      file: '/repo/.github/workflows/ci.yml',
+      version: 'ubuntu-22.04',
+      type: 'runner' as const,
+      name: 'runner/ubuntu',
+      job: 'build',
+      line: 4,
+    }
+    let actionAction = {
+      file: '/repo/.github/workflows/ci.yml',
+      type: 'external' as const,
+      name: 'actions/checkout',
+      version: 'v4',
+      line: 6,
+    }
+
+    let report = buildJsonReport({
+      outdated: [
+        {
+          latestSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          targetRef: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          latestVersion: 'v5.0.0',
+          targetRefStyle: 'sha',
+          action: actionAction,
+          currentVersion: 'v4',
+          publishedAt: null,
+          isBreaking: true,
+          hasUpdate: true,
+        },
+        {
+          currentVersion: 'ubuntu-22.04',
+          latestVersion: 'ubuntu-24.04',
+          targetRef: 'ubuntu-24.04',
+          targetRefStyle: 'tag',
+          action: runnerAction,
+          publishedAt: null,
+          isBreaking: true,
+          latestSha: null,
+          hasUpdate: true,
+        },
+      ],
+      scanResult: {
+        workflows: new Map([['0:.github/workflows/ci.yml', []]]),
+        compositeActions: new Map<string, string>(),
+        actions: [runnerAction, actionAction],
+      },
+      status: 'updates-available',
+      actionsToCheckCount: 2,
+      includeBranches: false,
+      excludePatterns: [],
+      directories: ['.'],
+      blockedByMode: [],
+      preferTags: false,
+      blockedByAge: [],
+      recursive: false,
+      mode: 'major',
+      cwd: '/repo',
+      style: 'sha',
+      skipped: [],
+      minAge: 1,
+    })
+
+    expect(report.updates).toHaveLength(1)
+    expect(report.updates[0]?.action.name).toBe('actions/checkout')
+    expect(report.runners).toHaveLength(1)
+    expect(report.runners[0]).toMatchObject({
+      action: { name: 'runner/ubuntu', type: 'runner' },
+      currentVersion: 'ubuntu-22.04',
+      latestVersion: 'ubuntu-24.04',
+      targetRef: 'ubuntu-24.04',
+    })
+
+    expect(report.summary).toMatchObject({
+      totalBreakingUpdates: 1,
+      totalRunnerUpdates: 1,
+      totalRunners: 1,
+      totalUpdates: 1,
+      totalActions: 1,
+    })
+    expect(report.schemaVersion).toBe(1)
   })
 
   it('keeps absolute paths when files are outside the current working directory', () => {

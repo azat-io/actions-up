@@ -22,6 +22,7 @@ export default defineConfig({
     'rolldown',
     'segs',
     'worktree',
+    'xlarge',
     'zipball',
   ],
   ignorePaths: [

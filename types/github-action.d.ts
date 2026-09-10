@@ -4,11 +4,24 @@
 export interface GitHubAction {
   /**
    * Type of the GitHub Action.
+   *
+   * `runner` is not an action but a `runs-on` label, carried through the same
+   * pipeline so that excludes, ignore comments and the interactive prompt apply
+   * to it unchanged.
    */
-  type: 'reusable-workflow' | 'composite' | 'external' | 'docker' | 'local'
+  type:
+    | 'reusable-workflow'
+    | 'composite'
+    | 'external'
+    | 'docker'
+    | 'runner'
+    | 'local'
 
   /**
    * Version or tag of the action (e.g., 'v1', 'main', commit SHA).
+   *
+   * For `runner` entries this is the full `runs-on` label (e.g.
+   * 'ubuntu-22.04'), because the label is what gets rewritten in the file.
    */
   version?: string | null
 
@@ -39,6 +52,10 @@ export interface GitHubAction {
 
   /**
    * Full name of the action (e.g., 'actions/checkout').
+   *
+   * For `runner` entries this is the runner family as `runner/<family>` (e.g.
+   * 'runner/ubuntu'), which stays stable across image versions so that
+   * `--exclude` patterns keep matching after an update.
    */
   name: string
 

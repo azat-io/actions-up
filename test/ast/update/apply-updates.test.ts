@@ -1013,4 +1013,229 @@ describe('applyUpdates', () => {
       'utf8',
     )
   })
+
+  describe('runs-on', () => {
+    let filePath = '/repo/.github/workflows/ci.yml'
+
+    function createRunnerUpdate(
+      overrides: Partial<ActionUpdate> = {},
+    ): ActionUpdate {
+      return {
+        action: {
+          version: 'ubuntu-22.04',
+          name: 'runner/ubuntu',
+          type: 'runner',
+          file: filePath,
+          job: 'build',
+          line: 3,
+        },
+        currentVersion: 'ubuntu-22.04',
+        latestVersion: 'ubuntu-24.04',
+        targetRef: 'ubuntu-24.04',
+        targetRefStyle: 'tag',
+        publishedAt: null,
+        isBreaking: true,
+        latestSha: null,
+        hasUpdate: true,
+        status: 'ok',
+        ...overrides,
+      }
+    }
+
+    async function applyToLine(
+      line: string,
+      overrides: Partial<ActionUpdate> = {},
+    ): Promise<string> {
+      let original = ['jobs:', '  build:', line, '    steps: []', ''].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+      await applyUpdates([createRunnerUpdate(overrides)])
+      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
+      assertString(written)
+      return written.split('\n', 3)[2]!
+    }
+
+    it('replaces an unquoted label', async () => {
+      await expect(applyToLine('    runs-on: ubuntu-22.04')).resolves.toBe(
+        '    runs-on: ubuntu-24.04',
+      )
+    })
+
+    it('preserves single quotes around the label', async () => {
+      await expect(applyToLine("    runs-on: 'ubuntu-22.04'")).resolves.toBe(
+        "    runs-on: 'ubuntu-24.04'",
+      )
+    })
+
+    it('preserves double quotes around the label', async () => {
+      await expect(applyToLine('    runs-on: "ubuntu-22.04"')).resolves.toBe(
+        '    runs-on: "ubuntu-24.04"',
+      )
+    })
+
+    it('preserves a quoted runs-on key', async () => {
+      await expect(applyToLine('    "runs-on": ubuntu-22.04')).resolves.toBe(
+        '    "runs-on": ubuntu-24.04',
+      )
+    })
+
+    it('keeps a trailing inline comment', async () => {
+      await expect(
+        applyToLine('    runs-on: ubuntu-22.04 # pinned on purpose'),
+      ).resolves.toBe('    runs-on: ubuntu-24.04 # pinned on purpose')
+    })
+
+    it('never appends a version comment of its own', async () => {
+      await expect(
+        applyToLine('    runs-on: ubuntu-22.04'),
+      ).resolves.not.toContain('#')
+    })
+
+    it.each([
+      ['without a comment', '    runs-on: ubuntu-22.04\r'],
+      ['with a comment', '    runs-on: ubuntu-22.04 # pinned\r'],
+      ['with a quoted label', '    runs-on: "ubuntu-22.04"  # pinned\r'],
+    ])('rewrites a CRLF line %s', async (_description, line) => {
+      let original = ['jobs:\r', '  build:\r', line, '\r', ''].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate()])
+
+      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
+      assertString(written)
+      expect(written.split('\n', 3)[2]).toBe(
+        line.replace('ubuntu-22.04', 'ubuntu-24.04'),
+      )
+      expect(written).not.toBe(original)
+    })
+
+    it('leaves the line alone when the label does not match', async () => {
+      await expect(applyToLine('    runs-on: ubuntu-24.04')).resolves.toBe(
+        '    runs-on: ubuntu-24.04',
+      )
+    })
+
+    it('leaves a flow mapping alone', async () => {
+      await expect(applyToLine('    { runs-on: ubuntu-22.04 }')).resolves.toBe(
+        '    { runs-on: ubuntu-22.04 }',
+      )
+    })
+
+    it('rewrites only the scanned line when two jobs share a label', async () => {
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '  test:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate()])
+
+      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
+      assertString(written)
+      expect(written.split('\n', 3)[2]).toBe('    runs-on: ubuntu-24.04')
+      expect(written.split('\n', 5)[4]).toBe('    runs-on: ubuntu-22.04')
+    })
+
+    it.each([
+      ['no target ref', { targetRef: null }],
+      ['no current version', { currentVersion: null }],
+      [
+        'no line number',
+        {
+          action: {
+            type: 'runner' as const,
+            name: 'runner/ubuntu',
+            file: filePath,
+          },
+        },
+      ],
+      [
+        'a non-positive line number',
+        {
+          action: {
+            type: 'runner' as const,
+            name: 'runner/ubuntu',
+            file: filePath,
+            line: 0,
+          },
+        },
+      ],
+    ])('writes the file unchanged with %s', async (_description, overrides) => {
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate(overrides)])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+    })
+
+    it('writes the file unchanged when the scanned line is gone', async () => {
+      let original = ['jobs:', '  build:', ''].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([
+        createRunnerUpdate({
+          action: {
+            version: 'ubuntu-22.04',
+            name: 'runner/ubuntu',
+            type: 'runner',
+            file: filePath,
+            line: 99,
+          },
+        }),
+      ])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+    })
+
+    it('refuses to write a label that is not a runner label', async () => {
+      let errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([
+        createRunnerUpdate({ targetRef: 'ubuntu-24.04\nmalicious: true' }),
+      ])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid runner label'),
+      )
+      errorSpy.mockRestore()
+    })
+
+    it('skips a runner entry marked as skipped', async () => {
+      let original = [
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-22.04',
+        '',
+      ].join('\n')
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([createRunnerUpdate({ status: 'skipped' })])
+
+      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+    })
+  })
 })

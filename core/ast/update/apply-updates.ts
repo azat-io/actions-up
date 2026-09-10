@@ -2,6 +2,8 @@ import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
 
+import { buildRunsOnPattern } from '../../runners/runs-on-line'
+
 /**
  * Regex capture groups for parsing `uses:` lines in YAML files.
  */
@@ -35,6 +37,44 @@ interface MatchGroups {
 }
 
 /**
+ * Regex capture groups for parsing `runs-on:` lines in workflow files.
+ */
+interface RunsOnMatchGroups {
+  /**
+   * Trailing inline comment after the label, if any.
+   */
+  comment?: string
+
+  /**
+   * Context before the label, including indentation, key and spaces.
+   */
+  prefix: string
+
+  /**
+   * Quote character around the label or empty string for unquoted values.
+   */
+  quote: string
+
+  /**
+   * Trailing spaces after the label.
+   */
+  after: string
+
+  /**
+   * Carriage return closing the line in a CRLF file, if present.
+   */
+  eol: string
+}
+
+/**
+ * Matches a runner label that is safe to write back.
+ *
+ * Target labels come from the local runner table, so this only guards against a
+ * caller assembling an update by hand.
+ */
+const RUNNER_LABEL_VALUE = /^[a-z]+-\d+(?:\.\d+)?$/u
+
+/**
  * Apply updates using the already-resolved target refs.
  *
  * @param updates - Array of updates to apply.
@@ -66,16 +106,17 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
         continue
       }
 
+      if (update.action.type === 'runner') {
+        content = rewriteRunsOn(content, update)
+        continue
+      }
+
       let targetReference = update.targetRef ?? update.latestSha
       let targetReferenceStyle =
         update.targetRefStyle ?? (update.latestSha ? 'sha' : null)
 
       if (!targetReference || !targetReferenceStyle) {
         continue
-      }
-
-      function escapeRegExp(string_: string): string {
-        return string_.replaceAll(/[$()*+\-./?[\\\]^{|}]/gu, String.raw`\$&`)
       }
 
       let escapedName = escapeRegExp(update.action.name)
@@ -231,8 +272,68 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
   await Promise.all(filePromises)
 }
 
+/**
+ * Rewrite the `runs-on` label on the single line the update was scanned from.
+ *
+ * A runner label is a literal value rather than a resolvable ref, so it needs
+ * its own writer: the `uses:` pattern below matches `name@ref` pairs and would
+ * never see it.
+ *
+ * @param content - Current file content.
+ * @param update - Runner update to write.
+ * @returns File content with the label replaced, unchanged when it did not
+ *   match.
+ */
+function rewriteRunsOn(content: string, update: ActionUpdate): string {
+  let targetLabel = update.targetRef
+  let currentLabel = update.currentVersion
+  let lineNumber = update.action.line
+
+  if (!targetLabel || !currentLabel || !lineNumber || lineNumber <= 0) {
+    return content
+  }
+
+  if (!RUNNER_LABEL_VALUE.test(targetLabel)) {
+    console.error(`Invalid runner label: ${targetLabel}`)
+    return content
+  }
+
+  let lines = content.split('\n')
+  let lineIndex = lineNumber - 1
+
+  /**
+   * A recorded line that no longer exists means the scan is stale, which is a
+   * reason to write nothing.
+   */
+  if (lineIndex >= lines.length) {
+    return content
+  }
+
+  lines[lineIndex] = lines[lineIndex]!.replace(
+    buildRunsOnPattern(currentLabel),
+    (_matched: string, ...captures: unknown[]) => {
+      let groups = captures.at(-1) as RunsOnMatchGroups
+      let label = `${groups.quote}${targetLabel}${groups.quote}`
+      let tail = `${groups.after}${groups.comment ?? ''}${groups.eol}`
+      return `${groups.prefix}${label}${tail}`
+    },
+  )
+
+  return lines.join('\n')
+}
+
 function looksLikeInlineVersionComment(comment: string): boolean {
   return /^#\s*[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?\s*$/u.test(
     comment.trim(),
   )
+}
+
+/**
+ * Escape a string for literal use inside a regular expression.
+ *
+ * @param string_ - Raw string to escape.
+ * @returns Escaped string safe to embed in a pattern.
+ */
+function escapeRegExp(string_: string): string {
+  return string_.replaceAll(/[$()*+\-./?[\\\]^{|}]/gu, String.raw`\$&`)
 }
