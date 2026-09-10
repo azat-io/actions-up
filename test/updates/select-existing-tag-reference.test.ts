@@ -114,7 +114,7 @@ describe('selectExistingTagReference', () => {
     expect(result).toEqual({ reference: 'v8.3.2', rateLimited: false })
   })
 
-  it('accepts an existing floating tag when latest SHA is unknown', async () => {
+  it('falls back to the exact latest version when latest SHA is unknown', async () => {
     let client = createClient({
       getTagSha: vi.fn().mockResolvedValue(staleSha),
     })
@@ -126,7 +126,8 @@ describe('selectExistingTagReference', () => {
       latestSha: null,
     })
 
-    expect(result).toEqual({ rateLimited: false, reference: 'v8' })
+    expect(result).toEqual({ reference: 'v8.3.2', rateLimited: false })
+    expect(client.getTagSha).not.toHaveBeenCalled()
   })
 
   it('reports rate limiting when tag validation hits the API limit', async () => {

@@ -45,6 +45,8 @@ interface SelectExistingTagReferenceResult {
  * is published). Candidates are probed in the provided order; a candidate is
  * accepted when its tag exists and points at the latest release. When no
  * candidate matches, the exact latest version is returned as a safe fallback.
+ * The same fallback covers an unknown latest commit, which leaves every
+ * candidate unverifiable.
  *
  * @param client - GitHub client instance.
  * @param parameters - Lookup parameters.
@@ -59,6 +61,17 @@ export async function selectExistingTagReference(
   let segments = actionName.split('/')
   let [owner, repo] = segments
   if (!owner || !repo) {
+    return { reference: latestVersion, rateLimited: false }
+  }
+
+  /**
+   * A candidate is accepted only when it points at the resolved commit, so
+   * without that commit there is nothing to accept it against. An existing
+   * floating tag may have been left behind at an older release, and writing it
+   * unchecked would move the workflow backwards, so the exact latest version is
+   * used and no candidate is probed.
+   */
+  if (!latestSha) {
     return { reference: latestVersion, rateLimited: false }
   }
 
@@ -82,7 +95,7 @@ export async function selectExistingTagReference(
     if (!candidateSha) {
       return false
     }
-    return !latestSha || compareSha(candidateSha, latestSha)
+    return compareSha(candidateSha, latestSha)
   })
 
   return {
