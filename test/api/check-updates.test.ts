@@ -165,7 +165,12 @@ describe('checkUpdates', () => {
     ]
 
     let result = await checkUpdates(actions)
-    expect(result[0]).toMatchObject({ latestVersion: null, hasUpdate: false })
+    expect(result[0]).toMatchObject({
+      skipReason: 'check-failed',
+      latestVersion: null,
+      status: 'skipped',
+      hasUpdate: false,
+    })
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('Failed to check owner/repo:'),
       expect.any(Error),
@@ -203,6 +208,110 @@ describe('checkUpdates', () => {
       hasUpdate: false,
     })
     expect(client.getLatestRelease).not.toHaveBeenCalled()
+  })
+
+  it('skips references whose type lookup failed', async () => {
+    let client: GitHubClient = {
+      getRefType: vi.fn().mockRejectedValue(new Error('boom')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@main',
+        ref: 'owner/repo@main',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'main',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      skipReason: 'ref-type-unavailable',
+      currentRefType: 'unknown',
+      latestVersion: null,
+      status: 'skipped',
+      hasUpdate: false,
+    })
+    expect(client.getLatestRelease).not.toHaveBeenCalled()
+  })
+
+  it('skips references whose type lookup failed with branches included', async () => {
+    let client: GitHubClient = {
+      getRefType: vi.fn().mockRejectedValue(new Error('boom')),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@main',
+        ref: 'owner/repo@main',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'main',
+      },
+    ]
+
+    let result = await checkUpdates(actions, undefined, {
+      includeBranches: true,
+    })
+
+    expect(result[0]).toMatchObject({
+      skipReason: 'ref-type-unavailable',
+      status: 'skipped',
+      hasUpdate: false,
+    })
+    expect(client.getLatestRelease).not.toHaveBeenCalled()
+  })
+
+  it('reports a rate limited reference type lookup as a rate limit', async () => {
+    let rateLimitError = new GitHubRateLimitError(
+      'GitHub API rate limit exceeded.',
+    )
+    let client: GitHubClient = {
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockRejectedValue(rateLimitError),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+      getLatestRelease: vi.fn(),
+      getAllReleases: vi.fn(),
+      getAllTags: vi.fn(),
+      getTagInfo: vi.fn(),
+      getTagSha: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'owner/repo@main',
+        ref: 'owner/repo@main',
+        name: 'owner/repo',
+        type: 'external',
+        version: 'main',
+      },
+    ]
+
+    await expect(checkUpdates(actions)).rejects.toMatchObject({
+      name: 'GitHubRateLimitError',
+    })
   })
 
   it('includes branch references when explicitly enabled', async () => {

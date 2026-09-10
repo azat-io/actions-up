@@ -23,14 +23,14 @@ import { isSha } from '../versions/is-sha'
  */
 interface ReleaseCheckResult extends LatestInfo {
   /**
+   * Reason why lookup was skipped, if applicable.
+   */
+  skipReason?: 'ref-type-unavailable' | 'check-failed' | 'tag-family' | 'branch'
+
+  /**
    * Detected style of the current reference being evaluated.
    */
   currentRefType?: ActionUpdate['currentRefType']
-
-  /**
-   * Reason why lookup was skipped, if applicable.
-   */
-  skipReason?: 'tag-family' | 'branch'
 
   /**
    * Whether lookup succeeded or was skipped (e.g., branch ref).
@@ -214,7 +214,29 @@ export async function checkUpdates(
       let firstVersion = currentVersions[0]?.version
       let currentReferenceType = deriveCurrentReferenceType(firstVersion)
       if (firstVersion && !isSha(firstVersion) && !isSemverLike(firstVersion)) {
-        let referenceType = await client.getRefType(owner, repo, firstVersion)
+        let referenceType: 'branch' | 'tag' | null
+        try {
+          referenceType = await client.getRefType(owner, repo, firstVersion)
+        } catch (error) {
+          if (isRateLimitError(error)) {
+            throw error
+          }
+          /**
+           * A failed lookup is not an answer: the reference may well be a
+           * branch, and pinning it would rewrite a floating reference the run
+           * was never asked to touch. It is reported whether or not branches
+           * are included, because nothing is known about it either way.
+           */
+          return {
+            skipReason: 'ref-type-unavailable' as const,
+            currentRefType: currentReferenceType,
+            status: 'skipped' as const,
+            publishedAt: null,
+            version: null,
+            actionKey,
+            sha: null,
+          }
+        }
         currentReferenceType =
           referenceType === 'branch' || referenceType === 'tag' ?
             referenceType
@@ -530,6 +552,8 @@ export async function checkUpdates(
        */
       console.warn(`Failed to check ${actionName}:`, error)
       return {
+        skipReason: 'check-failed' as const,
+        status: 'skipped' as const,
         currentRefType: 'unknown',
         publishedAt: null,
         version: null,

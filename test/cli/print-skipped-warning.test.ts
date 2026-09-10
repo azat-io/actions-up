@@ -255,6 +255,43 @@ describe('printSkippedWarning', () => {
     )
   })
 
+  it('prints a dedicated warning for unresolved reference types', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'main' },
+        skipReason: 'ref-type-unavailable' as const,
+        currentVersion: 'main',
+      },
+    ]
+
+    printSkippedWarning(skipped, false, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '1 action whose reference type could not be resolved',
+      ),
+    )
+    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('pinned to branches'),
+    )
+  })
+
+  it('prints a dedicated warning for failed update checks', () => {
+    let skipped = [
+      {
+        action: { name: 'actions/checkout', version: 'v4' },
+        skipReason: 'check-failed' as const,
+        currentVersion: 'v4',
+      },
+    ]
+
+    printSkippedWarning(skipped, false, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action whose update check failed'),
+    )
+  })
+
   it('deduplicates repeated identifiers and shows occurrence count', () => {
     let entry = {
       action: { name: 'actions/checkout', version: 'main' },
