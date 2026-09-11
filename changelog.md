@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.20.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.19.0...v1.20.0)
+
+### 🚀 Features
+
+- Report cool-down holdbacks in the json output
+  ([571c993](https://github.com/azat-io/actions-up/commit/571c993))
+- Support updating runs-on runner labels
+  ([a61955c](https://github.com/azat-io/actions-up/commit/a61955c))
+
+### 🐞 Bug Fixes
+
+- Never write a floating tag without verifying its commit
+  ([a78a039](https://github.com/azat-io/actions-up/commit/a78a039))
+- Never report a non-version tag as an update
+  ([891bbcf](https://github.com/azat-io/actions-up/commit/891bbcf))
+- Never pin a reference whose type lookup failed
+  ([dae2dc0](https://github.com/azat-io/actions-up/commit/dae2dc0))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+- George Song ([@gsong](https://github.com/gsong))
+
 ## v1.19.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.18.0...v1.19.0)
