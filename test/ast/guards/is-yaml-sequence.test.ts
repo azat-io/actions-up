@@ -11,14 +11,7 @@ describe('isYAMLSequence', () => {
 
   it('returns true for nested arrays in YAML', () => {
     let document_ = parseDocument('items:\n  - one\n  - two')
-    let contents = document_.contents as unknown as Record<string, unknown>
-    let items = contents['items'] as unknown[]
-    expect(items).toBeDefined()
-    expect(items[0]).toBeDefined()
-    expect(typeof items[0]).toBe('object')
-    expect('value' in (items[0] as object)).toBeTruthy()
-    let firstItem = items[0] as { value: unknown }
-    expect(isYAMLSequence(firstItem.value)).toBeTruthy()
+    expect(isYAMLSequence(document_.get('items'))).toBeTruthy()
   })
 
   it('returns true for objects with items array', () => {

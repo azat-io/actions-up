@@ -1,4 +1,4 @@
-import type { Stats } from 'node:fs'
+import type { PathLike, Stats } from 'node:fs'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile, readdir, lstat } from 'node:fs/promises'
@@ -16,6 +16,37 @@ vi.mock(import('node:fs/promises'), () => ({
 vi.mock(import('yaml'), () => ({
   parseDocument: vi.fn(),
 }))
+
+/**
+ * The part of `fs.Stats` that the walker reads.
+ */
+type EntryStats = Pick<Stats, 'isSymbolicLink' | 'isDirectory' | 'isFile'>
+
+/**
+ * `lstat` narrowed to the fields the walker reads.
+ */
+let mockedLstat = vi.mocked<(path: PathLike) => Promise<EntryStats>>(lstat)
+
+/**
+ * `readdir` narrowed to the overload the scanner calls, which lists entry
+ * names.
+ */
+let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
+
+/**
+ * The part of a parsed YAML document that the scanners read.
+ */
+interface ScannedDocument {
+  contents?: unknown
+  toJSON(): unknown
+}
+
+/**
+ * `parseDocument` narrowed to what the scanners read, so tests can supply
+ * hand-built ASTs, including malformed ones.
+ */
+let mockedParseDocument =
+  vi.mocked<(source: string) => ScannedDocument>(parseDocument)
 
 interface MockNode {
   value?: { toJSON?(): unknown; items: MockNode[] } | unknown
@@ -100,7 +131,7 @@ describe('scanRecursive', () => {
   })
 
   it('works with absolute root and dot directory', async () => {
-    vi.mocked(lstat).mockRejectedValue(new Error('ENOENT'))
+    mockedLstat.mockRejectedValue(new Error('ENOENT'))
 
     let result = await scanRecursive('/some/absolute/path', '.')
 
@@ -110,39 +141,35 @@ describe('scanRecursive', () => {
   })
 
   it('scans workflow files recursively', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('.github') || value.endsWith('workflows')) {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('.github')) {
-        return Promise.resolve(['workflows']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['workflows'])
       }
       if (value.endsWith('workflows')) {
-        return Promise.resolve(['ci.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['ci.yml'])
       }
       return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           build: {
@@ -150,7 +177,7 @@ describe('scanRecursive', () => {
           },
         },
         on: { push: {} },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanRecursive('.', '.github')
@@ -160,45 +187,41 @@ describe('scanRecursive', () => {
   })
 
   it('scans composite action files recursively', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('.github') || value.endsWith('actions')) {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('.github')) {
-        return Promise.resolve(['actions']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['actions'])
       }
       if (value.endsWith('actions')) {
-        return Promise.resolve(['action.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['action.yml'])
       }
       return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/setup-node@v5' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanRecursive('.', '.github')
@@ -209,7 +232,7 @@ describe('scanRecursive', () => {
   })
 
   it('uses parent directory name for composite action key', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (
         value.endsWith('project') ||
@@ -220,43 +243,37 @@ describe('scanRecursive', () => {
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('project')) {
-        return Promise.resolve(['actions']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['actions'])
       }
       if (value.endsWith('actions')) {
-        return Promise.resolve(['build']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['build'])
       }
       if (value.endsWith('build')) {
-        return Promise.resolve(['action.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['action.yml'])
       }
       return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/setup-node@v5' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanRecursive('.', 'project')
@@ -268,40 +285,38 @@ describe('scanRecursive', () => {
   })
 
   it('uses file path as key for root-level composite action', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('action.yml')) {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => false,
           isFile: () => true,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => true,
         isFile: () => false,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (!value.endsWith('.yml')) {
-        return Promise.resolve(['action.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['action.yml'])
       }
       return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         runs: {
           steps: [{ uses: 'actions/setup-node@v5' }],
           using: 'composite',
         },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanRecursive('.', '')
@@ -315,37 +330,35 @@ describe('scanRecursive', () => {
   })
 
   it('skips files that are neither workflows nor actions', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('dir')) {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('dir')) {
-        return Promise.resolve(['random.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['random.yml'])
       }
       return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('random: content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         random: 'content',
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanRecursive('.', 'dir')
@@ -356,7 +369,7 @@ describe('scanRecursive', () => {
   })
 
   it('returns empty result when directory does not exist', async () => {
-    vi.mocked(lstat).mockRejectedValue(new Error('ENOENT'))
+    mockedLstat.mockRejectedValue(new Error('ENOENT'))
 
     let result = await scanRecursive('.', 'nonexistent')
 
@@ -366,28 +379,26 @@ describe('scanRecursive', () => {
   })
 
   it('skips unreadable files gracefully', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('dir')) {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('dir')) {
-        return Promise.resolve(['broken.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['broken.yml'])
       }
       return Promise.resolve([])
     })
@@ -402,34 +413,32 @@ describe('scanRecursive', () => {
   })
 
   it('scans the current directory when directory is empty string', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value.endsWith('ci.yml')) {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => false,
           isFile: () => true,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => true,
         isFile: () => false,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (!value.endsWith('.yml')) {
-        return Promise.resolve(['ci.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['ci.yml'])
       }
       return Promise.resolve([])
     })
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
+    mockedParseDocument.mockReturnValue(
       createMockDocument({
         jobs: {
           build: {
@@ -437,7 +446,7 @@ describe('scanRecursive', () => {
           },
         },
         on: { push: {} },
-      }) as unknown as ReturnType<typeof parseDocument>,
+      }),
     )
 
     let result = await scanRecursive('.', '')

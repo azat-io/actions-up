@@ -67,7 +67,7 @@ describe('makeRequest', () => {
         headers: {
           'x-ratelimit-reset': String(1700000001),
           'x-ratelimit-remaining': '123',
-        } as unknown as HeadersInit,
+        },
         status: 200,
       }),
     )

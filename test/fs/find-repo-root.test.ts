@@ -1,4 +1,4 @@
-import type { Stats } from 'node:fs'
+import type { PathLike, Stats } from 'node:fs'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { stat } from 'node:fs/promises'
@@ -8,6 +8,12 @@ import { findRepoRoot } from '../../core/fs/find-repo-root'
 vi.mock(import('node:fs/promises'), () => ({
   stat: vi.fn(),
 }))
+
+/**
+ * `stat` narrowed to what the lookup relies on: it only checks that the call
+ * resolves, so any subset of the stats will do.
+ */
+let mockedStat = vi.mocked<(path: PathLike) => Promise<Partial<Stats>>>(stat)
 
 describe('findRepoRoot', () => {
   beforeEach(() => {
@@ -22,9 +28,9 @@ describe('findRepoRoot', () => {
    */
   function mockExisting(existing: string[]): void {
     let set = new Set(existing)
-    vi.mocked(stat).mockImplementation((path: unknown) =>
+    mockedStat.mockImplementation((path: unknown) =>
       set.has(String(path)) ?
-        Promise.resolve({} as unknown as Stats)
+        Promise.resolve({})
       : Promise.reject(new Error('ENOENT')),
     )
   }
@@ -54,9 +60,9 @@ describe('findRepoRoot', () => {
   })
 
   it('treats a .git file (worktree) as a marker', async () => {
-    vi.mocked(stat).mockImplementation((path: unknown) =>
+    mockedStat.mockImplementation((path: unknown) =>
       String(path) === '/repo/.git' ?
-        Promise.resolve({ isDirectory: () => false } as unknown as Stats)
+        Promise.resolve({ isDirectory: () => false })
       : Promise.reject(new Error('ENOENT')),
     )
 

@@ -94,7 +94,8 @@ describe('getTagSha', () => {
 
   it('returns null when cached entry is undefined', async () => {
     let context = makeContext()
-    context.caches.tagSha.set('o/r#v1.1.1', undefined as unknown as string)
+    context.caches.tagSha.set('o/r#v1.1.1', 'cached-sha')
+    vi.spyOn(context.caches.tagSha, 'get').mockReturnValue(undefined)
     let fetchSpy = vi.spyOn(globalThis, 'fetch')
 
     let sha = await getTagSha(context, { tag: 'v1.1.1', owner: 'o', repo: 'r' })

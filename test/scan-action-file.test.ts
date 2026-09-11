@@ -14,6 +14,21 @@ vi.mock(import('yaml'), () => ({
   parseDocument: vi.fn(),
 }))
 
+/**
+ * The part of a parsed YAML document that the scanners read.
+ */
+interface ScannedDocument {
+  contents?: unknown
+  toJSON(): unknown
+}
+
+/**
+ * `parseDocument` narrowed to what the scanners read, so tests can supply
+ * hand-built ASTs, including malformed ones.
+ */
+let mockedParseDocument =
+  vi.mocked<(source: string) => ScannedDocument>(parseDocument)
+
 interface MockNode {
   value?: { toJSON?(): unknown; items: MockNode[] } | unknown
   toJSON?(): unknown
@@ -102,11 +117,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile('.github/actions/build/action.yml')
 
@@ -130,11 +141,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile('.github/actions/empty/action.yml')
 
@@ -150,11 +157,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile('.github/actions/no-steps/action.yml')
 
@@ -170,11 +173,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile('.github/actions/docker/action.yml')
 
@@ -190,11 +189,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile('.github/actions/node/action.yml')
 
@@ -203,7 +198,7 @@ describe('scanActionFile', () => {
 
   it('throws error for invalid YAML', async () => {
     vi.mocked(readFile).mockResolvedValue('invalid: yaml: content')
-    vi.mocked(parseDocument).mockImplementation(() => {
+    mockedParseDocument.mockImplementation(() => {
       throw new Error('Invalid YAML')
     })
 
@@ -222,9 +217,7 @@ describe('scanActionFile', () => {
 
   it('returns empty array for null action content', async () => {
     vi.mocked(readFile).mockResolvedValue('')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(null) as unknown as ReturnType<typeof parseDocument>,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(null))
 
     let result = await scanActionFile('.github/actions/null/action.yml')
 
@@ -240,11 +233,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile('.github/actions/invalid/action.yml')
     expect(result).toEqual([])
@@ -270,10 +259,10 @@ describe('scanActionFile', () => {
       toJSON: () => ({
         runs: { steps: [{ uses: 'actions/checkout@v4' }], using: 'composite' },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanActionFile('.github/actions/ast-not-seq/action.yml')
     expect(result).toEqual([])
@@ -288,11 +277,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile(
       '.github/actions/non-string-uses/action.yml',
@@ -309,11 +294,7 @@ describe('scanActionFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockAction) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockAction))
 
     let result = await scanActionFile(
       '.github/actions/primitive-step/action.yml',
@@ -352,10 +333,10 @@ describe('scanActionFile', () => {
       toJSON: () => ({
         runs: { steps: [{ uses: 'actions/checkout@v4' }], using: 'composite' },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanActionFile(
       '.github/actions/map-without-node/action.yml',
@@ -371,10 +352,10 @@ describe('scanActionFile', () => {
       contents: {
         items: [{ key: { value: 'runs' }, value: 'composite' }],
       },
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanActionFile('.github/actions/runs-not-map/action.yml')
     expect(result).toEqual([])
@@ -385,10 +366,10 @@ describe('scanActionFile', () => {
       toJSON: () => ({
         runs: { steps: [{ uses: 'actions/checkout@v4' }], using: 'composite' },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('action content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanActionFile('.github/actions/no-contents/action.yml')
     expect(result).toEqual([])

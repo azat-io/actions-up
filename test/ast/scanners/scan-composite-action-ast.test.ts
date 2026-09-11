@@ -1,6 +1,4 @@
-import type { Document } from 'yaml'
-
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseDocument } from 'yaml'
 
 import { scanCompositeActionAst } from '../../../core/ast/scanners/scan-composite-action-ast'
@@ -48,36 +46,16 @@ describe('scanCompositeActionAst', () => {
   })
 
   it('returns empty when steps pair lacks AST value despite JSON array', () => {
-    let fakeStepsPair = {
-      key: { value: 'steps' },
-      value: null,
-    }
-
-    let fakeDocument = {
-      contents: {
-        items: [
-          {
-            value: {
-              items: [fakeStepsPair],
-            },
-            key: { value: 'runs' },
-          },
-        ],
+    let content = 'runs:\n  using: composite\n  steps: []\n'
+    let document_ = parseDocument(content)
+    document_.setIn(['runs', 'steps'], null)
+    vi.spyOn(document_, 'toJSON').mockReturnValue({
+      runs: {
+        using: 'composite',
+        steps: [],
       },
-      toJSON: () => ({
-        runs: {
-          using: 'composite',
-          steps: [],
-        },
-      }),
-    } as unknown as Document
+    })
 
-    expect(
-      scanCompositeActionAst(
-        fakeDocument,
-        'runs:\n  using: composite\n  steps: []\n',
-        'file.yml',
-      ),
-    ).toEqual([])
+    expect(scanCompositeActionAst(document_, content, 'file.yml')).toEqual([])
   })
 })

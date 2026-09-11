@@ -44,17 +44,13 @@ export function formatVersion(
     return identity
   })
 
-  let result = colors[0]!(String(parts[0]))
-
-  if (parts[1] !== undefined) {
-    result += colors[0]!('.') + colors[1]!(String(parts[1]))
-  }
-
-  if (parts[2] !== undefined) {
-    result += colors[1]!('.') + colors[2]!(String(parts[2]))
-  }
-
-  return result
+  return (
+    colors[0]!(String(parts[0])) +
+    colors[0]!('.') +
+    colors[1]!(String(parts[1])) +
+    colors[1]!('.') +
+    colors[2]!(String(parts[2]))
+  )
 }
 
 /**

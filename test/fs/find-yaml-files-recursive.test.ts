@@ -1,4 +1,4 @@
-import type { Stats } from 'node:fs'
+import type { PathLike, Stats } from 'node:fs'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readdir, lstat } from 'node:fs/promises'
@@ -12,6 +12,21 @@ vi.mock(import('node:fs/promises'), () => ({
   stat: vi.fn(),
 }))
 
+/**
+ * The part of `fs.Stats` that the walker reads.
+ */
+type EntryStats = Pick<Stats, 'isSymbolicLink' | 'isDirectory' | 'isFile'>
+
+/**
+ * `lstat` narrowed to the fields the walker reads.
+ */
+let mockedLstat = vi.mocked<(path: PathLike) => Promise<EntryStats>>(lstat)
+
+/**
+ * `readdir` narrowed to the overload the walker calls, which lists entry names.
+ */
+let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
+
 describe('findYamlFilesRecursive', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -19,36 +34,29 @@ describe('findYamlFilesRecursive', () => {
   })
 
   it('finds YAML files recursively', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root' || value === '/root/sub') {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
-        return Promise.resolve([
-          'ci.yml',
-          'sub',
-          'readme.md',
-        ]) as unknown as ReturnType<typeof readdir>
+        return Promise.resolve(['ci.yml', 'sub', 'readme.md'])
       }
       if (value === '/root/sub') {
-        return Promise.resolve([
-          'deploy.yaml',
-          'script.sh',
-        ]) as unknown as ReturnType<typeof readdir>
+        return Promise.resolve(['deploy.yaml', 'script.sh'])
       }
       return Promise.resolve([])
     })
@@ -61,44 +69,40 @@ describe('findYamlFilesRecursive', () => {
   })
 
   it('skips symlinks', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       if (value === '/root/link-dir') {
         return Promise.resolve({
           isSymbolicLink: () => true,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       if (value === '/root/link-file.yml') {
         return Promise.resolve({
           isSymbolicLink: () => true,
           isDirectory: () => false,
           isFile: () => true,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
-        return Promise.resolve([
-          'real.yml',
-          'link-dir',
-          'link-file.yml',
-        ]) as unknown as ReturnType<typeof readdir>
+        return Promise.resolve(['real.yml', 'link-dir', 'link-file.yml'])
       }
       return Promise.resolve([])
     })
@@ -110,13 +114,13 @@ describe('findYamlFilesRecursive', () => {
   })
 
   it('returns empty array for empty directory', async () => {
-    vi.mocked(lstat).mockResolvedValue({
+    mockedLstat.mockResolvedValue({
       isSymbolicLink: () => false,
       isDirectory: () => true,
       isFile: () => false,
-    } as unknown as Stats)
+    })
 
-    vi.mocked(readdir).mockResolvedValue([])
+    mockedReaddir.mockResolvedValue([])
 
     let files = await findYamlFilesRecursive('/empty')
 
@@ -124,27 +128,23 @@ describe('findYamlFilesRecursive', () => {
   })
 
   it('skips non-YAML files', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockResolvedValue([
-      'readme.md',
-      'script.sh',
-      'config.json',
-    ] as unknown as Awaited<ReturnType<typeof readdir>>)
+    mockedReaddir.mockResolvedValue(['readme.md', 'script.sh', 'config.json'])
 
     let files = await findYamlFilesRecursive('/root')
 
@@ -154,29 +154,27 @@ describe('findYamlFilesRecursive', () => {
   it('prevents visiting the same directory twice', async () => {
     let visitCount = 0
 
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root' || value === '/root/sub') {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
         visitCount++
-        return Promise.resolve(['test.yml', 'sub']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['test.yml', 'sub'])
       }
       if (value === '/root/sub') {
         return Promise.resolve([])
@@ -190,34 +188,32 @@ describe('findYamlFilesRecursive', () => {
   })
 
   it('skips already visited directory via path normalization', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root' || value === '/root/sub') {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       return Promise.resolve({
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
-        return Promise.resolve(['sub']) as unknown as ReturnType<typeof readdir>
+        return Promise.resolve(['sub'])
       }
       if (value === '/root/sub') {
         /**
          * '..' normalizes to '/root' which is already visited.
          */
-        return Promise.resolve(['..', 'test.yml']) as unknown as ReturnType<
-          typeof readdir
-        >
+        return Promise.resolve(['..', 'test.yml'])
       }
       return Promise.resolve([])
     })
@@ -229,14 +225,14 @@ describe('findYamlFilesRecursive', () => {
   })
 
   it('continues scanning when individual entries fail', async () => {
-    vi.mocked(lstat).mockImplementation((path: unknown) => {
+    mockedLstat.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
         return Promise.resolve({
           isSymbolicLink: () => false,
           isDirectory: () => true,
           isFile: () => false,
-        } as unknown as Stats)
+        })
       }
       if (value === '/root/forbidden') {
         return Promise.reject(new Error('EACCES'))
@@ -245,17 +241,13 @@ describe('findYamlFilesRecursive', () => {
         isSymbolicLink: () => false,
         isDirectory: () => false,
         isFile: () => true,
-      } as unknown as Stats)
+      })
     })
 
-    vi.mocked(readdir).mockImplementation((path: unknown) => {
+    mockedReaddir.mockImplementation((path: unknown) => {
       let value = String(path)
       if (value === '/root') {
-        return Promise.resolve([
-          'good.yml',
-          'forbidden',
-          'also-good.yaml',
-        ]) as unknown as ReturnType<typeof readdir>
+        return Promise.resolve(['good.yml', 'forbidden', 'also-good.yaml'])
       }
       return Promise.resolve([])
     })
@@ -268,11 +260,11 @@ describe('findYamlFilesRecursive', () => {
   })
 
   it('skips root directory if it is a symlink', async () => {
-    vi.mocked(lstat).mockResolvedValue({
+    mockedLstat.mockResolvedValue({
       isSymbolicLink: () => true,
       isDirectory: () => true,
       isFile: () => false,
-    } as unknown as Stats)
+    })
 
     let files = await findYamlFilesRecursive('/symlink-root')
 

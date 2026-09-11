@@ -14,6 +14,21 @@ vi.mock(import('yaml'), () => ({
   parseDocument: vi.fn(),
 }))
 
+/**
+ * The part of a parsed YAML document that the scanners read.
+ */
+interface ScannedDocument {
+  contents?: unknown
+  toJSON(): unknown
+}
+
+/**
+ * `parseDocument` narrowed to what the scanners read, so tests can supply
+ * hand-built ASTs, including malformed ones.
+ */
+let mockedParseDocument =
+  vi.mocked<(source: string) => ScannedDocument>(parseDocument)
+
 interface MockNode {
   value?: { toJSON?(): unknown; items: MockNode[] } | unknown
   toJSON?(): unknown
@@ -110,11 +125,7 @@ describe('scanWorkflowFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockWorkflow) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
 
     let result = await scanWorkflowFile('.github/workflows/ci.yml')
 
@@ -146,11 +157,7 @@ describe('scanWorkflowFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockWorkflow) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
 
     let result = await scanWorkflowFile('.github/workflows/empty.yml')
 
@@ -170,11 +177,7 @@ describe('scanWorkflowFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockWorkflow) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
 
     let result = await scanWorkflowFile('.github/workflows/no-steps.yml')
 
@@ -191,11 +194,7 @@ describe('scanWorkflowFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockWorkflow) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
 
     let result = await scanWorkflowFile('.github/workflows/no-uses.yml')
 
@@ -204,7 +203,7 @@ describe('scanWorkflowFile', () => {
 
   it('throws error for invalid YAML', async () => {
     vi.mocked(readFile).mockResolvedValue('invalid: yaml: content')
-    vi.mocked(parseDocument).mockImplementation(() => {
+    mockedParseDocument.mockImplementation(() => {
       throw new Error('Invalid YAML')
     })
 
@@ -223,9 +222,7 @@ describe('scanWorkflowFile', () => {
 
   it('returns empty array for null workflow content', async () => {
     vi.mocked(readFile).mockResolvedValue('')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(null) as unknown as ReturnType<typeof parseDocument>,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(null))
 
     let result = await scanWorkflowFile('.github/workflows/null.yml')
 
@@ -234,11 +231,7 @@ describe('scanWorkflowFile', () => {
 
   it('returns empty array for undefined workflow content', async () => {
     vi.mocked(readFile).mockResolvedValue('')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(undefined) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(undefined))
 
     let result = await scanWorkflowFile('.github/workflows/undefined.yml')
 
@@ -252,11 +245,7 @@ describe('scanWorkflowFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('workflow with invalid jobs')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockWorkflow) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
 
     let result = await scanWorkflowFile('.github/workflows/invalid-jobs.yml')
     expect(result).toEqual([])
@@ -272,11 +261,7 @@ describe('scanWorkflowFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('workflow with invalid steps node')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockWorkflow) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
 
     let result = await scanWorkflowFile(
       '.github/workflows/invalid-steps-node.yml',
@@ -294,11 +279,7 @@ describe('scanWorkflowFile', () => {
     }
 
     vi.mocked(readFile).mockResolvedValue('workflow with non-string uses')
-    vi.mocked(parseDocument).mockReturnValue(
-      createMockDocument(mockWorkflow) as unknown as ReturnType<
-        typeof parseDocument
-      >,
-    )
+    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
 
     let result = await scanWorkflowFile('.github/workflows/non-string-uses.yml')
     expect(result).toEqual([])
@@ -350,10 +331,10 @@ describe('scanWorkflowFile', () => {
       toJSON: () => ({
         jobs: { valid: { steps: [{ uses: 'actions/checkout@v4' }] } },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanWorkflowFile('.github/workflows/manual.yml')
     expect(result).toHaveLength(1)
@@ -373,10 +354,10 @@ describe('scanWorkflowFile', () => {
         ],
       },
       toJSON: () => ({ jobs: {} }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanWorkflowFile('.github/workflows/undefined-job.yml')
     expect(result).toEqual([])
@@ -402,10 +383,10 @@ describe('scanWorkflowFile', () => {
         ],
       },
       toJSON: () => ({ jobs: { weird: { steps: [] } } }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanWorkflowFile('.github/workflows/not-map-job.yml')
     expect(result).toEqual([])
@@ -441,10 +422,10 @@ describe('scanWorkflowFile', () => {
       toJSON: () => ({
         jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanWorkflowFile('.github/workflows/ast-not-seq.yml')
     expect(result).toEqual([])
@@ -491,10 +472,10 @@ describe('scanWorkflowFile', () => {
       toJSON: () => ({
         jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanWorkflowFile('.github/workflows/step-not-node.yml')
     expect(result).toEqual([])
@@ -505,10 +486,10 @@ describe('scanWorkflowFile', () => {
       toJSON: () => ({
         jobs: { test: { steps: [{ uses: 'actions/checkout@v4' }] } },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanWorkflowFile('.github/workflows/no-contents.yml')
     expect(result).toEqual([])
@@ -575,10 +556,10 @@ describe('scanWorkflowFile', () => {
           },
         },
       }),
-    } as unknown as ReturnType<typeof parseDocument>
+    }
 
     vi.mocked(readFile).mockResolvedValue('workflow content')
-    vi.mocked(parseDocument).mockReturnValue(manualDocument)
+    mockedParseDocument.mockReturnValue(manualDocument)
 
     let result = await scanWorkflowFile('.github/workflows/uses-no-range.yml')
     expect(result).toHaveLength(2)

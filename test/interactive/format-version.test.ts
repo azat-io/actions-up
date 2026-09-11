@@ -1,5 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
-import semver from 'semver'
+import { describe, expect, it } from 'vitest'
 
 import { formatVersion } from '../../core/interactive/format-version'
 import { stripAnsi } from '../../core/interactive/strip-ansi'
@@ -63,24 +62,5 @@ describe('formatVersion', () => {
   it('handles version with only major and minor parts', () => {
     let result = formatVersion('2.1', '2.0.1')
     expect(stripAnsi(result)).toBe('2.1')
-  })
-
-  it('omits patch when semver parse returns no patch', () => {
-    let originalParse = semver.parse.bind(semver)
-    let parseSpy = vi.spyOn(semver, 'parse').mockImplementation(version => {
-      if (version === '1.2.3') {
-        return {
-          patch: undefined,
-          major: 1,
-          minor: 2,
-        } as unknown as semver.SemVer
-      }
-      return originalParse(version)
-    })
-
-    let result = formatVersion('1.2.3', '1.2.0')
-    expect(stripAnsi(result)).toBe('1.2')
-
-    parseSpy.mockRestore()
   })
 })

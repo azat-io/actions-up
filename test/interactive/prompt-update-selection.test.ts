@@ -1,8 +1,7 @@
-import type * as FsPromises from 'node:fs/promises'
 import type { MockInstance } from 'vitest'
-import type Enquirer from 'enquirer'
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import enquirer from 'enquirer'
 import path from 'node:path'
 
 import type { ActionUpdate } from '../../types/action-update'
@@ -21,7 +20,9 @@ interface PromptOptionsForTest {
   up?(): Promise<string[]>
   j?(): Promise<string[]>
   k?(): Promise<string[]>
+  type: 'multiselect'
   cancel?(): null
+  message: string
   name: string
 }
 
@@ -85,108 +86,71 @@ let capturedOptions: PromptOptionsForTest | undefined
 let formattedSubmitOutput: undefined | string
 let promptError: Error | null = null
 
-vi.mock(
-  import('enquirer'),
-  () =>
-    ({
-      default: {
-        prompt: async (options: PromptOptionsForTest) => {
-          capturedOptions = options
+vi.spyOn(enquirer, 'prompt')
 
-          try {
-            if (typeof options.indicator === 'function') {
-              options.indicator(
-                {},
-                {
-                  choices: [
-                    { message: 'row', enabled: true, value: '0', name: '0' },
-                  ],
-                  isGroupLabel: true,
-                },
-              )
-              options.indicator(
-                {},
-                {
-                  choices: [
-                    { message: 'rowA', enabled: true, value: '0', name: '0' },
-                    { message: 'rowB', enabled: false, value: '1', name: '1' },
-                  ],
-                  isGroupLabel: true,
-                },
-              )
-              options.indicator({}, { isGroupLabel: true })
-              options.indicator({}, { enabled: true })
-              options.indicator({}, { enabled: false })
-            }
-            if (typeof options.j === 'function') {
-              options.down = () => Promise.resolve(['down'])
-              await options.j.bind(options)()
-              delete options.down
-              await options.j.bind(options)()
-            }
-            if (typeof options.k === 'function') {
-              options.up = () => Promise.resolve(['up'])
-              await options.k.bind(options)()
-              delete options.up
-              await options.k.bind(options)()
-            }
-          } catch {}
+/**
+ * `enquirer.prompt` narrowed to the options the selection prompt passes and the
+ * answer it reads back.
+ */
+let mockedPrompt = vi.mocked<
+  (options: PromptOptionsForTest) => Promise<Record<string, string[]>>
+>(enquirer.prompt)
 
-          if (promptError) {
-            let error = promptError
-            promptError = null
-            throw error
-          }
+mockedPrompt.mockImplementation(async options => {
+  capturedOptions = options
 
-          if (typeof options.format === 'function') {
-            formattedSubmitOutput = await options.format.call({
-              state: { cancelled: false, submitted: true },
-              value: nextSelected,
-            })
-          }
-
-          let nameKey = options.name as 'selected'
-          return { [nameKey]: nextSelected }
+  try {
+    if (typeof options.indicator === 'function') {
+      options.indicator(
+        {},
+        {
+          choices: [{ message: 'row', enabled: true, value: '0', name: '0' }],
+          isGroupLabel: true,
         },
-      },
-    }) as unknown as { default: typeof Enquirer },
-)
+      )
+      options.indicator(
+        {},
+        {
+          choices: [
+            { message: 'rowA', enabled: true, value: '0', name: '0' },
+            { message: 'rowB', enabled: false, value: '1', name: '1' },
+          ],
+          isGroupLabel: true,
+        },
+      )
+      options.indicator({}, { isGroupLabel: true })
+      options.indicator({}, { enabled: true })
+      options.indicator({}, { enabled: false })
+    }
+    if (typeof options.j === 'function') {
+      options.down = () => Promise.resolve(['down'])
+      await options.j.bind(options)()
+      delete options.down
+      await options.j.bind(options)()
+    }
+    if (typeof options.k === 'function') {
+      options.up = () => Promise.resolve(['up'])
+      await options.k.bind(options)()
+      delete options.up
+      await options.k.bind(options)()
+    }
+  } catch {}
 
-vi.mock(import('node:fs/promises'), () => {
-  let withCommentPath = '/repo/.github/workflows/ci.yml'
-  let noCommentPath = '/repo/.github/workflows/no-comment.yml'
-  let errorPath = '/repo/.github/workflows/error.yml'
+  if (promptError) {
+    let error = promptError
+    promptError = null
+    throw error
+  }
 
-  let withCommentContent = [
-    'jobs:',
-    '  build:',
-    '    steps:',
-    '      - uses: actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e # v4.2.4',
-    '',
-  ].join('\n')
+  if (typeof options.format === 'function') {
+    formattedSubmitOutput = await options.format.call({
+      state: { cancelled: false, submitted: true },
+      value: nextSelected,
+    })
+  }
 
-  let noCommentContent = [
-    'jobs:',
-    '  build:',
-    '    steps:',
-    '      - uses: actions/checkout@abc123def4567890abc123def4567890abc123de',
-    '',
-  ].join('\n')
-
-  return {
-    readFile: vi.fn((currentPath: unknown) => {
-      if (typeof currentPath === 'string' && currentPath === withCommentPath) {
-        return Promise.resolve(withCommentContent)
-      }
-      if (typeof currentPath === 'string' && currentPath === noCommentPath) {
-        return Promise.resolve(noCommentContent)
-      }
-      if (typeof currentPath === 'string' && currentPath === errorPath) {
-        return Promise.reject(new Error('boom'))
-      }
-      return Promise.resolve('')
-    }),
-  } as unknown as typeof FsPromises
+  let nameKey = options.name as 'selected'
+  return { [nameKey]: nextSelected }
 })
 
 describe('promptUpdateSelection', () => {
