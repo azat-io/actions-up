@@ -682,6 +682,23 @@ function createUpdate(
     skipReason = 'tag-family'
   }
 
+  /**
+   * A reference that carries no version at all — `nightly`, `latest`, a channel
+   * tag — can only be compared as a string, and a string difference holds
+   * between any two distinct tags, so it is no evidence of an update. Such a
+   * pair is reported instead of rewritten. A branch keeps its own handling: it
+   * floats by design and is only checked when the run opted into branches.
+   */
+  if (
+    status !== 'skipped' &&
+    normalized !== null &&
+    currentReferenceType !== 'branch' &&
+    !isComparablePair(currentVersion, normalized, isSha(currentVersionRaw))
+  ) {
+    status = 'skipped'
+    skipReason = 'not-comparable'
+  }
+
   if (status === 'skipped') {
     return {
       currentRefType: currentReferenceType,
@@ -734,8 +751,14 @@ function createUpdate(
         hasUpdate = true
         isBreaking = false
       }
-    } else if (currentVersion !== normalized) {
-      hasUpdate = true
+    } else {
+      /**
+       * Only a branch reaches here, since the guard above reports every other
+       * pair that cannot be read as versions. A branch carries no version to
+       * compare against, so any reference other than the one in the file is the
+       * move the run was asked to make.
+       */
+      hasUpdate = currentVersion !== normalized
     }
   }
 
@@ -780,6 +803,35 @@ async function resolveTagMeta(
     }
     return { date: null, sha: null }
   }
+}
+
+/**
+ * Check whether the current and the latest reference can be compared as
+ * versions at all.
+ *
+ * The latest reference has to carry a version, since it is what an update would
+ * write. The current one has to carry a version as well, unless it is a SHA
+ * pin, which is compared by commit instead.
+ *
+ * @param currentVersion - Normalized reference used in the file.
+ * @param latestVersion - Normalized reference an update would write.
+ * @param isShaPin - Whether the current reference is a commit SHA.
+ * @returns True when the two references can be compared.
+ */
+function isComparablePair(
+  currentVersion: string | null,
+  latestVersion: string,
+  isShaPin: boolean,
+): boolean {
+  if (!semver.valid(latestVersion)) {
+    return false
+  }
+
+  if (isShaPin) {
+    return true
+  }
+
+  return Boolean(currentVersion && semver.valid(currentVersion))
 }
 
 function deriveCurrentReferenceType(

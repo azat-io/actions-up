@@ -236,6 +236,25 @@ describe('printSkippedWarning', () => {
     )
   })
 
+  it('prints a dedicated warning for references that cannot be compared', () => {
+    let skipped = [
+      {
+        action: { name: 'owner/repo', version: 'v1.0.0' },
+        skipReason: 'not-comparable' as const,
+        currentVersion: 'v1.0.0',
+      },
+    ]
+
+    printSkippedWarning(skipped, false, 'sha')
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('1 action that cannot be compared'),
+    )
+    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('pinned to branches'),
+    )
+  })
+
   it('deduplicates repeated identifiers and shows occurrence count', () => {
     let entry = {
       action: { name: 'actions/checkout', version: 'main' },
