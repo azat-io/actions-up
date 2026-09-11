@@ -33,6 +33,12 @@ export function printSkippedWarning(
   let notComparableSkipped = skipped.filter(
     update => update.skipReason === 'not-comparable',
   )
+  let referenceTypeSkipped = skipped.filter(
+    update => update.skipReason === 'ref-type-unavailable',
+  )
+  let checkFailedSkipped = skipped.filter(
+    update => update.skipReason === 'check-failed',
+  )
 
   /**
    * Every reason without a dedicated group still has to reach the user, so a
@@ -40,8 +46,10 @@ export function printSkippedWarning(
    * disappearing from the output.
    */
   let groupedReasons = new Set([
+    'ref-type-unavailable',
     'unsupported-style',
     'not-comparable',
+    'check-failed',
     'tag-family',
     'branch',
   ])
@@ -78,6 +86,20 @@ export function printSkippedWarning(
     printSkippedGroup(
       notComparableSkipped,
       'that cannot be compared with the latest tag as versions (check them manually)',
+    )
+  }
+
+  if (referenceTypeSkipped.length > 0) {
+    printSkippedGroup(
+      referenceTypeSkipped,
+      'whose reference type could not be resolved (GitHub API request failed)',
+    )
+  }
+
+  if (checkFailedSkipped.length > 0) {
+    printSkippedGroup(
+      checkFailedSkipped,
+      'whose update check failed (see warnings above)',
     )
   }
 

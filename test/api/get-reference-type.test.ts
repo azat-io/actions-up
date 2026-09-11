@@ -100,4 +100,95 @@ describe('getReferenceType', () => {
     expect(result).toBeNull()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+  it('throws when the tag lookup fails without a 404', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Server failure', {
+        statusText: 'Internal Server Error',
+        status: 500,
+      }),
+    )
+    let context_ = context()
+
+    await expect(
+      getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty(
+      'message',
+      expect.stringContaining('GitHub API error'),
+    )
+    expect(context_.caches.refType.has('o/r#main')).toBeFalsy()
+  })
+
+  it('throws when the branch lookup fails without a 404', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.includes('/git/ref/tags/')) {
+        return Promise.resolve(new Response('Not Found', { status: 404 }))
+      }
+      return Promise.resolve(
+        new Response('Server failure', {
+          statusText: 'Internal Server Error',
+          status: 500,
+        }),
+      )
+    })
+    let context_ = context()
+
+    await expect(
+      getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty(
+      'message',
+      expect.stringContaining('GitHub API error'),
+    )
+    expect(context_.caches.refType.has('o/r#main')).toBeFalsy()
+  })
+
+  it('throws when the lookup fails without a response', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new TypeError('fetch failed'),
+    )
+    let context_ = context()
+
+    await expect(
+      getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('message', 'fetch failed')
+    expect(context_.caches.refType.has('o/r#main')).toBeFalsy()
+  })
+
+  it('throws GitHubRateLimitError when the tag lookup is rate limited', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('API rate limit exceeded', {
+        statusText: 'Forbidden',
+        status: 403,
+      }),
+    )
+    let context_ = context()
+
+    await expect(
+      getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context_.caches.refType.has('o/r#main')).toBeFalsy()
+  })
+
+  it('throws GitHubRateLimitError when the branch lookup is rate limited', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+      let input = url as unknown
+      let urlString = typeof input === 'string' ? input : (input as URL).href
+      if (urlString.includes('/git/ref/tags/')) {
+        return Promise.resolve(new Response('Not Found', { status: 404 }))
+      }
+      return Promise.resolve(
+        new Response('API rate limit exceeded', {
+          statusText: 'Forbidden',
+          status: 403,
+        }),
+      )
+    })
+    let context_ = context()
+
+    await expect(
+      getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
+    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
+    expect(context_.caches.refType.has('o/r#main')).toBeFalsy()
+  })
 })
