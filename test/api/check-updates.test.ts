@@ -3742,4 +3742,148 @@ describe('checkUpdates', () => {
     })
     expect(client.getMatchingTagReferences).not.toHaveBeenCalled()
   })
+  /**
+   * An eight-digit calendar tag is valid hexadecimal, so it passes the
+   * semver-like check while carrying no comparable version. Comparing it used
+   * to throw and fail the whole repository lookup, including for references
+   * that had nothing to do with it.
+   */
+  it('ignores a SHA-shaped tag when picking the latest tag', async () => {
+    let client: GitHubClient = {
+      getAllTags: vi.fn().mockResolvedValue([
+        { sha: 'sha-124', message: null, tag: 'v1.2.4', date: null },
+        { sha: 'sha-date', tag: '20240101', message: null, date: null },
+        { sha: 'sha-123', message: null, tag: 'v1.2.3', date: null },
+      ]),
+      getTagInfo: vi.fn().mockResolvedValue({
+        date: new Date('2024-06-01T00:00:00Z'),
+        sha: 'sha-124',
+        message: null,
+        tag: 'v1.2.4',
+      }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getTagSha: vi.fn().mockResolvedValue('sha-124'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'acme/action@v1.2.3',
+        ref: 'acme/action@v1.2.3',
+        name: 'acme/action',
+        version: 'v1.2.3',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      currentVersion: 'v1.2.3',
+      latestVersion: 'v1.2.4',
+      hasUpdate: true,
+      status: 'ok',
+    })
+  })
+
+  it('ignores a SHA-shaped tag when a release competes with tags', async () => {
+    let client: GitHubClient = {
+      getLatestRelease: vi.fn().mockResolvedValue({
+        publishedAt: new Date('2024-01-01T00:00:00Z'),
+        isPrerelease: false,
+        description: null,
+        sha: 'sha-major',
+        version: 'v1',
+        name: 'v1',
+        url: 'u',
+      }),
+      getAllTags: vi.fn().mockResolvedValue([
+        { sha: 'sha-date', tag: '20240101', message: null, date: null },
+        { sha: 'sha-124', message: null, tag: 'v1.2.4', date: null },
+      ]),
+      getTagInfo: vi.fn().mockResolvedValue({
+        date: new Date('2024-06-01T00:00:00Z'),
+        sha: 'sha-124',
+        message: null,
+        tag: 'v1.2.4',
+      }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getTagSha: vi.fn().mockResolvedValue('sha-124'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'acme/action@v1.2.3',
+        ref: 'acme/action@v1.2.3',
+        name: 'acme/action',
+        version: 'v1.2.3',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      latestVersion: 'v1.2.4',
+      hasUpdate: true,
+      status: 'ok',
+    })
+  })
+
+  /**
+   * A repository whose tags are all calendar dates leaves nothing comparable to
+   * pick, so the reference is reported rather than rewritten.
+   */
+  it('reports a repository that publishes only SHA-shaped tags', async () => {
+    let client: GitHubClient = {
+      getAllTags: vi.fn().mockResolvedValue([
+        { tag: '20250301', sha: 'sha-new', message: null, date: null },
+        { tag: '20240101', sha: 'sha-old', message: null, date: null },
+      ]),
+      getTagInfo: vi.fn().mockResolvedValue({
+        date: new Date('2025-03-01T00:00:00Z'),
+        tag: '20250301',
+        sha: 'sha-new',
+        message: null,
+      }),
+      getMatchingTagReferences: vi.fn().mockResolvedValue([]),
+      getLatestRelease: vi.fn().mockResolvedValue(null),
+      getTagSha: vi.fn().mockResolvedValue('sha-new'),
+      getAllReleases: vi.fn().mockResolvedValue([]),
+      getRefType: vi.fn().mockResolvedValue('tag'),
+      shouldWaitForRateLimit: vi.fn(),
+      getRateLimitStatus: vi.fn(),
+    }
+    vi.mocked(createGitHubClient).mockReturnValue(client)
+
+    let actions: GitHubAction[] = [
+      {
+        uses: 'acme/action@20240101',
+        ref: 'acme/action@20240101',
+        name: 'acme/action',
+        version: '20240101',
+        type: 'external',
+      },
+    ]
+
+    let result = await checkUpdates(actions)
+
+    expect(result[0]).toMatchObject({
+      skipReason: 'not-comparable',
+      currentVersion: '20240101',
+      latestVersion: '20250301',
+      status: 'skipped',
+      hasUpdate: false,
+    })
+  })
 })

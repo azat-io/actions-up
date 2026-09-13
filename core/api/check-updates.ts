@@ -7,6 +7,7 @@ import type { UpdateStyle } from '../../types/update-style'
 import type { ReleaseInfo } from '../../types/release-info'
 import type { TagInfo } from '../../types/tag-info'
 
+import { selectLatestSemverTag } from '../versions/select-latest-semver-tag'
 import { selectLatestFamilyTag } from '../versions/select-latest-family-tag'
 import { parseVersionComment } from '../versions/parse-version-comment'
 import { preserveTagFormat } from '../versions/preserve-tag-format'
@@ -365,65 +366,45 @@ export async function checkUpdates(
           let tags = await memoize(tagsMemo, repoKey, () =>
             client.getAllTags(owner, repo, tagFetchLimit),
           )
-          if (tags.length > 0) {
-            let semverCandidates = tags
-              .filter(tag => isSemverLike(tag.tag))
-              .map(tag => ({
-                v: semver.valid(normalizeVersion(tag.tag))!,
-                raw: tag,
-              }))
+          let latestSemverTag = selectLatestSemverTag(tags)
 
-            if (semverCandidates.length > 0) {
-              /**
-               * Sort desc; tie-break to prefer more specific (x.y.z).
-               */
-              semverCandidates.sort((a, b) => {
-                let cmp = semver.rcompare(a.v, b.v)
-                if (cmp !== 0) {
-                  return cmp
-                }
-                let aSpecific = /\d+\.\d+/u.test(a.raw.tag) ? 1 : 0
-                let bSpecific = /\d+\.\d+/u.test(b.raw.tag) ? 1 : 0
-                return bSpecific - aSpecific
+          if (latestSemverTag) {
+            let best = latestSemverTag.tag
+            let releaseSem = semver.valid(
+              normalizeVersion(version) ?? undefined,
+            )
+
+            /**
+             * If best tag is newer or same but more specific, prefer it.
+             */
+            if (
+              !releaseSem ||
+              semver.gt(latestSemverTag.version, releaseSem) ||
+              (semver.eq(latestSemverTag.version, releaseSem) &&
+                /\d+\.\d+/u.test(best.tag))
+            ) {
+              let tagVersion = best.tag
+              let tagMeta = await resolveTagMeta(client, {
+                tag: tagVersion,
+                owner,
+                repo,
               })
-
-              let best = semverCandidates[0]!.raw
-              let releaseSem = semver.valid(
-                normalizeVersion(version) ?? undefined,
-              )
-
-              /**
-               * If best tag is newer or same but more specific, prefer it.
-               */
-              if (
-                !releaseSem ||
-                semver.gt(semverCandidates[0]!.v, releaseSem) ||
-                (semver.eq(semverCandidates[0]!.v, releaseSem) &&
-                  /\d+\.\d+/u.test(best.tag))
-              ) {
-                let tagVersion = best.tag
-                let tagMeta = await resolveTagMeta(client, {
-                  tag: tagVersion,
-                  owner,
-                  repo,
-                })
-                let tagSha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
-                if (!tagSha && tagVersion) {
-                  try {
-                    tagSha = await client.getTagSha(owner, repo, tagVersion)
-                  } catch (error) {
-                    if (isRateLimitError(error)) {
-                      throw error
-                    }
+              let tagSha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
+              if (!tagSha && tagVersion) {
+                try {
+                  tagSha = await client.getTagSha(owner, repo, tagVersion)
+                } catch (error) {
+                  if (isRateLimitError(error)) {
+                    throw error
                   }
                 }
-                return {
-                  currentRefType: currentReferenceType,
-                  publishedAt: tagMeta.date,
-                  version: tagVersion,
-                  sha: tagSha,
-                  actionKey,
-                }
+              }
+              return {
+                currentRefType: currentReferenceType,
+                publishedAt: tagMeta.date,
+                version: tagVersion,
+                sha: tagSha,
+                actionKey,
               }
             }
           }
@@ -463,35 +444,14 @@ export async function checkUpdates(
       if (tags.length > 0) {
         /**
          * Prefer the highest semver tag; among equal numeric versions, prefer
-         * more specific (x.y.z over v1). If no semver-like tags, fallback to
-         * the first tag as returned by the API (most recent by commit date).
+         * more specific (x.y.z over v1). When no tag carries a comparable
+         * version, fall back to the first tag of the current family as returned
+         * by the API (most recent by commit date).
          */
-        let semverCandidates = tags
-          .filter(tag => isSemverLike(tag.tag))
-          .map(tag => ({
-            v: semver.valid(normalizeVersion(tag.tag))!,
-            raw: tag,
-          }))
-
-        let best: (typeof tags)[number]
-        if (semverCandidates.length > 0) {
-          semverCandidates.sort((a, b) => {
-            let cmp = semver.rcompare(a.v, b.v)
-            if (cmp !== 0) {
-              return cmp
-            }
-            /**
-             * Tie-breaker: prefer more specific tags containing a dot.
-             */
-            let aSpecific = /\d+\.\d+/u.test(a.raw.tag) ? 1 : 0
-            let bSpecific = /\d+\.\d+/u.test(b.raw.tag) ? 1 : 0
-            return bSpecific - aSpecific
-          })
-          best = semverCandidates[0]!.raw
-        } else {
-          best =
-            tags.find(tag => isSameTagFamily(firstVersion, tag.tag)) ?? tags[0]!
-        }
+        let best =
+          selectLatestSemverTag(tags)?.tag ??
+          tags.find(tag => isSameTagFamily(firstVersion, tag.tag)) ??
+          tags[0]!
 
         let version = best.tag
         let tagMeta = await resolveTagMeta(client, {
