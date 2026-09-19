@@ -4,28 +4,12 @@ import type { ActionUpdate } from '../../types/action-update'
 import type { GitHubClient } from '../../types/github-client'
 
 import { resolveTargetReference } from '../../core/updates/resolve-target-reference'
+import { createMockClient } from '../helpers/create-mock-client'
 
 class GitHubRateLimitError extends Error {
   public constructor() {
     super('API rate limit exceeded')
     this.name = 'GitHubRateLimitError'
-  }
-}
-
-function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
-  return {
-    getTagSha: vi
-      .fn()
-      .mockResolvedValue('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
-    getMatchingTagReferences: vi.fn().mockResolvedValue([]),
-    getAllTags: vi.fn().mockResolvedValue([]),
-    shouldWaitForRateLimit: vi.fn(),
-    getRateLimitStatus: vi.fn(),
-    getLatestRelease: vi.fn(),
-    getAllReleases: vi.fn(),
-    getRefType: vi.fn(),
-    getTagInfo: vi.fn(),
-    ...overrides,
   }
 }
 
@@ -45,6 +29,15 @@ function createUpdate(overrides: Partial<ActionUpdate> = {}): ActionUpdate {
     hasUpdate: true,
     ...overrides,
   }
+}
+
+function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
+  return createMockClient({
+    getTagSha: vi
+      .fn()
+      .mockResolvedValue('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+    ...overrides,
+  })
 }
 describe('resolveTargetReference', () => {
   it('resolves sha target in sha style', async () => {

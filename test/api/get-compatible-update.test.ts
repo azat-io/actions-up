@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GitHubClient } from '../../types/github-client'
 
 import { getCompatibleUpdate } from '../../core/api/get-compatible-update'
+import { createMockClient } from '../helpers/create-mock-client'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = Date.parse('2026-09-04T00:00:00.000Z')
@@ -11,21 +12,6 @@ class GitHubRateLimitError extends Error {
   public constructor() {
     super('API rate limit exceeded')
     this.name = 'GitHubRateLimitError'
-  }
-}
-
-function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
-  return {
-    getMatchingTagReferences: vi.fn().mockResolvedValue([]),
-    getTagSha: vi.fn().mockResolvedValue(null),
-    getAllTags: vi.fn().mockResolvedValue([]),
-    shouldWaitForRateLimit: vi.fn(),
-    getRateLimitStatus: vi.fn(),
-    getLatestRelease: vi.fn(),
-    getAllReleases: vi.fn(),
-    getRefType: vi.fn(),
-    getTagInfo: vi.fn(),
-    ...overrides,
   }
 }
 
@@ -50,7 +36,7 @@ function createTagInfoMock(
 
 describe('getCompatibleUpdate', () => {
   it('reports no candidate for non-semver current version without API call', async () => {
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await getCompatibleUpdate(client, {
       actionName: 'owner/repo',
@@ -63,7 +49,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('reports no candidate for action name without owner/repo', async () => {
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await getCompatibleUpdate(client, {
       currentVersion: 'v1.0.0',
@@ -75,7 +61,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('reports no candidate for action name with missing owner', async () => {
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await getCompatibleUpdate(client, {
       currentVersion: 'v1.0.0',
@@ -87,7 +73,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('reports no candidate when fetching tags fails', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi.fn().mockRejectedValue(new Error('boom')),
     })
 
@@ -101,7 +87,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('reports no candidate when no compatible tags exist', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -119,7 +105,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('returns compatible tag with sha from tags list', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -142,7 +128,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('resolves missing tag sha via getTagSha', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -165,7 +151,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('returns compatible version with null sha when getTagSha fails', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -194,7 +180,7 @@ describe('getCompatibleUpdate', () => {
       ['owner/repo@v4.2.4', 'cached-sha'],
     ])
 
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await getCompatibleUpdate(client, {
       actionName: 'owner/repo',
@@ -218,7 +204,7 @@ describe('getCompatibleUpdate', () => {
     ])
     let shaCache = new Map<string, string | null>([['owner/repo@v4.2.4', null]])
 
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await getCompatibleUpdate(client, {
       actionName: 'owner/repo',
@@ -237,7 +223,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('supports action names with path suffix', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -260,7 +246,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('fetches a prefixed family by its own prefix', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getMatchingTagReferences: vi
         .fn()
         .mockResolvedValue([
@@ -287,7 +273,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('steps down to the newest tag that clears the cool-down', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi.fn().mockResolvedValue([
         { sha: 'sha-063', tag: 'v0.6.3', message: null, date: null },
         { sha: 'sha-062', tag: 'v0.6.2', message: null, date: null },
@@ -320,7 +306,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('reports a cool-down when every compatible tag is too young', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi.fn().mockResolvedValue([
         { sha: 'sha-063', tag: 'v0.6.3', message: null, date: null },
         { sha: 'sha-062', tag: 'v0.6.2', message: null, date: null },
@@ -340,7 +326,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('treats an unknown publication date as old enough', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -364,7 +350,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('treats a failed date lookup as old enough', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -390,7 +376,7 @@ describe('getCompatibleUpdate', () => {
   it('reports a rate limited date lookup instead of treating it as old enough', async () => {
     let rateLimit = new GitHubRateLimitError()
 
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi
         .fn()
         .mockResolvedValue([
@@ -411,7 +397,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('takes the tag sha from the date lookup when the listing has none', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getTagInfo: vi.fn().mockResolvedValue({
         date: new Date(NOW - 34 * DAY),
         sha: 'sha-from-info',
@@ -445,7 +431,7 @@ describe('getCompatibleUpdate', () => {
   })
 
   it('honours the mode while stepping down for the cool-down', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getAllTags: vi.fn().mockResolvedValue([
         { sha: 'sha-200', tag: 'v2.0.0', message: null, date: null },
         { sha: 'sha-130', tag: 'v1.3.0', message: null, date: null },

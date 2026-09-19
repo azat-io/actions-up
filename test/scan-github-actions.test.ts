@@ -4,8 +4,10 @@ import { beforeEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { parseDocument } from 'yaml'
 
+import type { ScannedDocument } from './helpers/create-mock-document'
 import type { GitHubAction } from '../types/github-action'
 
+import { createMockDocument } from './helpers/create-mock-document'
 import { scanGitHubActions } from '../core/scan-github-actions'
 
 vi.mock(import('node:fs/promises'), () => ({
@@ -25,26 +27,11 @@ vi.mock(import('yaml'), () => ({
 let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
 
 /**
- * The part of a parsed YAML document that the scanners read.
- */
-interface ScannedDocument {
-  contents?: unknown
-  toJSON(): unknown
-}
-
-/**
  * `parseDocument` narrowed to what the scanners read, so tests can supply
  * hand-built ASTs, including malformed ones.
  */
 let mockedParseDocument =
   vi.mocked<(source: string) => ScannedDocument>(parseDocument)
-
-interface MockNode {
-  value?: { toJSON?(): unknown; items: MockNode[] } | unknown
-  toJSON?(): unknown
-  items?: MockNode[]
-  key?: MockKey
-}
 
 interface WorkflowModule {
   scanWorkflowFile(filePath: string): Promise<GitHubAction[]>
@@ -52,75 +39,6 @@ interface WorkflowModule {
 
 interface ActionModule {
   scanActionFile(filePath: string): Promise<GitHubAction[]>
-}
-
-interface MockDocument {
-  contents: { items: MockNode[] }
-  toJSON(): unknown
-}
-
-interface MockKey {
-  range: [number, number, number]
-  value: string
-}
-
-function createMockDocument(data: unknown): MockDocument {
-  function createMockNode(
-    key: string,
-    value: unknown,
-    range?: [number, number, number],
-  ): MockNode {
-    if (Array.isArray(value)) {
-      let array = value as unknown[]
-      return {
-        value: {
-          items: array.map((item: unknown, index: number) => {
-            if (typeof item === 'object' && item !== null) {
-              return {
-                items: Object.entries(item as Record<string, unknown>).map(
-                  ([entryKey, entryValue]) =>
-                    createMockNode(entryKey, entryValue, [
-                      index * 20,
-                      index * 20 + 1,
-                      index * 20 + 1,
-                    ]),
-                ),
-                toJSON: (): unknown => item,
-              }
-            }
-            return { toJSON: (): unknown => item }
-          }),
-        },
-        key: { range: range ?? [0, 1, 1], value: key },
-      }
-    }
-    if (typeof value === 'object' && value !== null) {
-      return {
-        value: {
-          items: Object.entries(value as Record<string, unknown>).map(
-            ([entryKey, entryValue]) => createMockNode(entryKey, entryValue),
-          ),
-          toJSON: () => value,
-        },
-        key: { range: range ?? [0, 1, 1], value: key },
-      }
-    }
-    return {
-      key: { range: range ?? [0, 1, 1], value: key },
-      value,
-    }
-  }
-
-  return {
-    contents: {
-      items: Object.entries(
-        typeof data === 'object' && data !== null ?
-          (data as Record<string, unknown>)
-        : {},
-      ).map(([entryKey, entryValue]) => createMockNode(entryKey, entryValue)),
-    },
-    toJSON: () => data,
-  }
 }
 
 let workflowModule: WorkflowModule | undefined

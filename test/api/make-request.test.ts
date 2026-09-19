@@ -2,24 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { GitHubClientContext } from '../../types/github-client-context'
 
+import { createClientContext } from '../helpers/create-client-context'
 import { makeRequest } from '../../core/api/make-request'
 
 describe('makeRequest', () => {
   beforeEach(() => vi.restoreAllMocks())
 
   function context(token?: string): GitHubClientContext {
-    return {
-      caches: {
-        matchingReferences: new Map(),
-        refType: new Map(),
-        tagInfo: new Map(),
-        tagSha: new Map(),
-      },
-      rateLimitRemaining: token ? 5000 : 60,
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      token,
-    }
+    return createClientContext({ rateLimitRemaining: token ? 5000 : 60, token })
   }
 
   it('sets Authorization header when token present', async () => {

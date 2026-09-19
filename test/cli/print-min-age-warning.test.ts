@@ -1,19 +1,10 @@
-import type { MockInstance } from 'vitest'
-
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { printMinAgeWarning } from '../../cli/print-min-age-warning'
+import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 
 describe('printMinAgeWarning', () => {
-  let consoleInfoSpy: MockInstance
-
-  beforeEach(() => {
-    consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    consoleInfoSpy.mockRestore()
-  })
+  let consoleInfoSpy = spyOnConsoleInfo()
 
   it('does nothing for empty array', () => {
     printMinAgeWarning([], 1)

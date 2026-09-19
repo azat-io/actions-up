@@ -1,26 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { GitHubClientContext } from '../../types/github-client-context'
-
 import { getMatchingTagReferences } from '../../core/api/get-matching-tag-references'
+import { createClientContext } from '../helpers/create-client-context'
 
 describe('getMatchingTagReferences', () => {
   beforeEach(() => vi.restoreAllMocks())
-
-  function context(): GitHubClientContext {
-    return {
-      caches: {
-        matchingReferences: new Map(),
-        refType: new Map(),
-        tagInfo: new Map(),
-        tagSha: new Map(),
-      },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      rateLimitRemaining: 5000,
-      token: 't',
-    }
-  }
 
   it('maps refs to TagInfo and strips the refs/tags prefix', async () => {
     let fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -33,7 +17,7 @@ describe('getMatchingTagReferences', () => {
       ),
     )
 
-    let tags = await getMatchingTagReferences(context(), {
+    let tags = await getMatchingTagReferences(createClientContext(), {
       prefix: 'pkg-',
       owner: 'o',
       repo: 'r',
@@ -61,7 +45,7 @@ describe('getMatchingTagReferences', () => {
       ),
     )
 
-    let tags = await getMatchingTagReferences(context(), {
+    let tags = await getMatchingTagReferences(createClientContext(), {
       prefix: 'pkg-',
       owner: 'o',
       repo: 'r',
@@ -78,7 +62,7 @@ describe('getMatchingTagReferences', () => {
     )
 
     await expect(
-      getMatchingTagReferences(context(), {
+      getMatchingTagReferences(createClientContext(), {
         prefix: 'nope',
         owner: 'o',
         repo: 'r',
@@ -98,7 +82,7 @@ describe('getMatchingTagReferences', () => {
         { status: 200 },
       ),
     )
-    let sharedContext = context()
+    let sharedContext = createClientContext()
 
     let first = await getMatchingTagReferences(sharedContext, {
       prefix: 'pkg-',
@@ -119,7 +103,7 @@ describe('getMatchingTagReferences', () => {
     let fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('not found', { status: 404 }))
-    let sharedContext = context()
+    let sharedContext = createClientContext()
 
     await expect(
       getMatchingTagReferences(sharedContext, {
@@ -147,7 +131,7 @@ describe('getMatchingTagReferences', () => {
     )
 
     await expect(
-      getMatchingTagReferences(context(), {
+      getMatchingTagReferences(createClientContext(), {
         prefix: 'pkg-',
         owner: 'o',
         repo: 'r',
