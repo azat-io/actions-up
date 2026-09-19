@@ -665,39 +665,45 @@ describe('getTagInfo', () => {
     })
   })
 
-  it('ignores release commitish that is not a SHA when reference lookup fails', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.2.1')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-03-05T00:00:00Z',
-              target_commitish: 'main',
-              body: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.resolve(new Response('Not Found', { status: 404 }))
-    })
+  it.each([
+    ['a branch name', 'main'],
+    ['a v-prefixed branch name', 'v20240101'],
+  ])(
+    'ignores release commitish that is %s when reference lookup fails',
+    async (_description, commitish) => {
+      let context = createClientContext()
+      vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
+        let input = url as unknown
+        let urlString = typeof input === 'string' ? input : (input as URL).href
+        if (urlString.endsWith('/releases/tags/v4.2.1')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                published_at: '2024-03-05T00:00:00Z',
+                target_commitish: commitish,
+                body: null,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response('Not Found', { status: 404 }))
+      })
 
-    let info = await getTagInfo(context, {
-      tag: 'v4.2.1',
-      owner: 'o',
-      repo: 'r',
-    })
+      let info = await getTagInfo(context, {
+        tag: 'v4.2.1',
+        owner: 'o',
+        repo: 'r',
+      })
 
-    expect(info).toEqual({
-      date: new Date('2024-03-05T00:00:00Z'),
-      tag: 'v4.2.1',
-      message: null,
-      sha: null,
-    })
-  })
+      expect(info).toEqual({
+        date: new Date('2024-03-05T00:00:00Z'),
+        tag: 'v4.2.1',
+        message: null,
+        sha: null,
+      })
+    },
+  )
 
   it('ignores null release commitish when reference lookup fails', async () => {
     let context = createClientContext()

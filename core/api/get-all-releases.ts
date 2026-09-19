@@ -3,9 +3,9 @@ import type { GitHubReleasePayload } from './normalize-release'
 import type { ReleaseInfo } from '../../types/release-info'
 
 import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { isCommitSha } from '../versions/is-commit-sha'
 import { normalizeRelease } from './normalize-release'
 import { makeRequest } from './make-request'
-import { isSha } from '../versions/is-sha'
 
 /**
  * Fetch releases for a repository.
@@ -38,7 +38,10 @@ export async function getAllReleases(
     for (let release of releases) {
       let sha: string | null = null
       if (i === 0 && release.tag_name) {
-        sha = isSha(release.target_commitish) ? release.target_commitish : null
+        sha =
+          isCommitSha(release.target_commitish) ?
+            release.target_commitish
+          : null
       }
 
       releaseInfos.push(normalizeRelease(release, sha))

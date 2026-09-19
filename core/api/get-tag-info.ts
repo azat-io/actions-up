@@ -2,8 +2,8 @@ import type { GitHubClientContext } from '../../types/github-client-context'
 import type { TagInfo } from '../../types/tag-info'
 
 import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { isCommitSha } from '../versions/is-commit-sha'
 import { makeRequest } from './make-request'
-import { isSha } from '../versions/is-sha'
 
 /**
  * Fetch tag information by tag name. Tries release-by-tag first to obtain
@@ -116,7 +116,7 @@ export async function getTagInfo(
         if (isRateLimit(referenceError)) {
           throw referenceError
         }
-        if (isSha(releaseData.target_commitish)) {
+        if (isCommitSha(releaseData.target_commitish)) {
           sha = releaseData.target_commitish
         }
       }

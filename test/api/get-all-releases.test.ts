@@ -47,30 +47,36 @@ describe('getAllReleases', () => {
     expect(array[1]!.sha).toBeNull()
   })
 
-  it('sets first item sha to null when target_commitish is not a SHA', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            published_at: '2024-01-01T00:00:00Z',
-            target_commitish: 'main',
-            tag_name: 'v1.0.0',
-            prerelease: false,
-            html_url: 'u',
-            body: null,
-            name: 'A',
-          },
-        ]),
-        { status: 200 },
-      ),
-    )
-    let array = await getAllReleases(createClientContext(), {
-      owner: 'o',
-      repo: 'r',
-      limit: 1,
-    })
-    expect(array[0]!.sha).toBeNull()
-  })
+  it.each([
+    ['a branch name', 'main'],
+    ['a v-prefixed branch name', 'v20240101'],
+  ])(
+    'sets first item sha to null when target_commitish is %s',
+    async (_description, commitish) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              published_at: '2024-01-01T00:00:00Z',
+              target_commitish: commitish,
+              tag_name: 'v1.0.0',
+              prerelease: false,
+              html_url: 'u',
+              body: null,
+              name: 'A',
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      let array = await getAllReleases(createClientContext(), {
+        owner: 'o',
+        repo: 'r',
+        limit: 1,
+      })
+      expect(array[0]!.sha).toBeNull()
+    },
+  )
 
   it('falls back name to tag_name when name is null', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
