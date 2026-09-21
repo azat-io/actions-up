@@ -70,24 +70,30 @@ describe('getLatestRelease', () => {
     ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
   })
 
-  it('leaves sha null when target_commitish is not a SHA', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          published_at: '2024-03-01T00:00:00Z',
-          target_commitish: 'main',
-          tag_name: 'v3.0.0',
-          prerelease: false,
-          html_url: 'u',
-          body: 'Desc',
-          name: 'Rel',
-        }),
-        { status: 200 },
-      ),
-    )
-    let release = await getLatestRelease(createClientContext(), 'o', 'r')
-    expect(release?.sha).toBeNull()
-  })
+  it.each([
+    ['a branch name', 'main'],
+    ['a v-prefixed branch name', 'v20240101'],
+  ])(
+    'leaves sha null when target_commitish is %s',
+    async (_description, commitish) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            published_at: '2024-03-01T00:00:00Z',
+            target_commitish: commitish,
+            tag_name: 'v3.0.0',
+            prerelease: false,
+            html_url: 'u',
+            body: 'Desc',
+            name: 'Rel',
+          }),
+          { status: 200 },
+        ),
+      )
+      let release = await getLatestRelease(createClientContext(), 'o', 'r')
+      expect(release?.sha).toBeNull()
+    },
+  )
 
   it('rethrows unexpected errors from makeRequest', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
