@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.20.1
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.20.0...v1.20.1)
+
+### 🐞 Bug Fixes
+
+- Ignore non-comparable tags when selecting latest version
+  ([9ca6535](https://github.com/azat-io/actions-up/commit/9ca6535))
+- Stop treating v-prefixed commitish as a commit sha
+  ([d71a7c5](https://github.com/azat-io/actions-up/commit/d71a7c5))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.20.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.19.0...v1.20.0)
