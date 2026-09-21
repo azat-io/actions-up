@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { GitHubClientContext } from '../../types/github-client-context'
-
+import { createClientContext } from '../helpers/create-client-context'
 import { getTagSha } from '../../core/api/get-tag-sha'
 
 describe('getTagSha', () => {
@@ -9,23 +8,8 @@ describe('getTagSha', () => {
     vi.restoreAllMocks()
   })
 
-  function makeContext(): GitHubClientContext {
-    return {
-      caches: {
-        matchingReferences: new Map(),
-        refType: new Map(),
-        tagInfo: new Map(),
-        tagSha: new Map(),
-      },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      rateLimitRemaining: 5000,
-      token: 't',
-    }
-  }
-
   it('resolves annotated tag to commit SHA', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       if ((url as string).includes('/git/ref/tags/v1.2.3')) {
@@ -55,7 +39,7 @@ describe('getTagSha', () => {
   })
 
   it('returns lightweight tag commit SHA', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
@@ -71,7 +55,7 @@ describe('getTagSha', () => {
   })
 
   it('returns cached entry without performing requests', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     context.caches.tagSha.set('o/r#v1.0.0', 'cached')
     let fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -82,7 +66,7 @@ describe('getTagSha', () => {
   })
 
   it('returns null when cached entry is null', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     context.caches.tagSha.set('o/r#v1.1.0', null)
     let fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -93,7 +77,7 @@ describe('getTagSha', () => {
   })
 
   it('returns null when cached entry is undefined', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     context.caches.tagSha.set('o/r#v1.1.1', 'cached-sha')
     vi.spyOn(context.caches.tagSha, 'get').mockReturnValue(undefined)
     let fetchSpy = vi.spyOn(globalThis, 'fetch')
@@ -105,7 +89,7 @@ describe('getTagSha', () => {
   })
 
   it('falls back to ref SHA when annotated tag details fail', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
@@ -134,7 +118,7 @@ describe('getTagSha', () => {
   })
 
   it('returns null when annotated tag payload has no object.sha', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
@@ -166,7 +150,7 @@ describe('getTagSha', () => {
   })
 
   it('returns null when exact tag does not exist', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('Not Found', {
@@ -182,7 +166,7 @@ describe('getTagSha', () => {
   })
 
   it('throws GitHubRateLimitError on rate limit', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('API rate limit exceeded', {
@@ -197,7 +181,7 @@ describe('getTagSha', () => {
   })
 
   it('caches null on non rate limit failure', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('fatal', {
@@ -213,7 +197,7 @@ describe('getTagSha', () => {
   })
 
   it('returns null when ref sha is empty', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ object: { type: 'commit', sha: '' } }), {
@@ -227,7 +211,7 @@ describe('getTagSha', () => {
   })
 
   it('returns commit SHA directly when ref type is commit', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown

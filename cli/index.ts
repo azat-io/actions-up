@@ -560,6 +560,31 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       update => update.targetRefRateLimited,
     )
 
+    /**
+     * Print a notice for every group of entries that was skipped, held back or
+     * pinned to a fallback reference, unless quiet output was requested.
+     */
+    function printWarnings(): void {
+      if (quiet) {
+        return
+      }
+      if (skipped.length > 0) {
+        printSkippedWarning(skipped, includeBranches, style)
+      }
+      if (blockedByMode.length > 0) {
+        printModeWarning(blockedByMode, mode)
+      }
+      if (blockedByAge.length > 0) {
+        printMinAgeWarning(blockedByAge, options.minAge)
+      }
+      if (blockedAsDowngrade.length > 0) {
+        printDowngradeWarning(blockedAsDowngrade, preferTags)
+      }
+      if (rateLimitedFallbacks.length > 0) {
+        printRateLimitWarning(rateLimitedFallbacks)
+      }
+    }
+
     if (outdated.length === 0) {
       spinner?.success('All actions are up to date!')
       if (json) {
@@ -573,18 +598,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         })
         return
       }
-      if (!quiet && skipped.length > 0) {
-        printSkippedWarning(skipped, includeBranches, style)
-      }
-      if (!quiet && blockedByMode.length > 0) {
-        printModeWarning(blockedByMode, mode)
-      }
-      if (!quiet && blockedByAge.length > 0) {
-        printMinAgeWarning(blockedByAge, options.minAge)
-      }
-      if (!quiet && blockedAsDowngrade.length > 0) {
-        printDowngradeWarning(blockedAsDowngrade, preferTags)
-      }
+      printWarnings()
       console.info(
         pc.green('\n✨ Everything is already at the latest version!\n'),
       )
@@ -618,21 +632,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       return
     }
 
-    if (!quiet && skipped.length > 0) {
-      printSkippedWarning(skipped, includeBranches, style)
-    }
-    if (!quiet && blockedByMode.length > 0) {
-      printModeWarning(blockedByMode, mode)
-    }
-    if (!quiet && blockedByAge.length > 0) {
-      printMinAgeWarning(blockedByAge, options.minAge)
-    }
-    if (!quiet && blockedAsDowngrade.length > 0) {
-      printDowngradeWarning(blockedAsDowngrade, preferTags)
-    }
-    if (!quiet && rateLimitedFallbacks.length > 0) {
-      printRateLimitWarning(rateLimitedFallbacks)
-    }
+    printWarnings()
 
     if (options.dryRun) {
       console.info(pc.yellow('\n📋 Dry Run - No changes will be made\n'))

@@ -2,8 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { GitHubClientContext } from '../../types/github-client-context'
-
+import { createClientContext } from '../helpers/create-client-context'
 import { getTagInfo } from '../../core/api/get-tag-info'
 
 describe('getTagInfo', () => {
@@ -11,23 +10,8 @@ describe('getTagInfo', () => {
     vi.restoreAllMocks()
   })
 
-  function makeContext(): GitHubClientContext {
-    return {
-      caches: {
-        matchingReferences: new Map(),
-        refType: new Map(),
-        tagInfo: new Map(),
-        tagSha: new Map(),
-      },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      rateLimitRemaining: 5000,
-      token: 't',
-    }
-  }
-
   it('fetches release-by-tag then resolves SHA via refs', async () => {
-    let context = makeContext()
+    let context = createClientContext()
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
@@ -84,7 +68,7 @@ describe('getTagInfo', () => {
   })
 
   it('falls back to refs when release-by-tag is not found', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -131,7 +115,7 @@ describe('getTagInfo', () => {
   })
 
   it('returns cached info before performing requests', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     let cached = {
       message: 'cached',
       tag: 'v1.2.3',
@@ -152,7 +136,7 @@ describe('getTagInfo', () => {
   })
 
   it('returns null when cached entry is null', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     context.caches.tagInfo.set('o/r#v1.2.4', null)
     let fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -167,7 +151,7 @@ describe('getTagInfo', () => {
   })
 
   it('ignores commit enrichment failure for commit-type ref', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -203,7 +187,7 @@ describe('getTagInfo', () => {
   })
 
   it('sets date to null when commit author date is null (commit-type ref)', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -247,7 +231,7 @@ describe('getTagInfo', () => {
   })
 
   it('keeps ref sha when annotated tag object.sha is missing, but fills metadata', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -305,7 +289,7 @@ describe('getTagInfo', () => {
   })
 
   it('fills metadata and sha when annotated tag details present (fallback path)', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -354,7 +338,7 @@ describe('getTagInfo', () => {
   })
 
   it('keeps message/date null when annotated tag has no message and no tagger date (fallback path)', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -403,7 +387,7 @@ describe('getTagInfo', () => {
   })
 
   it('sets message null when commit message is null (fallback commit path)', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -447,7 +431,7 @@ describe('getTagInfo', () => {
   })
 
   it('keeps ref sha when annotated tag object.sha is missing (fallback path)', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -495,7 +479,7 @@ describe('getTagInfo', () => {
   })
 
   it('preserves annotated ref sha when release tag detail lookup fails', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -545,7 +529,7 @@ describe('getTagInfo', () => {
   })
 
   it('ignores commit enrichment failure in release path for commit refs', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -590,7 +574,7 @@ describe('getTagInfo', () => {
   })
 
   it('enriches release commit reference via commit lookup', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -643,7 +627,7 @@ describe('getTagInfo', () => {
   })
 
   it('uses release commitish when reference lookup fails', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -682,7 +666,7 @@ describe('getTagInfo', () => {
   })
 
   it('ignores release commitish that is not a SHA when reference lookup fails', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -716,7 +700,7 @@ describe('getTagInfo', () => {
   })
 
   it('ignores null release commitish when reference lookup fails', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -758,7 +742,7 @@ describe('getTagInfo', () => {
   })
 
   it('ignores blank release commitish when reference lookup fails', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -800,7 +784,7 @@ describe('getTagInfo', () => {
   })
 
   it('preserves ref sha when fallback tag detail lookup fails', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -843,7 +827,7 @@ describe('getTagInfo', () => {
   })
 
   it('returns null when tag lookup fails with status error', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -871,7 +855,7 @@ describe('getTagInfo', () => {
   })
 
   it('throws GitHubRateLimitError when API signals rate limit', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(
       new Error('rate limit triggered'),
     )
@@ -882,7 +866,7 @@ describe('getTagInfo', () => {
   })
 
   it('throws GitHubRateLimitError when the API answers 403 with a rate limit', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
       /**
        * A fresh response per request, because the body is read once.
@@ -901,7 +885,7 @@ describe('getTagInfo', () => {
   })
 
   it('rethrows unexpected errors from both release and fallback paths', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fatal'))
 
     await expect(
@@ -910,7 +894,7 @@ describe('getTagInfo', () => {
   })
 
   it('enriches missing date from commit when release has body but no date', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -963,7 +947,7 @@ describe('getTagInfo', () => {
   })
 
   it('enriches missing message from commit when release has date but no body', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -1016,7 +1000,7 @@ describe('getTagInfo', () => {
   })
 
   it('keeps release info when ref sha is empty', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -1082,7 +1066,7 @@ describe('getTagInfo', () => {
   }
 
   it('throws when the annotated tag lookup is rate limited after a release', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -1107,7 +1091,7 @@ describe('getTagInfo', () => {
   })
 
   it('throws when the commit lookup is rate limited after a release', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -1131,7 +1115,7 @@ describe('getTagInfo', () => {
   })
 
   it('throws when the reference lookup is rate limited after a release', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -1152,7 +1136,7 @@ describe('getTagInfo', () => {
   })
 
   it('throws when the annotated tag lookup is rate limited without a release', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -1173,7 +1157,7 @@ describe('getTagInfo', () => {
   })
 
   it('throws when the commit lookup is rate limited without a release', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href
@@ -1193,7 +1177,7 @@ describe('getTagInfo', () => {
   })
 
   it('keeps the release metadata when the commit lookup fails outright', async () => {
-    let context = makeContext()
+    let context = createClientContext()
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
       let input = url as unknown
       let urlString = typeof input === 'string' ? input : (input as URL).href

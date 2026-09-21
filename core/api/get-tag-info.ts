@@ -3,6 +3,7 @@ import type { TagInfo } from '../../types/tag-info'
 
 import { GitHubRateLimitError } from './internal-rate-limit-error'
 import { makeRequest } from './make-request'
+import { isSha } from '../versions/is-sha'
 
 /**
  * Fetch tag information by tag name. Tries release-by-tag first to obtain
@@ -115,7 +116,7 @@ export async function getTagInfo(
         if (isRateLimit(referenceError)) {
           throw referenceError
         }
-        if (isLikelySha(releaseData.target_commitish)) {
+        if (isSha(releaseData.target_commitish)) {
           sha = releaseData.target_commitish
         }
       }
@@ -210,14 +211,6 @@ export async function getTagInfo(
     }
     throw error
   }
-}
-
-function isLikelySha(value: unknown): value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    return false
-  }
-  let normalized = value.replace(/^v/u, '')
-  return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }
 
 /**

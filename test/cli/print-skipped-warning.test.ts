@@ -1,19 +1,10 @@
-import type { MockInstance } from 'vitest'
-
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { printSkippedWarning } from '../../cli/print-skipped-warning'
+import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 
 describe('printSkippedWarning', () => {
-  let consoleInfoSpy: MockInstance
-
-  beforeEach(() => {
-    consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    consoleInfoSpy.mockRestore()
-  })
+  let consoleInfoSpy = spyOnConsoleInfo()
 
   it('prints hint about --include-branches when includeBranches is false', () => {
     let skipped = [

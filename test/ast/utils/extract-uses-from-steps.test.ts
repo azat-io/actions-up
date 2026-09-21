@@ -66,4 +66,27 @@ describe('extractUsesFromSteps', () => {
     })
     expect(actions).toEqual([])
   })
+
+  it('skips step entries that are sequences instead of mappings', () => {
+    let content = `${[
+      'jobs:',
+      '  build:',
+      '    steps:',
+      '      - - uses: actions/checkout@v4',
+      '      - uses: actions/setup-node@v4',
+    ].join('\n')}\n`
+    let document_ = parseDocument(content)
+    let jobs = findMapPair(document_.contents, 'jobs')
+    let build = jobs?.value ? findMapPair(jobs.value, 'build') : null
+    let steps = build?.value ? findMapPair(build.value, 'steps') : null
+
+    let actions = extractUsesFromSteps({
+      filePath: '.github/workflows/ci.yml',
+      stepsNode: steps!.value,
+      content,
+    })
+
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toMatchObject({ name: 'actions/setup-node' })
+  })
 })

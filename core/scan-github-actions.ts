@@ -279,33 +279,44 @@ export async function scanGitHubActions(
       let seenCompositeDirectories = new Set<string>()
 
       /**
+       * Collect local directories of same-repo composite actions referenced by
+       * the given actions, skipping directories that were already seen.
+       *
+       * @param actions - Actions to inspect.
+       * @returns Newly seen composite action directories.
+       */
+      function collectCompositeDirectories(actions: GitHubAction[]): string[] {
+        let directories: string[] = []
+        for (let action of actions) {
+          if (action.type !== 'external') {
+            continue
+          }
+          let segs = action.name.split('/')
+          if (segs.length < 3) {
+            continue
+          }
+          let candidateSlug = `${segs[0]}/${segs[1]}`
+          if (candidateSlug !== repoSlug) {
+            continue
+          }
+
+          let compositeDirectory = join(normalizedRoot, ...segs.slice(2))
+          if (!isWithin(normalizedRoot, compositeDirectory)) {
+            continue
+          }
+          if (seenCompositeDirectories.has(compositeDirectory)) {
+            continue
+          }
+          seenCompositeDirectories.add(compositeDirectory)
+          directories.push(compositeDirectory)
+        }
+        return directories
+      }
+
+      /**
        * Seed queue with composite paths referenced in discovered actions.
        */
-      let queue: string[] = []
-
-      for (let action of result.actions) {
-        if (action.type !== 'external') {
-          continue
-        }
-        let segs = action.name.split('/')
-        if (segs.length < 3) {
-          continue
-        }
-        let candidateSlug = `${segs[0]}/${segs[1]}`
-        if (candidateSlug !== repoSlug) {
-          continue
-        }
-
-        let compositeDirectory = join(normalizedRoot, ...segs.slice(2))
-        if (!isWithin(normalizedRoot, compositeDirectory)) {
-          continue
-        }
-        if (seenCompositeDirectories.has(compositeDirectory)) {
-          continue
-        }
-        seenCompositeDirectories.add(compositeDirectory)
-        queue.push(compositeDirectory)
-      }
+      let queue = collectCompositeDirectories(result.actions)
 
       /**
        * Breadth-first follow to collect nested actions without awaiting inside
@@ -343,33 +354,7 @@ export async function scanGitHubActions(
                 result.actions.push(...nestedActions)
               }
 
-              let nextDirectories: string[] = []
-              for (let nestedAction of nestedActions) {
-                if (nestedAction.type !== 'external') {
-                  continue
-                }
-                let nameSegments = nestedAction.name.split('/')
-                if (nameSegments.length < 3) {
-                  continue
-                }
-                let nameSlug = `${nameSegments[0]}/${nameSegments[1]}`
-                if (nameSlug !== repoSlug) {
-                  continue
-                }
-                let nextDirectory = join(
-                  normalizedRoot,
-                  ...nameSegments.slice(2),
-                )
-                if (!isWithin(normalizedRoot, nextDirectory)) {
-                  continue
-                }
-                if (seenCompositeDirectories.has(nextDirectory)) {
-                  continue
-                }
-                seenCompositeDirectories.add(nextDirectory)
-                nextDirectories.push(nextDirectory)
-              }
-              return nextDirectories
+              return collectCompositeDirectories(nestedActions)
             } catch {
               return [] as string[]
             }

@@ -17,6 +17,7 @@ import { getFamilyPrefix } from '../versions/get-family-prefix'
 import { createGitHubClient } from './create-github-client'
 import { isSemverLike } from '../versions/is-semver-like'
 import { compareSha } from '../versions/compare-sha'
+import { resolveTagMeta } from './resolve-tag-meta'
 import { isSha } from '../versions/is-sha'
 
 /**
@@ -290,29 +291,13 @@ export async function checkUpdates(
           }
         }
 
-        let tagMeta = await resolveTagMeta(client, {
-          tag: best.tag,
-          owner,
-          repo,
-        })
-        let familySha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
-        if (!familySha) {
-          try {
-            familySha = await client.getTagSha(owner, repo, best.tag)
-          } catch (error) {
-            if (isRateLimitError(error)) {
-              throw error
-            }
-          }
-        }
+        let latest = await resolveListedTag(client, { tag: best, owner, repo })
 
         return {
           currentRefType: currentReferenceType,
-          publishedAt: tagMeta.date,
           status: 'ok' as const,
-          version: best.tag,
-          sha: familySha,
           actionKey,
+          ...latest,
         }
       }
 
@@ -383,28 +368,15 @@ export async function checkUpdates(
               (semver.eq(latestSemverTag.version, releaseSem) &&
                 /\d+\.\d+/u.test(best.tag))
             ) {
-              let tagVersion = best.tag
-              let tagMeta = await resolveTagMeta(client, {
-                tag: tagVersion,
+              let latest = await resolveListedTag(client, {
+                tag: best,
                 owner,
                 repo,
               })
-              let tagSha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
-              if (!tagSha && tagVersion) {
-                try {
-                  tagSha = await client.getTagSha(owner, repo, tagVersion)
-                } catch (error) {
-                  if (isRateLimitError(error)) {
-                    throw error
-                  }
-                }
-              }
               return {
                 currentRefType: currentReferenceType,
-                publishedAt: tagMeta.date,
-                version: tagVersion,
-                sha: tagSha,
                 actionKey,
+                ...latest,
               }
             }
           }
@@ -453,32 +425,12 @@ export async function checkUpdates(
           tags.find(tag => isSameTagFamily(firstVersion, tag.tag)) ??
           tags[0]!
 
-        let version = best.tag
-        let tagMeta = await resolveTagMeta(client, {
-          tag: version,
-          owner,
-          repo,
-        })
-        let sha = tagMeta.sha ?? (best.sha?.length ? best.sha : null)
-        if (!sha && version) {
-          try {
-            sha = await client.getTagSha(owner, repo, version)
-          } catch (error) {
-            if (isRateLimitError(error)) {
-              throw error
-            }
-            /**
-             * Ignore SHA fetch errors.
-             */
-          }
-        }
+        let latest = await resolveListedTag(client, { tag: best, owner, repo })
         return {
           currentRefType: currentReferenceType,
-          publishedAt: tagMeta.date,
           status: 'ok' as const,
           actionKey,
-          version,
-          sha,
+          ...latest,
         }
       }
 
@@ -761,32 +713,36 @@ function createUpdate(
 }
 
 /**
- * Resolve publication date and commit SHA for a chosen tag, best-effort.
+ * Resolve the latest version information for a tag picked from a tag listing.
  *
- * Rate limit errors are rethrown; any other failure falls back to nulls so
- * callers can use their own SHA resolution chain.
+ * The SHA comes from the tag metadata first, then from the listing itself, and
+ * finally from a dedicated tag lookup whose failures are ignored.
  *
  * @param client - GitHub API client.
  * @param parameters - Request parameters.
  * @param parameters.owner - Repository owner.
  * @param parameters.repo - Repository name.
- * @param parameters.tag - Tag name to resolve.
- * @returns Tag date and commit SHA, or nulls when the lookup fails.
+ * @param parameters.tag - Tag picked from the listing.
+ * @returns Publication date, version and commit SHA of the tag.
+ * @throws GitHubRateLimitError - When a request was rate limited.
  */
-async function resolveTagMeta(
+async function resolveListedTag(
   client: GitHubClient,
-  parameters: { owner: string; repo: string; tag: string },
-): Promise<{ sha: string | null; date: Date | null }> {
-  try {
-    let { owner, repo, tag } = parameters
-    let info = await client.getTagInfo(owner, repo, tag)
-    return { date: info?.date ?? null, sha: info?.sha ?? null }
-  } catch (error) {
-    if (isRateLimitError(error)) {
-      throw error
+  parameters: { owner: string; repo: string; tag: TagInfo },
+): Promise<LatestInfo> {
+  let { owner, repo, tag } = parameters
+  let meta = await resolveTagMeta(client, { tag: tag.tag, owner, repo })
+  let sha = meta.sha ?? (tag.sha?.length ? tag.sha : null)
+  if (!sha && tag.tag) {
+    try {
+      sha = await client.getTagSha(owner, repo, tag.tag)
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        throw error
+      }
     }
-    return { date: null, sha: null }
   }
+  return { publishedAt: meta.date, version: tag.tag, sha }
 }
 
 /**

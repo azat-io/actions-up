@@ -1,23 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GitHubClientContext } from '../../types/github-client-context'
-
 import { updateRateLimitInfo } from '../../core/api/update-rate-limit-info'
+import { createClientContext } from '../helpers/create-client-context'
 
 describe('updateRateLimitInfo', () => {
   it('updates remaining and reset time', () => {
-    let context: GitHubClientContext = {
-      caches: {
-        matchingReferences: new Map(),
-        refType: new Map(),
-        tagInfo: new Map(),
-        tagSha: new Map(),
-      },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
+    let context = createClientContext({
       rateLimitRemaining: 60,
       token: undefined,
-    }
+    })
 
     updateRateLimitInfo(context, {
       'x-ratelimit-reset': String(1700000000),
@@ -29,18 +20,10 @@ describe('updateRateLimitInfo', () => {
   })
 
   it('supports numeric header values', () => {
-    let context: GitHubClientContext = {
-      caches: {
-        matchingReferences: new Map(),
-        refType: new Map(),
-        tagInfo: new Map(),
-        tagSha: new Map(),
-      },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
+    let context = createClientContext({
       rateLimitRemaining: 60,
       token: undefined,
-    }
+    })
     updateRateLimitInfo(context, {
       'x-ratelimit-reset': 1700000050,
       'x-ratelimit-remaining': 42,

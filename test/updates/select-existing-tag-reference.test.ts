@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { GitHubClient } from '../../types/github-client'
-
 import { selectExistingTagReference } from '../../core/updates/select-existing-tag-reference'
+import { createMockClient } from '../helpers/create-mock-client'
 
 let latestSha = '3b1f9d770a89ffb6bbcf07a1c78a6f2c564ab1c2'
 let staleSha = 'ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12'
@@ -14,24 +13,9 @@ class GitHubRateLimitError extends Error {
   }
 }
 
-function createClient(overrides: Partial<GitHubClient> = {}): GitHubClient {
-  return {
-    getMatchingTagReferences: vi.fn().mockResolvedValue([]),
-    getTagSha: vi.fn().mockResolvedValue(null),
-    getAllTags: vi.fn().mockResolvedValue([]),
-    shouldWaitForRateLimit: vi.fn(),
-    getRateLimitStatus: vi.fn(),
-    getLatestRelease: vi.fn(),
-    getAllReleases: vi.fn(),
-    getRefType: vi.fn(),
-    getTagInfo: vi.fn(),
-    ...overrides,
-  }
-}
-
 describe('selectExistingTagReference', () => {
   it('returns floating tag when it exists and points at the latest release', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi.fn().mockResolvedValue(latestSha),
     })
 
@@ -47,7 +31,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('falls back to the exact latest version when no floating tag exists', async () => {
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',
@@ -60,7 +44,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('prefers a broader floating tag when the specific one is missing', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi
         .fn()
         .mockImplementation((_owner: string, _repo: string, tag: string) =>
@@ -81,7 +65,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('prefers a broader floating tag when the specific one is stale', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi
         .fn()
         .mockImplementation((_owner: string, _repo: string, tag: string) =>
@@ -100,7 +84,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('skips a floating tag that does not point at the latest release', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi.fn().mockResolvedValue(staleSha),
     })
 
@@ -115,7 +99,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('falls back to the exact latest version when latest SHA is unknown', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi.fn().mockResolvedValue(staleSha),
     })
 
@@ -132,7 +116,7 @@ describe('selectExistingTagReference', () => {
 
   it('reports rate limiting when tag validation hits the API limit', async () => {
     let rateLimitError = new GitHubRateLimitError()
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi.fn().mockRejectedValue(rateLimitError),
     })
 
@@ -147,7 +131,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('falls back without rate limit flag when tag lookup fails otherwise', async () => {
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi.fn().mockRejectedValue(new Error('network error')),
     })
 
@@ -163,7 +147,7 @@ describe('selectExistingTagReference', () => {
 
   it('does not report rate limiting when a candidate still matches', async () => {
     let rateLimitError = new GitHubRateLimitError()
-    let client = createClient({
+    let client = createMockClient({
       getTagSha: vi
         .fn()
         .mockImplementation((_owner: string, _repo: string, tag: string) =>
@@ -184,7 +168,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('returns the latest version for action name without owner', async () => {
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await selectExistingTagReference(client, {
       latestVersion: 'v8.3.2',
@@ -198,7 +182,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('returns the latest version for action name without repo', async () => {
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await selectExistingTagReference(client, {
       latestVersion: 'v8.3.2',
@@ -212,7 +196,7 @@ describe('selectExistingTagReference', () => {
   })
 
   it('returns the latest version when there are no candidates', async () => {
-    let client = createClient()
+    let client = createMockClient()
 
     let result = await selectExistingTagReference(client, {
       actionName: 'owner/repo',

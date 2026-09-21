@@ -1,8 +1,11 @@
 import type { GitHubClientContext } from '../../types/github-client-context'
+import type { GitHubReleasePayload } from './normalize-release'
 import type { ReleaseInfo } from '../../types/release-info'
 
 import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { normalizeRelease } from './normalize-release'
 import { makeRequest } from './make-request'
+import { isSha } from '../versions/is-sha'
 
 /**
  * Fetch the latest release for a repository.
@@ -26,28 +29,12 @@ export async function getLatestRelease(
       context,
       `/repos/${owner}/${repo}/releases/latest`,
     )
-    let release = releaseResp.data as {
-      target_commitish: string | null
-      published_at: string
-      name: string | null
-      body: string | null
-      prerelease: boolean
-      tag_name: string
-      html_url: string
-    }
+    let release = releaseResp.data as GitHubReleasePayload
 
     let sha: string | null =
-      isLikelySha(release.target_commitish) ? release.target_commitish : null
+      isSha(release.target_commitish) ? release.target_commitish : null
 
-    return {
-      publishedAt: new Date(release.published_at),
-      name: release.name ?? release.tag_name,
-      description: release.body ?? null,
-      isPrerelease: release.prerelease,
-      version: release.tag_name,
-      url: release.html_url,
-      sha,
-    }
+    return normalizeRelease(release, sha)
   } catch (error) {
     if (
       error &&
@@ -62,12 +49,4 @@ export async function getLatestRelease(
     }
     throw error
   }
-}
-
-function isLikelySha(value: unknown): value is string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    return false
-  }
-  let normalized = value.replace(/^v/u, '')
-  return /^[0-9a-f]{7,40}$/iu.test(normalized)
 }

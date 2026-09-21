@@ -1,26 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { GitHubClientContext } from '../../types/github-client-context'
-
+import { createClientContext } from '../helpers/create-client-context'
 import { getReferenceType } from '../../core/api/get-reference-type'
 
 describe('getReferenceType', () => {
   beforeEach(() => vi.restoreAllMocks())
-
-  function context(): GitHubClientContext {
-    return {
-      caches: {
-        matchingReferences: new Map(),
-        refType: new Map(),
-        tagInfo: new Map(),
-        tagSha: new Map(),
-      },
-      baseUrl: 'https://api.github.com',
-      rateLimitReset: new Date(0),
-      rateLimitRemaining: 5000,
-      token: 't',
-    }
-  }
 
   it('returns tag when tag ref exists', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
@@ -31,7 +15,7 @@ describe('getReferenceType', () => {
       }
       return Promise.reject(new Error('Unexpected URL'))
     })
-    let t = await getReferenceType(context(), {
+    let t = await getReferenceType(createClientContext(), {
       reference: 'v1',
       owner: 'o',
       repo: 'r',
@@ -51,7 +35,7 @@ describe('getReferenceType', () => {
       }
       return Promise.reject(new Error('Unexpected URL'))
     })
-    let t = await getReferenceType(context(), {
+    let t = await getReferenceType(createClientContext(), {
       reference: 'main',
       owner: 'o',
       repo: 'r',
@@ -63,7 +47,7 @@ describe('getReferenceType', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('Not Found', { status: 404 }),
     )
-    let t = await getReferenceType(context(), {
+    let t = await getReferenceType(createClientContext(), {
       reference: 'x',
       owner: 'o',
       repo: 'r',
@@ -72,7 +56,7 @@ describe('getReferenceType', () => {
   })
 
   it('returns cached entry without issuing requests', async () => {
-    let context_ = context()
+    let context_ = createClientContext()
     context_.caches.refType.set('o/r#main', 'branch')
     let fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -87,7 +71,7 @@ describe('getReferenceType', () => {
   })
 
   it('returns null when cached entry stores null', async () => {
-    let context_ = context()
+    let context_ = createClientContext()
     context_.caches.refType.set('o/r#main', null)
     let fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -107,7 +91,7 @@ describe('getReferenceType', () => {
         status: 500,
       }),
     )
-    let context_ = context()
+    let context_ = createClientContext()
 
     await expect(
       getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
@@ -132,7 +116,7 @@ describe('getReferenceType', () => {
         }),
       )
     })
-    let context_ = context()
+    let context_ = createClientContext()
 
     await expect(
       getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
@@ -147,7 +131,7 @@ describe('getReferenceType', () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(
       new TypeError('fetch failed'),
     )
-    let context_ = context()
+    let context_ = createClientContext()
 
     await expect(
       getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
@@ -162,7 +146,7 @@ describe('getReferenceType', () => {
         status: 403,
       }),
     )
-    let context_ = context()
+    let context_ = createClientContext()
 
     await expect(
       getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
@@ -184,7 +168,7 @@ describe('getReferenceType', () => {
         }),
       )
     })
-    let context_ = context()
+    let context_ = createClientContext()
 
     await expect(
       getReferenceType(context_, { reference: 'main', owner: 'o', repo: 'r' }),
