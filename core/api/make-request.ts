@@ -61,10 +61,10 @@ export async function makeRequest(
     headers['Authorization'] = `Bearer ${context.token}`
   }
 
-  let response = (await fetch(`${context.baseUrl}${path}`, {
+  let response: FetchResponseLike = await fetch(`${context.baseUrl}${path}`, {
     ...options,
     headers,
-  })) as unknown as FetchResponseLike
+  })
 
   let responseHeaders: Record<string, string> = Object.fromEntries(
     response.headers.entries(),

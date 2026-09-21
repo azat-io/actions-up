@@ -7,7 +7,7 @@ import { GITHUB_DIRECTORY } from '../constants'
  * Walks up from a starting directory to find the repository root.
  *
  * The root is the nearest ancestor (including the start) that contains a `.git`
- * entry — a directory in a normal clone or a file in a git worktree — or, as a
+ * entry (a directory in a normal clone or a file in a git worktree) or, as a
  * fallback for non-git checkouts, a `.github` directory. Returns null when no
  * such ancestor exists up to the filesystem root.
  *

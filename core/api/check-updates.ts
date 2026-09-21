@@ -619,8 +619,8 @@ function createUpdate(
   }
 
   /**
-   * A reference that carries no version at all — `nightly`, `latest`, a channel
-   * tag — can only be compared as a string, and a string difference holds
+   * A reference that carries no version at all (`nightly`, `latest`, a channel
+   * tag) can only be compared as a string, and a string difference holds
    * between any two distinct tags, so it is no evidence of an update. Such a
    * pair is reported instead of rewritten. A branch keeps its own handling: it
    * floats by design and is only checked when the run opted into branches.

@@ -213,8 +213,8 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
             /**
              * Avoid inserting a comment mid-line when more content follows.
              * Exception: when currentVersion is missing, trailing content may
-             * be the original unparsed version suffix — allow comment in that
-             * case.
+             * be the original unparsed version suffix, so the comment is
+             * allowed in that case.
              */
             let hasTrailingContent = restOfLine.trim().length > 0
             let spacer = groups.after.endsWith(' ') ? '' : ' '

@@ -4,7 +4,7 @@ import { parseTagFamily } from './parse-tag-family'
  * Read the version a trailing comment records next to a pinned reference.
  *
  * A SHA pin carries no version of its own, so the comment written beside it is
- * the only record of which tag it came from — and, in a repository with several
+ * the only record of which tag it came from and, in a repository with several
  * tag families, of which family that tag belongs to.
  *
  * Only a comment that starts with a recognizable tag counts; anything else is

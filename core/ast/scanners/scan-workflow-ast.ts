@@ -85,9 +85,9 @@ export function scanWorkflowAst(
      * single image version to compare against, so they are left alone.
      *
      * The source line is matched against the very pattern the writer uses, so a
-     * form the writer cannot rewrite — an anchored value, a value carried to
-     * the next line, a key inside a flow mapping — is never offered as an
-     * update that would then silently do nothing.
+     * form the writer cannot rewrite (an anchored value, a value carried to the
+     * next line, a key inside a flow mapping) is never offered as an update
+     * that would then silently do nothing.
      */
     let runsOnPair = findMapPair(jobNode.value, 'runs-on')
     if (runsOnPair?.value && runsOnPair.key && isScalar(runsOnPair.value)) {

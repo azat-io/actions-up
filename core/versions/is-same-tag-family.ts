@@ -4,8 +4,8 @@ import { getFamilyPrefix } from './get-family-prefix'
  * Check whether two tag references may be compared as versions of the same
  * artifact.
  *
- * A repository can publish several disjoint tag families at once — npm releases
- * under `v<x.y.z>` and an action under `actions-v<x.y.z>`, for example — and a
+ * A repository can publish several disjoint tag families at once, such as npm
+ * releases under `v<x.y.z>` and an action under `actions-v<x.y.z>`, and a
  * candidate from the wrong family resolves to an existing but unrelated
  * commit.
  *
