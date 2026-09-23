@@ -1,5 +1,5 @@
 /**
- * Parse CLI --exclude patterns into regular expressions.
+ * Parse CLI --exclude and --min-age-exclude patterns into regular expressions.
  *
  * Supports two forms:
  *

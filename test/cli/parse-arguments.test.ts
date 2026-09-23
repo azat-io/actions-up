@@ -134,6 +134,25 @@ describe('parseArguments', () => {
     })
   })
 
+  it('collects repeatable --min-age-exclude into an array', () => {
+    let result = parseArguments(
+      ['--min-age-exclude', '^my-org/', '--min-age-exclude', 'a,b'],
+      'x',
+    )
+
+    expect(result).toEqual({
+      options: {
+        minAgeExclude: ['^my-org/', 'a,b'],
+        mode: 'major',
+        dryRun: false,
+        style: 'sha',
+        yes: false,
+        minAge: 1,
+      },
+      kind: 'options',
+    })
+  })
+
   it('parses boolean flags', () => {
     let result = parseArguments(
       [

@@ -904,6 +904,332 @@ describe('run', () => {
     expect(printModeWarning).not.toHaveBeenCalled()
   })
 
+  it('skips the cool-down for actions matching --min-age-exclude', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--min-age',
+      '7',
+      '--min-age-exclude',
+      '^my-org/deploy$',
+      '--dry-run',
+    ]
+    let action = {
+      ...createUpdate().action,
+      uses: 'my-org/deploy@v0.6.0',
+      name: 'my-org/deploy',
+      version: 'v0.6.0',
+    }
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v0.6.0',
+        publishedAt: new Date(),
+        latestVersion: 'v0.6.3',
+        isBreaking: false,
+        action,
+      }),
+    ])
+    vi.mocked(resolveTargetReference).mockResolvedValue(
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v0.6.3' }),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('1 entry would be updated'),
+      )
+    })
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('v0.6.3'),
+    )
+    expect(getCompatibleUpdate).not.toHaveBeenCalled()
+    expect(printMinAgeWarning).not.toHaveBeenCalled()
+  })
+
+  it('keeps the cool-down for actions no --min-age-exclude pattern matches', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--min-age',
+      '7',
+      '--min-age-exclude',
+      'other/.*, ^my-org/',
+      '--dry-run',
+    ]
+    let { action } = createUpdate()
+    let exempt = { ...action, uses: 'my-org/deploy@v3', name: 'my-org/deploy' }
+    let lookalike = {
+      ...action,
+      uses: 'not-my-org/deploy@v3',
+      name: 'not-my-org/deploy',
+    }
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([action, exempt, lookalike]),
+    )
+    vi.mocked(checkUpdates).mockResolvedValue(
+      [action, exempt, lookalike].map(entry =>
+        createUpdate({
+          currentVersion: 'v0.6.0',
+          publishedAt: new Date(),
+          latestVersion: 'v0.6.3',
+          isBreaking: false,
+          action: entry,
+        }),
+      ),
+    )
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'cool-down',
+      update: null,
+    })
+    vi.mocked(resolveTargetReference).mockResolvedValue(
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v0.6.3' }),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('1 entry would be updated'),
+      )
+    })
+
+    expect(vi.mocked(getCompatibleUpdate).mock.calls).toHaveLength(2)
+    expect(getCompatibleUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        minAgeMs: 7 * 24 * 60 * 60 * 1000,
+        actionName: 'actions/checkout',
+      }),
+    )
+    expect(getCompatibleUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        minAgeMs: 7 * 24 * 60 * 60 * 1000,
+        actionName: 'not-my-org/deploy',
+      }),
+    )
+    expect(
+      vi
+        .mocked(printMinAgeWarning)
+        .mock.calls[0]?.[0].map(update => update.action.name),
+    ).toEqual(['actions/checkout', 'not-my-org/deploy'])
+  })
+
+  it('steps an exempt action down by mode without the cool-down', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--mode',
+      'patch',
+      '--min-age',
+      '7',
+      '--min-age-exclude',
+      '^my-org/',
+      '--dry-run',
+    ]
+    let action = {
+      ...createUpdate().action,
+      uses: 'my-org/deploy@v3.0.0',
+      name: 'my-org/deploy',
+      version: 'v3.0.0',
+    }
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v3.0.0',
+        latestVersion: 'v4.0.0',
+        publishedAt: new Date(),
+        action,
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      update: { sha: 'd'.repeat(40), version: 'v3.0.1', publishedAt: null },
+      reason: null,
+    })
+    vi.mocked(resolveTargetReference).mockResolvedValue(
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v3.0.1' }),
+    )
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('1 entry would be updated'),
+      )
+    })
+
+    expect(getCompatibleUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        actionName: 'my-org/deploy',
+        mode: 'patch',
+        minAgeMs: 0,
+      }),
+    )
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('v3.0.1'),
+    )
+  })
+
+  it('reports an exempt action held back by the mode as mode-blocked', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--mode',
+      'patch',
+      '--min-age',
+      '7',
+      '--min-age-exclude',
+      '^my-org/',
+    ]
+    let action = {
+      ...createUpdate().action,
+      uses: 'my-org/deploy@v3.0.0',
+      name: 'my-org/deploy',
+      version: 'v3.0.0',
+    }
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v3.0.0',
+        latestVersion: 'v4.0.0',
+        publishedAt: new Date(),
+        action,
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'no-candidate',
+      update: null,
+    })
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(printModeWarning).mock.calls).toHaveLength(1)
+    })
+
+    expect(getCompatibleUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        actionName: 'my-org/deploy',
+        mode: 'patch',
+        minAgeMs: 0,
+      }),
+    )
+    expect(printMinAgeWarning).not.toHaveBeenCalled()
+  })
+
+  it('keeps the cool-down when a --min-age-exclude pattern is invalid', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--min-age',
+      '7',
+      '--min-age-exclude',
+      '[',
+    ]
+    let consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({
+        currentVersion: 'v0.6.0',
+        publishedAt: new Date(),
+        latestVersion: 'v0.6.3',
+        isBreaking: false,
+      }),
+    ])
+    vi.mocked(getCompatibleUpdate).mockResolvedValue({
+      reason: 'cool-down',
+      update: null,
+    })
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(vi.mocked(printMinAgeWarning).mock.calls).toHaveLength(1)
+    })
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      'Invalid regex exclude: [',
+      expect.any(SyntaxError),
+    )
+    expect(getCompatibleUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ minAgeMs: 7 * 24 * 60 * 60 * 1000 }),
+    )
+  })
+
+  it('lets --exclude win over --min-age-exclude', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--exclude',
+      '^my-org/',
+      '--min-age-exclude',
+      '^my-org/',
+      '--dry-run',
+    ]
+    let { action } = createUpdate()
+    let excluded = {
+      ...action,
+      uses: 'my-org/deploy@v3',
+      name: 'my-org/deploy',
+    }
+    vi.mocked(scanGitHubActions).mockResolvedValue(
+      createScanResult([action, excluded]),
+    )
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({ hasUpdate: false, status: 'ok' }),
+    ])
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(consoleInfoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('already at the latest version'),
+      )
+    })
+
+    expect(checkUpdates).toHaveBeenCalledWith(
+      [action],
+      undefined,
+      expect.anything(),
+    )
+  })
+
+  it('echoes the --min-age-exclude patterns in JSON mode', async () => {
+    process.argv = [
+      'node',
+      'actions-up',
+      '--json',
+      '--min-age-exclude',
+      '^my-org/, ^other-org/',
+    ]
+    let { action } = createUpdate()
+    vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+    vi.mocked(checkUpdates).mockResolvedValue([
+      createUpdate({ hasUpdate: false, status: 'ok' }),
+    ])
+
+    run()
+
+    await vi.waitFor(() => {
+      expect(stdoutWriteSpy.mock.calls).toHaveLength(1)
+    })
+
+    let payload = JSON.parse(String(stdoutWriteSpy.mock.calls[0]![0])) as {
+      options: { minAgeExcludePatterns: string[] }
+    }
+    expect(payload.options.minAgeExcludePatterns).toEqual([
+      '^my-org/',
+      '^other-org/',
+    ])
+  })
+
   it('reads the pinned version from a comment when applying the mode filter', async () => {
     process.argv = ['node', 'actions-up', '--mode', 'minor', '--dry-run']
     let action = { ...createUpdate().action, comment: ' v3.0.0' }

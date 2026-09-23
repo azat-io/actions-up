@@ -65,6 +65,21 @@ describe('printMinAgeWarning', () => {
     )
   })
 
+  it('mentions how to exempt actions from the cool-down', () => {
+    let blocked = [
+      {
+        action: { name: 'my-org/deploy', version: 'v1' },
+        currentVersion: 'v1',
+      },
+    ]
+
+    printMinAgeWarning(blocked, 1)
+
+    expect(consoleInfoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('--min-age-exclude'),
+    )
+  })
+
   it('uses action.uses when available as identifier', () => {
     let blocked = [
       {

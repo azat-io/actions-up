@@ -30,7 +30,8 @@ export function printMinAgeWarning(
   console.info(
     pc.gray(
       `\n⏳ Skipped ${grouped.length} ${updateNoun} released less than ` +
-        `${minAge} ${dayNoun} ago (cool-down, use --min-age 0 to disable)`,
+        `${minAge} ${dayNoun} ago (cool-down, use --min-age 0 to disable ` +
+        'or --min-age-exclude to exempt actions)',
     ),
   )
   for (let { identifier, count } of grouped) {

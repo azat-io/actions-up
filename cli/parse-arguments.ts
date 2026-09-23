@@ -7,20 +7,21 @@ let helpText = `Usage:
   $ actions-up [options]
 
 Options:
-  --dir <directory>   Directory to scan (repeatable). Default: .github, or . with --recursive
-  --dry-run           Preview changes without applying them
-  --exclude <regex>   Exclude actions by regex (repeatable)
-  --include-branches  Also check actions pinned to branches (default: false)
-  --json              Output update information as machine-readable JSON
-  --min-age <days>    Minimum age in days for updates (default: 1, use 0 to disable)
-  --mode <mode>       Update mode: major, minor, or patch (default: major)
-  --prefer-tags       Also check tags when a release exists; use the higher version
-  --style <style>     Update style: sha, preserve or semver (default: sha)
-  -r, --recursive     Recursively scan directories for YAML files
-  -y, --yes           Skip all confirmations
-  -q, --quiet         Suppress skipped/blocked warnings
-  -h, --help          Display this message
-  -v, --version       Display version number`
+  --dir <directory>          Directory to scan (repeatable). Default: .github, or . with --recursive
+  --dry-run                  Preview changes without applying them
+  --exclude <regex>          Exclude actions by regex (repeatable)
+  --include-branches         Also check actions pinned to branches (default: false)
+  --json                     Output update information as machine-readable JSON
+  --min-age <days>           Minimum age in days for updates (default: 1, use 0 to disable)
+  --min-age-exclude <regex>  Exempt actions matching regex from --min-age (repeatable)
+  --mode <mode>              Update mode: major, minor, or patch (default: major)
+  --prefer-tags              Also check tags when a release exists; use the higher version
+  --style <style>            Update style: sha, preserve or semver (default: sha)
+  -r, --recursive            Recursively scan directories for YAML files
+  -y, --yes                  Skip all confirmations
+  -q, --quiet                Suppress skipped/blocked warnings
+  -h, --help                 Display this message
+  -v, --version              Display version number`
 
 /**
  * ParseArgs configuration mirroring the previous cac option set.
@@ -29,6 +30,7 @@ Options:
  * parseArgs does not camelCase keys, so they are remapped manually below.
  */
 let parserOptions = {
+  'min-age-exclude': { type: 'string', multiple: true },
   exclude: { type: 'string', multiple: true },
   recursive: { type: 'boolean', short: 'r' },
   version: { type: 'boolean', short: 'v' },
@@ -53,6 +55,11 @@ export interface CLIOptions {
    * Whether to include branch references in update checks.
    */
   includeBranches?: boolean
+
+  /**
+   * Regex patterns for actions exempt from the minimum age (repeatable).
+   */
+  minAgeExclude?: string[]
 
   /**
    * Custom directory name (e.g., '.gitea' instead of '.github').
@@ -168,6 +175,7 @@ export function parseArguments(
     return {
       options: {
         includeBranches: values['include-branches'],
+        minAgeExclude: values['min-age-exclude'],
         dryRun: values['dry-run'] ?? false,
         preferTags: values['prefer-tags'],
         style: values.style ?? 'sha',

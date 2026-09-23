@@ -616,6 +616,14 @@ rises above the latest release, and it skips prereleases unless the pinned
 version is itself a prerelease. An action is reported as held back only when no
 release satisfies both the cool-down and `--mode`.
 
+Use `--min-age-exclude` to skip the cool-down for trusted actions, such as your
+own reusable workflows. It takes the same regex patterns as `--exclude`; anchor
+them so that look-alike owners do not match:
+
+```bash
+npx actions-up --min-age-exclude "^my-org/"
+```
+
 Ignore comments (file/block/next-line/inline):
 
 ```yaml

@@ -16,6 +16,11 @@ export type JsonReportStatus =
  */
 interface BuildJsonReportOptions {
   /**
+   * Regex patterns supplied through `--min-age-exclude`.
+   */
+  minAgeExcludePatterns: string[]
+
+  /**
    * Updates excluded by the selected update mode.
    */
   blockedByMode: ActionUpdate[]
@@ -279,6 +284,11 @@ interface JsonReport {
  */
 interface JsonReportOptions {
   /**
+   * Regex patterns supplied through `--min-age-exclude`.
+   */
+  minAgeExcludePatterns: string[]
+
+  /**
    * Regex patterns supplied through `--exclude`.
    */
   excludePatterns: string[]
@@ -412,6 +422,7 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       directories: options.directories.map(directory =>
         serializeDirectoryPath(directory, cwd),
       ),
+      minAgeExcludePatterns: options.minAgeExcludePatterns,
       excludePatterns: options.excludePatterns,
       includeBranches: options.includeBranches,
       preferTags: options.preferTags,

@@ -13,6 +13,7 @@ import { promptUpdateSelection } from '../core/interactive/prompt-update-selecti
 import { resolveTargetReference } from '../core/updates/resolve-target-reference'
 import { parseVersionComment } from '../core/versions/parse-version-comment'
 import { getCompatibleUpdate } from '../core/api/get-compatible-update'
+import { matchesAnyPattern } from '../core/filters/matches-any-pattern'
 import { createGitHubClient } from '../core/api/create-github-client'
 import { filterDowngradeUpdates } from './filter-downgrade-updates'
 import { resolveScanDirectories } from './resolve-scan-directories'
@@ -21,6 +22,7 @@ import { getUpdateLevel } from '../core/versions/get-update-level'
 import { printRateLimitWarning } from './print-rate-limit-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
 import { anchorDirectoryInputs } from './anchor-directory-inputs'
+import { normalizePatternList } from './normalize-pattern-list'
 import { applyUpdates } from '../core/ast/update/apply-updates'
 import { normalizeUpdateStyle } from './normalize-update-style'
 import { printSkippedWarning } from './print-skipped-warning'
@@ -120,10 +122,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let preferTags = options.preferTags ?? false
     let mode = normalizeUpdateMode(options.mode)
     let style = normalizeUpdateStyle(options.style)
-    let normalizedExcludes = (options.exclude ?? [])
-      .flatMap(item => item.split(','))
-      .map(item => item.trim())
-      .filter(Boolean)
+    let normalizedExcludes = normalizePatternList(options.exclude)
+    let normalizedMinAgeExcludes = normalizePatternList(options.minAgeExclude)
 
     validateCliOptions({ yes: options.yes, json })
 
@@ -149,6 +149,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       process.stdout.write(
         `${JSON.stringify(
           buildJsonReport({
+            minAgeExcludePatterns: normalizedMinAgeExcludes,
             recursive: options.recursive ?? false,
             excludePatterns: normalizedExcludes,
             directories: normalizedDirectories,
@@ -252,29 +253,26 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         /**
          * Runner entries are named `runner/<family>`, so the same patterns that
          * exclude actions can exclude runners too.
-         *
-         * @param action - Scanned entry to test against the patterns.
-         * @returns True when no exclude pattern matches the entry name.
          */
-        function isIncluded(action: (typeof actionsToCheck)[number]): boolean {
-          let { name } = action
-          for (let rx of regexes) {
-            /**
-             * A user-supplied `/pattern/g` keeps its `lastIndex` between calls,
-             * so a repeated name would match only every other time. The same
-             * patterns are reused across actions and runners, which makes the
-             * carry-over span both passes.
-             */
-            rx.lastIndex = 0
-            if (rx.test(name)) {
-              return false
-            }
-          }
-          return true
-        }
-        actionsToCheck = actionsToCheck.filter(element => isIncluded(element))
-        runnersToCheck = runnersToCheck.filter(element => isIncluded(element))
+        actionsToCheck = actionsToCheck.filter(
+          action => !matchesAnyPattern(action.name, regexes),
+        )
+        runnersToCheck = runnersToCheck.filter(
+          runner => !matchesAnyPattern(runner.name, regexes),
+        )
       }
+    }
+
+    /**
+     * Compile the cool-down exemptions up front, so an invalid pattern is
+     * reported before the update check starts.
+     */
+    let minAgeExcludes: RegExp[] = []
+
+    if (normalizedMinAgeExcludes.length > 0) {
+      let { parseExcludePatterns } =
+        await import('../core/filters/parse-exclude-patterns')
+      minAgeExcludes = parseExcludePatterns(normalizedMinAgeExcludes)
     }
 
     /**
@@ -379,6 +377,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
      * Resolve the update mode and the release age cool-down together. An action
      * held back by either constraint steps down to the newest release that
      * clears both, and is reported as blocked only when no release does.
+     * Actions matched by `--min-age-exclude` skip the cool-down but still
+     * follow the update mode.
      */
     let minAgeMs = options.minAge * 24 * 60 * 60 * 1000
     let now = Date.now()
@@ -392,7 +392,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
      * Deduplicate the compatible lookup per action and version. The same
      * blocked action can appear in many workflows, and each uncached lookup
      * costs a tag listing plus a date walk. Promises are stored rather than
-     * values, so occurrences that start together share one request.
+     * values, so occurrences that start together share one request. The
+     * cool-down exemption depends only on the action name, which is part of the
+     * key, so an exempt and a held-back action never share an entry.
      */
     let compatibleCache = new Map<string, Promise<CompatibleUpdate>>()
 
@@ -416,8 +418,11 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             ['minor', 'patch', 'none']
           : ['patch', 'none']
           ).includes(level)
+        let isAgeExempt = matchesAnyPattern(update.action.name, minAgeExcludes)
         let allowedByAge =
-          !update.publishedAt || now - update.publishedAt.getTime() >= minAgeMs
+          isAgeExempt ||
+          !update.publishedAt ||
+          now - update.publishedAt.getTime() >= minAgeMs
 
         if (allowedByMode && allowedByAge) {
           return { blockedBy: null, update }
@@ -432,10 +437,10 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         if (!pending) {
           pending = getCompatibleUpdate(githubClient, {
             currentVersion: effectiveCurrentVersion,
+            minAgeMs: isAgeExempt ? 0 : minAgeMs,
             latestVersion: update.latestVersion,
             actionName: update.action.name,
             tagsCache,
-            minAgeMs,
             shaCache,
             mode,
             now,
