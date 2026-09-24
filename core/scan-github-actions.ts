@@ -79,7 +79,7 @@ export async function scanGitHubActions(
   async function isFile(path: string): Promise<boolean> {
     try {
       let info = await stat(path)
-      return typeof info.isFile === 'function' ? info.isFile() : false
+      return typeof info.isFile === 'function' && info.isFile()
     } catch {
       return false
     }
