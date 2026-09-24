@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.21.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.20.1...v1.21.0)
+
+### 🚀 Features
+
+- Add min-age-exclude flag to skip the cool-down for matching actions
+  ([53423da](https://github.com/azat-io/actions-up/commit/53423da))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.20.1
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.20.0...v1.20.1)
