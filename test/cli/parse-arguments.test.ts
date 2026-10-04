@@ -1,8 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { parseArguments } from '../../cli/parse-arguments'
 
+/**
+ * Real descriptors of the runtime facts the version line reports, restored
+ * after every test.
+ */
+let realRuntime = {
+  platform: Object.getOwnPropertyDescriptor(process, 'platform')!,
+  version: Object.getOwnPropertyDescriptor(process, 'version')!,
+  arch: Object.getOwnPropertyDescriptor(process, 'arch')!,
+}
+
 describe('parseArguments', () => {
+  afterEach(() => {
+    Object.defineProperties(process, realRuntime)
+  })
+
   it('applies defaults when no arguments are passed', () => {
     let result = parseArguments([], '1.0.0')
 
@@ -18,31 +32,30 @@ describe('parseArguments', () => {
     })
   })
 
-  it('returns help text for --help', () => {
-    let result = parseArguments(['--help'], '1.0.0')
+  it.each(['--help', '-h'])('returns the help text for %s', flag => {
+    let result = parseArguments([flag], '1.0.0')
 
-    expect(result.kind).toBe('help')
-  })
-
-  it('returns help text for -h', () => {
-    let result = parseArguments(['-h'], '1.0.0')
-
-    expect(result.kind).toBe('help')
-  })
-
-  it('returns version string for --version', () => {
-    let result = parseArguments(['--version'], '1.2.3')
-
-    expect(result).toEqual({
-      text: `actions-up/1.2.3 ${process.platform}-${process.arch} node-${process.version}`,
-      kind: 'version',
+    expect(result).toStrictEqual({
+      text: expect.stringContaining(
+        'Usage:\n  $ actions-up [options]',
+      ) as string,
+      kind: 'help',
     })
   })
 
-  it('returns version string for -v', () => {
-    let result = parseArguments(['-v'], '1.2.3')
+  it.each(['--version', '-v'])('returns the version line for %s', flag => {
+    Object.defineProperties(process, {
+      version: { value: 'v24.11.0' },
+      platform: { value: 'linux' },
+      arch: { value: 'x64' },
+    })
 
-    expect(result.kind).toBe('version')
+    let result = parseArguments([flag], '1.2.3')
+
+    expect(result).toStrictEqual({
+      text: 'actions-up/1.2.3 linux-x64 node-v24.11.0',
+      kind: 'version',
+    })
   })
 
   it('coerces --min-age to a number', () => {
@@ -78,7 +91,7 @@ describe('parseArguments', () => {
   it('rejects a non-numeric --min-age', () => {
     let result = parseArguments(['--min-age', 'abc'], '1.0.0')
 
-    expect(result).toEqual({
+    expect(result).toStrictEqual({
       message: 'Invalid --min-age "abc". Expected a non-negative number.',
       kind: 'error',
     })
@@ -87,28 +100,39 @@ describe('parseArguments', () => {
   it('rejects a negative --min-age', () => {
     let result = parseArguments(['--min-age=-1'], '1.0.0')
 
-    expect(result).toEqual({
+    expect(result).toStrictEqual({
       message: 'Invalid --min-age "-1". Expected a non-negative number.',
       kind: 'error',
     })
   })
 
   it.each([
-    ['an empty', ['--min-age=']],
-    ['a blank', ['--min-age', '  ']],
+    {
+      message: 'Invalid --min-age "". Expected a non-negative number.',
+      argv: ['--min-age='],
+      given: 'an empty',
+    },
+    {
+      message: 'Invalid --min-age "  ". Expected a non-negative number.',
+      argv: ['--min-age', '  '],
+      given: 'a blank',
+    },
   ])(
-    'rejects %s --min-age instead of disabling the cool-down',
-    (_description, argv) => {
+    'rejects $given --min-age instead of switching the cool-down off',
+    ({ message, argv }) => {
       let result = parseArguments(argv, '1.0.0')
 
-      expect(result.kind).toBe('error')
+      expect(result).toStrictEqual({ kind: 'error', message })
     },
   )
 
   it('rejects a non-finite --min-age', () => {
     let result = parseArguments(['--min-age', 'Infinity'], '1.0.0')
 
-    expect(result.kind).toBe('error')
+    expect(result).toStrictEqual({
+      message: 'Invalid --min-age "Infinity". Expected a non-negative number.',
+      kind: 'error',
+    })
   })
 
   it('reads --mode and --style values', () => {
@@ -227,15 +251,21 @@ describe('parseArguments', () => {
     })
   })
 
-  it('returns an error for unknown options', () => {
+  it('returns an error naming an unknown option', () => {
     let result = parseArguments(['--bogus'], 'x')
 
-    expect(result.kind).toBe('error')
+    expect(result).toStrictEqual({
+      message: expect.stringContaining("'--bogus'") as string,
+      kind: 'error',
+    })
   })
 
-  it('returns an error for unexpected positional arguments', () => {
+  it('returns an error naming an unexpected positional argument', () => {
     let result = parseArguments(['somewhere'], 'x')
 
-    expect(result.kind).toBe('error')
+    expect(result).toStrictEqual({
+      message: expect.stringContaining("'somewhere'") as string,
+      kind: 'error',
+    })
   })
 })

@@ -1,1221 +1,649 @@
 /* eslint-disable camelcase */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type {
+  TagObjectPayload,
+  ReleasePayload,
+  CommitPayload,
+  RouteAnswer,
+} from '../helpers/route-fetch'
+import type { TagInfo } from '../../types/tag-info'
+
+import {
+  makeTagObjectPayload,
+  makeReferencePayload,
+  makeReleasePayload,
+  makeCommitPayload,
+  networkFailure,
+  serverError,
+  rateLimited,
+  routeFetch,
+  forbidden,
+  notFound,
+  ok,
+} from '../helpers/route-fetch'
+import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { createClientContext } from '../helpers/create-client-context'
 import { getTagInfo } from '../../core/api/get-tag-info'
 
+const TAG = 'v4.2.2'
+
+const LOOKUP = { owner: 'actions', repo: 'checkout', tag: TAG }
+
+const COMMIT_SHA = '59dd04d1d9d3144493ba5762a3180eb7f225020c'
+
+const TAG_OBJECT_SHA = 'cd82d3b1be3c16c89a1ec4ca4c7ba189e84866f1'
+
+const RELEASE_TARGET_SHA = 'f99ec2c51ef18286560386f0726d216a4f4909b0'
+
+const TREE_SHA = '1d3bb3940b11fb19062da85539933c53a7bc9f1f'
+
+const RELEASE_PATH = '/repos/actions/checkout/releases/tags/v4.2.2'
+
+const REFERENCE_PATH = '/repos/actions/checkout/git/ref/tags/v4.2.2'
+
+const TAG_OBJECT_PATH = `/repos/actions/checkout/git/tags/${TAG_OBJECT_SHA}`
+
+const COMMIT_PATH = `/repos/actions/checkout/git/commits/${COMMIT_SHA}`
+
+const RELEASE_DATE = '2024-10-23T14:46:00Z'
+
+const TAGGER_DATE = '2024-10-23T14:40:00Z'
+
+const COMMIT_DATE = '2024-10-22T09:15:00Z'
+
+const RELEASE_NOTES = '## Changes\n* Fix checkout of annotated tags'
+
+const TAG_MESSAGE = 'Release v4.2.2\n'
+
+const COMMIT_MESSAGE = 'Prepare release v4.2.2'
+
+const RESET_AT = new Date('2026-10-03T14:37:21.000Z')
+
+/**
+ * Routes of an annotated tag whose tag object points at the commit.
+ *
+ * @param tagObject - Tag object fields to replace.
+ * @returns Routes answering the reference and tag object lookups.
+ */
+function annotatedTag(
+  tagObject: Partial<TagObjectPayload> = {},
+): Record<string, RouteAnswer> {
+  return {
+    [TAG_OBJECT_PATH]: ok(
+      makeTagObjectPayload({
+        object: { sha: COMMIT_SHA, type: 'commit' },
+        tagger: { date: TAGGER_DATE },
+        message: TAG_MESSAGE,
+        sha: TAG_OBJECT_SHA,
+        tag: TAG,
+        ...tagObject,
+      }),
+    ),
+    [REFERENCE_PATH]: ok(
+      makeReferencePayload(`refs/tags/${TAG}`, {
+        sha: TAG_OBJECT_SHA,
+        type: 'tag',
+      }),
+    ),
+  }
+}
+
+/**
+ * Routes of a lightweight tag that points straight at the commit.
+ *
+ * @param commit - Commit fields to replace.
+ * @returns Routes answering the reference and commit lookups.
+ */
+function lightweightTag(
+  commit: Partial<CommitPayload> = {},
+): Record<string, RouteAnswer> {
+  return {
+    [COMMIT_PATH]: ok(
+      makeCommitPayload({
+        author: { date: COMMIT_DATE },
+        message: COMMIT_MESSAGE,
+        sha: COMMIT_SHA,
+        ...commit,
+      }),
+    ),
+    [REFERENCE_PATH]: ok(
+      makeReferencePayload(`refs/tags/${TAG}`, {
+        sha: COMMIT_SHA,
+        type: 'commit',
+      }),
+    ),
+  }
+}
+
+/**
+ * Route of a release published for the tag, with a date and notes unless
+ * overridden.
+ *
+ * @param overrides - Release fields to replace.
+ * @returns Routes answering the release lookup.
+ */
+function release(
+  overrides: Partial<ReleasePayload> = {},
+): Record<string, RouteAnswer> {
+  return {
+    [RELEASE_PATH]: ok(
+      makeReleasePayload({
+        published_at: RELEASE_DATE,
+        body: RELEASE_NOTES,
+        tag_name: TAG,
+        ...overrides,
+      }),
+    ),
+  }
+}
+
+/**
+ * Route of a tag that has no release.
+ *
+ * @returns Routes answering the release lookup with a 404.
+ */
+function noRelease(): Record<string, RouteAnswer> {
+  return { [RELEASE_PATH]: notFound() }
+}
+
 describe('getTagInfo', () => {
-  beforeEach(() => {
+  afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('fetches release-by-tag then resolves SHA via refs', async () => {
-    let context = createClientContext()
+  describe('for a tag with a release', () => {
+    it('takes the date and notes from the release and the SHA from the commit of an annotated tag', async () => {
+      routeFetch({ ...release(), ...annotatedTag() })
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v1.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-01-01T00:00:00Z',
-              target_commitish: 'abc',
-              body: 'Rel body',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v1.0.0')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'tagobj', type: 'tag' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if (urlString.endsWith('/git/tags/tagobj')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              tagger: { date: '2023-12-31T10:00:00Z' },
-              object: { sha: 'final' },
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
     })
 
-    let info = await getTagInfo(context, {
-      tag: 'v1.0.0',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      date: new Date('2024-01-01T00:00:00Z'),
-      message: 'Rel body',
-      tag: 'v1.0.0',
-      sha: 'final',
-    })
-  })
-
-  it('falls back to refs when release-by-tag is not found', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v2.0.0')) {
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
-      }
-      if (urlString.endsWith('/git/ref/tags/v2.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { type: 'commit', sha: 'light' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/light')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              author: { date: '2024-02-01T00:00:00Z' },
-              message: 'M',
-            }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v2.0.0',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      date: new Date('2024-02-01T00:00:00Z'),
-      tag: 'v2.0.0',
-      message: 'M',
-      sha: 'light',
-    })
-  })
-
-  it('returns cached info before performing requests', async () => {
-    let context = createClientContext()
-    let cached = {
-      message: 'cached',
-      tag: 'v1.2.3',
-      date: null,
-      sha: 'sha',
-    }
-    context.caches.tagInfo.set('o/r#v1.2.3', cached)
-    let fetchSpy = vi.spyOn(globalThis, 'fetch')
-
-    let info = await getTagInfo(context, {
-      tag: 'v1.2.3',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toBe(cached)
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
-  it('returns null when cached entry is null', async () => {
-    let context = createClientContext()
-    context.caches.tagInfo.set('o/r#v1.2.4', null)
-    let fetchSpy = vi.spyOn(globalThis, 'fetch')
-
-    let info = await getTagInfo(context, {
-      tag: 'v1.2.4',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toBeNull()
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
-  it('ignores commit enrichment failure for commit-type ref', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v2.1.0')) {
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
-      }
-      if (urlString.endsWith('/git/ref/tags/v2.1.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { type: 'commit', sha: 'sha123' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/sha123')) {
-        return Promise.resolve(new Response('oops', { status: 500 }))
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-    let info = await getTagInfo(context, {
-      tag: 'v2.1.0',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      tag: 'v2.1.0',
-      sha: 'sha123',
-      message: null,
-      date: null,
-    })
-  })
-
-  it('sets date to null when commit author date is null (commit-type ref)', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v2.1.1')) {
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
-      }
-      if (urlString.endsWith('/git/ref/tags/v2.1.1')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { type: 'commit', sha: 'sha456' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/sha456')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              author: { date: null },
-              message: 'Msg',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-    let info = await getTagInfo(context, {
-      tag: 'v2.1.1',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      message: 'Msg',
-      tag: 'v2.1.1',
-      sha: 'sha456',
-      date: null,
-    })
-  })
-
-  it('keeps ref sha when annotated tag object.sha is missing, but fills metadata', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v3.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              target_commitish: null,
-              published_at: null,
-              body: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v3.0.0')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'refsha', type: 'tag' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if (urlString.endsWith('/git/tags/refsha')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              tagger: { date: '2024-02-02T00:00:00Z' },
-              object: { sha: null },
-              message: 'T',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v3.0.0',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      date: new Date('2024-02-02T00:00:00Z'),
-      tag: 'v3.0.0',
-      /* Cspell:disable-next-line */
-      sha: 'refsha',
-      message: 'T',
-    })
-  })
-
-  it('fills metadata and sha when annotated tag details present (fallback path)', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v3.1.0')) {
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
-      }
-      if (urlString.endsWith('/git/ref/tags/v3.1.0')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'tagobj', type: 'tag' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if (urlString.endsWith('/git/tags/tagobj')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              tagger: { date: '2024-02-03T00:00:00Z' },
-              /* Cspell:disable-next-line */
-              object: { sha: 'finalsha' },
-              message: 'Tag message',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-    let info = await getTagInfo(context, {
-      tag: 'v3.1.0',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      date: new Date('2024-02-03T00:00:00Z'),
-      message: 'Tag message',
-      /* Cspell:disable-next-line */
-      sha: 'finalsha',
-      tag: 'v3.1.0',
-    })
-  })
-
-  it('keeps message/date null when annotated tag has no message and no tagger date (fallback path)', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v3.2.0')) {
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
-      }
-      if (urlString.endsWith('/git/ref/tags/v3.2.0')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'tagobj', type: 'tag' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if (urlString.endsWith('/git/tags/tagobj')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              /* Cspell:disable-next-line */
-              object: { sha: 'finalsha' },
-              tagger: { date: null },
-              message: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-    let info = await getTagInfo(context, {
-      tag: 'v3.2.0',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      /* Cspell:disable-next-line */
-      sha: 'finalsha',
-      tag: 'v3.2.0',
-      message: null,
-      date: null,
-    })
-  })
-
-  it('sets message null when commit message is null (fallback commit path)', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v2.1.2')) {
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
-      }
-      if (urlString.endsWith('/git/ref/tags/v2.1.2')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { type: 'commit', sha: 'sha789' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/sha789')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              author: { date: '2024-02-04T00:00:00Z' },
-              message: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-    let info = await getTagInfo(context, {
-      tag: 'v2.1.2',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      date: new Date('2024-02-04T00:00:00Z'),
-      tag: 'v2.1.2',
-      sha: 'sha789',
-      message: null,
-    })
-  })
-
-  it('keeps ref sha when annotated tag object.sha is missing (fallback path)', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v3.3.0')) {
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
-      }
-      if (urlString.endsWith('/git/ref/tags/v3.3.0')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'refsha', type: 'tag' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if (urlString.endsWith('/git/tags/refsha')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              tagger: { date: '2024-02-05T00:00:00Z' },
-              object: { sha: null },
-              message: 'T',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-    let info = await getTagInfo(context, {
-      tag: 'v3.3.0',
-      owner: 'o',
-      repo: 'r',
-    })
-    expect(info).toEqual({
-      date: new Date('2024-02-05T00:00:00Z'),
-      tag: 'v3.3.0',
-      /* Cspell:disable-next-line */
-      sha: 'refsha',
-      message: 'T',
-    })
-  })
-
-  it('preserves annotated ref sha when release tag detail lookup fails', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-03-01T00:00:00Z',
-              body: 'Release message',
-              target_commitish: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v4.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { sha: 'tagRef', type: 'tag' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/tags/tagRef')) {
-        return Promise.resolve(
-          new Response('error', {
-            statusText: 'Internal Server Error',
-            status: 500,
-          }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.0.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-03-01T00:00:00Z'),
-      message: 'Release message',
-      tag: 'v4.0.0',
-      sha: 'tagRef',
-    })
-  })
-
-  it('ignores commit enrichment failure in release path for commit refs', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.4.1')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-03-10T00:00:00Z',
-              target_commitish: 'commitSha',
-              body: 'Release message',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v4.4.1')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { sha: 'commitSha', type: 'commit' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/commitSha')) {
-        return Promise.resolve(new Response('error', { status: 500 }))
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.4.1',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-03-10T00:00:00Z'),
-      message: 'Release message',
-      sha: 'commitSha',
-      tag: 'v4.4.1',
-    })
-  })
-
-  it('enriches release commit reference via commit lookup', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.1.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              target_commitish: null,
-              published_at: null,
-              body: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v4.1.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { sha: 'commit123', type: 'commit' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/commit123')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              author: { date: '2024-03-02T00:00:00Z' },
-              message: 'Commit message',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.1.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-03-02T00:00:00Z'),
-      message: 'Commit message',
-      sha: 'commit123',
-      tag: 'v4.1.0',
-    })
-  })
-
-  it('uses release commitish when reference lookup fails', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.2.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-03-05T00:00:00Z',
-              target_commitish: 'deadbeef',
-              body: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.includes('/git/ref/tags/')) {
-        return Promise.resolve(
-          new Response('Not Found', { statusText: 'Not Found', status: 404 }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.2.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-03-05T00:00:00Z'),
-      sha: 'deadbeef',
-      tag: 'v4.2.0',
-      message: null,
-    })
-  })
-
-  it.each([
-    ['a branch name', 'main'],
-    ['a v-prefixed branch name', 'v20240101'],
-  ])(
-    'ignores release commitish that is %s when reference lookup fails',
-    async (_description, commitish) => {
-      let context = createClientContext()
-      vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-        let input = url as unknown
-        let urlString = typeof input === 'string' ? input : (input as URL).href
-        if (urlString.endsWith('/releases/tags/v4.2.1')) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                published_at: '2024-03-05T00:00:00Z',
-                target_commitish: commitish,
-                body: null,
-              }),
-              { status: 200 },
-            ),
-          )
-        }
-        return Promise.resolve(new Response('Not Found', { status: 404 }))
+    it('fills a missing release date and notes from the annotated tag', async () => {
+      routeFetch({
+        ...release({ published_at: null, body: null }),
+        ...annotatedTag(),
       })
 
-      let info = await getTagInfo(context, {
-        tag: 'v4.2.1',
-        owner: 'o',
-        repo: 'r',
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(TAGGER_DATE),
+        message: TAG_MESSAGE,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('fills a missing release date and notes from the commit of a lightweight tag', async () => {
+      routeFetch({
+        ...release({ published_at: null, body: null }),
+        ...lightweightTag(),
       })
 
-      expect(info).toEqual({
-        date: new Date('2024-03-05T00:00:00Z'),
-        tag: 'v4.2.1',
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(COMMIT_DATE),
+        message: COMMIT_MESSAGE,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('fills only the missing release date from the commit', async () => {
+      routeFetch({ ...release({ published_at: null }), ...lightweightTag() })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(COMMIT_DATE),
+        message: RELEASE_NOTES,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('fills only the missing release notes from the commit', async () => {
+      routeFetch({ ...release({ body: null }), ...lightweightTag() })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: COMMIT_MESSAGE,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('skips the commit lookup when the release has both a date and notes', async () => {
+      let api = routeFetch({ ...release(), ...lightweightTag() })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+      expect(api.paths).toStrictEqual([RELEASE_PATH, REFERENCE_PATH])
+    })
+
+    it('keeps the release date and the tag commit when the commit lookup for the missing notes fails', async () => {
+      routeFetch({
+        ...release({ target_commitish: RELEASE_TARGET_SHA, body: null }),
+        ...lightweightTag(),
+        [COMMIT_PATH]: serverError(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        sha: COMMIT_SHA,
         message: null,
-        sha: null,
+        tag: TAG,
       })
+    })
+
+    it('takes the SHA from the release target when the reference lookup fails', async () => {
+      routeFetch({
+        ...release({ target_commitish: RELEASE_TARGET_SHA }),
+        [REFERENCE_PATH]: notFound(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        sha: RELEASE_TARGET_SHA,
+        message: RELEASE_NOTES,
+        tag: TAG,
+      })
+    })
+
+    it('does not mistake a v-prefixed, digit-only release target for a commit SHA when the reference lookup fails', async () => {
+      routeFetch({
+        ...release({ target_commitish: 'v20240101' }),
+        [REFERENCE_PATH]: notFound(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: null,
+        tag: TAG,
+      })
+    })
+
+    it('accepts a fully qualified tag reference', async () => {
+      routeFetch({ ...release(), ...lightweightTag() })
+
+      let info = await getTagInfo(createClientContext(), {
+        ...LOOKUP,
+        tag: `refs/tags/${TAG}`,
+      })
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('leaves the SHA unknown for a tag that points at a tree', async () => {
+      routeFetch({
+        ...release(),
+        [REFERENCE_PATH]: ok(
+          makeReferencePayload(`refs/tags/${TAG}`, {
+            sha: TREE_SHA,
+            type: 'tree',
+          }),
+        ),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: null,
+        tag: TAG,
+      })
+    })
+  })
+
+  describe('for a tag without a release', () => {
+    it('reads the date and message of an annotated tag from its tag object', async () => {
+      routeFetch({ ...noRelease(), ...annotatedTag() })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(TAGGER_DATE),
+        message: TAG_MESSAGE,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('reads the date and message of a lightweight tag from its commit', async () => {
+      routeFetch({ ...noRelease(), ...lightweightTag() })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(COMMIT_DATE),
+        message: COMMIT_MESSAGE,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('keeps the SHA of a lightweight tag when its commit lookup fails', async () => {
+      routeFetch({
+        ...noRelease(),
+        ...lightweightTag(),
+        [COMMIT_PATH]: serverError(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        sha: COMMIT_SHA,
+        message: null,
+        date: null,
+        tag: TAG,
+      })
+    })
+
+    it('returns null for a tag that does not exist', async () => {
+      routeFetch({ ...noRelease(), [REFERENCE_PATH]: notFound() })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toBeNull()
+    })
+  })
+
+  it('propagates lookups that got no response', async () => {
+    routeFetch({
+      [REFERENCE_PATH]: networkFailure(),
+      [RELEASE_PATH]: networkFailure(),
+    })
+
+    let lookup = getTagInfo(createClientContext(), LOOKUP)
+
+    await expect(lookup).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it.each<{
+    routes: Record<string, RouteAnswer>
+    expected: TagInfo | null
+    description: string
+  }>([
+    {
+      expected: {
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      },
+      routes: { ...release(), ...lightweightTag() },
+      description: 'a tag with a release',
+    },
+    {
+      expected: {
+        date: new Date(COMMIT_DATE),
+        message: COMMIT_MESSAGE,
+        sha: COMMIT_SHA,
+        tag: TAG,
+      },
+      routes: { ...noRelease(), ...lightweightTag() },
+      description: 'a tag without a release',
+    },
+    {
+      routes: { ...noRelease(), [REFERENCE_PATH]: notFound() },
+      description: 'a tag that does not exist',
+      expected: null,
+    },
+  ])(
+    'remembers $description for repeated lookups',
+    async ({ expected, routes }) => {
+      let api = routeFetch(routes)
+      let context = createClientContext()
+
+      let first = await getTagInfo(context, LOOKUP)
+      let requestsForFirstLookup = api.paths.length
+      let second = await getTagInfo(context, LOOKUP)
+
+      expect([first, second]).toStrictEqual([expected, expected])
+      expect(api.paths).toHaveLength(requestsForFirstLookup)
     },
   )
 
-  it('ignores null release commitish when reference lookup fails', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.2.2')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-03-05T00:00:00Z',
-              target_commitish: null,
-              body: null,
-            }),
-            { status: 200 },
-          ),
+  describe('rate limits', () => {
+    it.each<{ routes: Record<string, RouteAnswer>; lookup: string }>([
+      {
+        routes: { [RELEASE_PATH]: rateLimited(RESET_AT) },
+        lookup: 'the release lookup',
+      },
+      {
+        routes: { ...release(), [REFERENCE_PATH]: rateLimited(RESET_AT) },
+        lookup: 'the reference lookup after a release',
+      },
+      {
+        routes: {
+          ...release(),
+          ...annotatedTag(),
+          [TAG_OBJECT_PATH]: rateLimited(RESET_AT),
+        },
+        lookup: 'the tag object lookup after a release',
+      },
+      {
+        routes: {
+          ...release({ published_at: null, body: null }),
+          ...lightweightTag(),
+          [COMMIT_PATH]: rateLimited(RESET_AT),
+        },
+        lookup: 'the commit lookup after a release',
+      },
+      {
+        routes: { ...noRelease(), [REFERENCE_PATH]: rateLimited(RESET_AT) },
+        lookup: 'the reference lookup without a release',
+      },
+      {
+        routes: {
+          ...noRelease(),
+          ...annotatedTag(),
+          [TAG_OBJECT_PATH]: rateLimited(RESET_AT),
+        },
+        lookup: 'the tag object lookup without a release',
+      },
+      {
+        routes: {
+          ...noRelease(),
+          ...lightweightTag(),
+          [COMMIT_PATH]: rateLimited(RESET_AT),
+        },
+        lookup: 'the commit lookup without a release',
+      },
+    ])(
+      'throws GitHubRateLimitError with the reset time when $lookup is rate limited',
+      async ({ routes }) => {
+        routeFetch(routes)
+
+        let lookup = getTagInfo(createClientContext(), LOOKUP)
+
+        await expect(lookup).rejects.toStrictEqual(
+          new GitHubRateLimitError(RESET_AT),
         )
-      }
-      if (urlString.endsWith('/git/ref/tags/v4.2.2')) {
-        return Promise.resolve(
-          new Response('Not Found', {
-            statusText: 'Not Found',
-            status: 404,
-          }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.2.2',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-03-05T00:00:00Z'),
-      tag: 'v4.2.2',
-      message: null,
-      sha: null,
-    })
-  })
-
-  it('ignores blank release commitish when reference lookup fails', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.2.3')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-03-05T00:00:00Z',
-              target_commitish: ' '.repeat(3),
-              body: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v4.2.3')) {
-        return Promise.resolve(
-          new Response('Not Found', {
-            statusText: 'Not Found',
-            status: 404,
-          }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.2.3',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-03-05T00:00:00Z'),
-      tag: 'v4.2.3',
-      message: null,
-      sha: null,
-    })
-  })
-
-  it('preserves ref sha when fallback tag detail lookup fails', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.3.0')) {
-        return Promise.resolve(
-          new Response('Not Found', { statusText: 'Not Found', status: 404 }),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v4.3.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { sha: 'tagRef', type: 'tag' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/tags/tagRef')) {
-        return Promise.resolve(
-          new Response('fail', {
-            statusText: 'Server Error',
-            status: 500,
-          }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.3.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      tag: 'v4.3.0',
-      message: null,
-      sha: 'tagRef',
-      date: null,
-    })
-  })
-
-  it('returns null when tag lookup fails with status error', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v4.4.0')) {
-        return Promise.resolve(
-          new Response('Not Found', { statusText: 'Not Found', status: 404 }),
-        )
-      }
-      if (urlString.includes('/git/ref/tags/')) {
-        return Promise.resolve(
-          new Response('Forbidden', { statusText: 'Forbidden', status: 403 }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v4.4.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toBeNull()
-    expect(context.caches.tagInfo.get('o/r#v4.4.0')).toBeNull()
-  })
-
-  it('throws GitHubRateLimitError when API signals rate limit', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
-      new Error('rate limit triggered'),
+      },
     )
 
-    await expect(
-      getTagInfo(context, { tag: 'v5.0.0', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-  })
-
-  it('throws GitHubRateLimitError when the API answers 403 with a rate limit', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
-      /**
-       * A fresh response per request, because the body is read once.
-       */
-      let response = new Response('API rate limit exceeded', {
-        statusText: 'Forbidden',
-        status: 403,
+    it('stops at a rate-limited release lookup instead of falling back to the reference', async () => {
+      let api = routeFetch({
+        [REFERENCE_PATH]: rateLimited(),
+        [RELEASE_PATH]: rateLimited(),
       })
-      return Promise.resolve(response)
-    })
 
-    await expect(
-      getTagInfo(context, { tag: 'v5.1.0', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-    expect(context.caches.tagInfo.has('o/r#v5.1.0')).toBeFalsy()
-  })
-
-  it('rethrows unexpected errors from both release and fallback paths', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fatal'))
-
-    await expect(
-      getTagInfo(context, { tag: 'v6.0.0', owner: 'o', repo: 'r' }),
-    ).rejects.toThrow('fatal')
-  })
-
-  it('enriches missing date from commit when release has body but no date', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v5.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              target_commitish: null,
-              body: 'Release notes',
-              published_at: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v5.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { sha: 'commit456', type: 'commit' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/commit456')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              author: { date: '2024-04-01T00:00:00Z' },
-              message: 'Commit msg',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v5.0.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-04-01T00:00:00Z'),
-      message: 'Release notes',
-      sha: 'commit456',
-      tag: 'v5.0.0',
-    })
-  })
-
-  it('enriches missing message from commit when release has date but no body', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v5.1.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-04-02T00:00:00Z',
-              target_commitish: null,
-              body: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v5.1.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { sha: 'commit789', type: 'commit' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/commits/commit789')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              author: { date: '2024-04-03T00:00:00Z' },
-              message: 'Commit description',
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v5.1.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-04-02T00:00:00Z'),
-      message: 'Commit description',
-      sha: 'commit789',
-      tag: 'v5.1.0',
-    })
-  })
-
-  it('keeps release info when ref sha is empty', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v5.2.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              published_at: '2024-04-04T00:00:00Z',
-              body: 'Release summary',
-              target_commitish: null,
-            }),
-            { status: 200 },
-          ),
-        )
-      }
-      if (urlString.endsWith('/git/ref/tags/v5.2.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { type: 'commit', sha: '' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let info = await getTagInfo(context, {
-      tag: 'v5.2.0',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(info).toEqual({
-      date: new Date('2024-04-04T00:00:00Z'),
-      message: 'Release summary',
-      tag: 'v5.2.0',
-      sha: null,
-    })
-  })
-
-  /**
-   * A fresh response per call, because the body is read once.
-   *
-   * @returns A rate-limited 403 response.
-   */
-  function rateLimited(): Promise<Response> {
-    return Promise.resolve(
-      new Response('API rate limit exceeded', {
-        statusText: 'Forbidden',
-        status: 403,
-      }),
-    )
-  }
-
-  function respond(body: unknown): Promise<Response> {
-    return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
-  }
-
-  function notFound(): Promise<Response> {
-    return Promise.resolve(
-      new Response('Not Found', { statusText: 'Not Found', status: 404 }),
-    )
-  }
-
-  it('throws when the annotated tag lookup is rate limited after a release', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v7.0.0')) {
-        return respond({
-          published_at: '2024-05-01T00:00:00Z',
-          target_commitish: null,
-          body: 'Release notes',
-        })
-      }
-      if (urlString.endsWith('/git/ref/tags/v7.0.0')) {
-        /* Cspell:disable-next-line */
-        return respond({ object: { sha: 'tagobj7', type: 'tag' } })
-      }
-      return rateLimited()
-    })
-
-    await expect(
-      getTagInfo(context, { tag: 'v7.0.0', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-    expect(context.caches.tagInfo.has('o/r#v7.0.0')).toBeFalsy()
-  })
-
-  it('throws when the commit lookup is rate limited after a release', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v7.1.0')) {
-        return respond({
-          target_commitish: null,
-          published_at: null,
-          body: null,
-        })
-      }
-      if (urlString.endsWith('/git/ref/tags/v7.1.0')) {
-        return respond({ object: { sha: 'commit71', type: 'commit' } })
-      }
-      return rateLimited()
-    })
-
-    await expect(
-      getTagInfo(context, { tag: 'v7.1.0', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-    expect(context.caches.tagInfo.has('o/r#v7.1.0')).toBeFalsy()
-  })
-
-  it('throws when the reference lookup is rate limited after a release', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v7.2.0')) {
-        return respond({
-          published_at: '2024-05-02T00:00:00Z',
-          target_commitish: 'abcdef1',
-          body: 'Release notes',
-        })
-      }
-      return rateLimited()
-    })
-
-    await expect(
-      getTagInfo(context, { tag: 'v7.2.0', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-    expect(context.caches.tagInfo.has('o/r#v7.2.0')).toBeFalsy()
-  })
-
-  it('throws when the annotated tag lookup is rate limited without a release', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v7.3.0')) {
-        return notFound()
-      }
-      if (urlString.endsWith('/git/ref/tags/v7.3.0')) {
-        /* Cspell:disable-next-line */
-        return respond({ object: { sha: 'tagobj73', type: 'tag' } })
-      }
-      return rateLimited()
-    })
-
-    await expect(
-      getTagInfo(context, { tag: 'v7.3.0', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-    expect(context.caches.tagInfo.has('o/r#v7.3.0')).toBeFalsy()
-  })
-
-  it('throws when the commit lookup is rate limited without a release', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v7.4.0')) {
-        return notFound()
-      }
-      if (urlString.endsWith('/git/ref/tags/v7.4.0')) {
-        return respond({ object: { sha: 'commit74', type: 'commit' } })
-      }
-      return rateLimited()
-    })
-
-    await expect(
-      getTagInfo(context, { tag: 'v7.4.0', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-    expect(context.caches.tagInfo.has('o/r#v7.4.0')).toBeFalsy()
-  })
-
-  it('keeps the release metadata when the commit lookup fails outright', async () => {
-    let context = createClientContext()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/releases/tags/v7.5.0')) {
-        return respond({
-          target_commitish: null,
-          published_at: null,
-          body: null,
-        })
-      }
-      if (urlString.endsWith('/git/ref/tags/v7.5.0')) {
-        return respond({ object: { sha: 'commit75', type: 'commit' } })
-      }
-      return Promise.resolve(
-        new Response('Server Error', {
-          statusText: 'Server Error',
-          status: 500,
-        }),
+      await expect(getTagInfo(createClientContext(), LOOKUP)).rejects.toThrow(
+        GitHubRateLimitError,
       )
+
+      expect(api.paths).toStrictEqual([RELEASE_PATH])
     })
 
-    let info = await getTagInfo(context, {
-      tag: 'v7.5.0',
-      owner: 'o',
-      repo: 'r',
+    it('asks again after a rate-limited lookup', async () => {
+      let api = routeFetch({ [RELEASE_PATH]: rateLimited() })
+      let context = createClientContext()
+
+      await expect(getTagInfo(context, LOOKUP)).rejects.toThrow(
+        GitHubRateLimitError,
+      )
+      await expect(getTagInfo(context, LOOKUP)).rejects.toThrow(
+        GitHubRateLimitError,
+      )
+
+      expect(api.paths).toStrictEqual([RELEASE_PATH, RELEASE_PATH])
+    })
+  })
+
+  describe('current behavior pending owner decision', () => {
+    it('returns the tag object SHA instead of a commit SHA when the tag object lookup after a release fails', async () => {
+      routeFetch({
+        ...release(),
+        ...annotatedTag(),
+        [TAG_OBJECT_PATH]: serverError(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: TAG_OBJECT_SHA,
+        tag: TAG,
+      })
     })
 
-    expect(info).toEqual({
-      sha: 'commit75',
-      tag: 'v7.5.0',
-      message: null,
-      date: null,
+    it('returns the tag object SHA instead of a commit SHA when the tag object lookup without a release fails', async () => {
+      routeFetch({
+        ...noRelease(),
+        ...annotatedTag(),
+        [TAG_OBJECT_PATH]: serverError(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        sha: TAG_OBJECT_SHA,
+        message: null,
+        date: null,
+        tag: TAG,
+      })
+    })
+
+    it('reads a refused reference lookup as a missing tag and remembers it', async () => {
+      let api = routeFetch({
+        [REFERENCE_PATH]: forbidden('Resource not accessible by integration'),
+        ...noRelease(),
+      })
+      let context = createClientContext()
+
+      let first = await getTagInfo(context, LOOKUP)
+      let second = await getTagInfo(context, LOOKUP)
+
+      expect([first, second]).toStrictEqual([null, null])
+      expect(api.paths).toStrictEqual([RELEASE_PATH, REFERENCE_PATH])
+    })
+  })
+
+  describe('defensive branches unreachable through the public API', () => {
+    it.each(['commit', 'tag'] as const)(
+      'leaves the SHA unknown when the reference to a %s carries an empty SHA',
+      async type => {
+        routeFetch({
+          [REFERENCE_PATH]: ok(
+            makeReferencePayload(`refs/tags/${TAG}`, { sha: '', type }),
+          ),
+          ...release(),
+        })
+
+        let info = await getTagInfo(createClientContext(), LOOKUP)
+
+        expect(info).toStrictEqual({
+          date: new Date(RELEASE_DATE),
+          message: RELEASE_NOTES,
+          sha: null,
+          tag: TAG,
+        })
+      },
+    )
+
+    it('keeps the tag object SHA when the tag object of a released tag names no target', async () => {
+      routeFetch({
+        ...release(),
+        ...annotatedTag({ object: { type: 'commit', sha: null } }),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: TAG_OBJECT_SHA,
+        tag: TAG,
+      })
+    })
+
+    it('reads a tag object without a target, message or date as the tag object SHA alone', async () => {
+      routeFetch({
+        ...noRelease(),
+        ...annotatedTag({
+          object: { type: 'commit', sha: null },
+          tagger: { date: null },
+          message: null,
+        }),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        sha: TAG_OBJECT_SHA,
+        message: null,
+        date: null,
+        tag: TAG,
+      })
+    })
+
+    it('reads a commit without a message or author date as the commit SHA alone', async () => {
+      routeFetch({
+        ...noRelease(),
+        ...lightweightTag({ author: { date: null }, message: null }),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        sha: COMMIT_SHA,
+        message: null,
+        date: null,
+        tag: TAG,
+      })
     })
   })
 })

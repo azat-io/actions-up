@@ -1,36 +1,44 @@
 import { describe, expect, it } from 'vitest'
 
+import type { TagFamily } from '../../types/tag-family'
+
 import { parseTagFamily } from '../../core/versions/parse-tag-family'
 
 describe('parseTagFamily', () => {
-  it('returns null for nullish and empty values', () => {
-    expect(parseTagFamily(null)).toBeNull()
-    expect(parseTagFamily(undefined)).toBeNull()
-    expect(parseTagFamily('')).toBeNull()
-    expect(parseTagFamily(' '.repeat(3))).toBeNull()
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['an empty string', ''],
+    ['whitespace only', ' '.repeat(3)],
+  ])('returns null for %s', (_description, tag) => {
+    expect(parseTagFamily(tag)).toBeNull()
   })
 
-  it('returns null for SHA references', () => {
-    expect(
-      parseTagFamily('59b9d7edfcad5b87fbe3f473a9a134a721ad03f8'),
-    ).toBeNull()
-    expect(parseTagFamily('abcdef1234567')).toBeNull()
-    expect(parseTagFamily('deadbeef')).toBeNull()
+  it.each([
+    '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+    'abcdef1234567',
+    'a1b2c3d4',
+  ])('returns null for the SHA reference %s', tag => {
+    expect(parseTagFamily(tag)).toBeNull()
   })
 
-  it('returns null for references without a version', () => {
-    expect(parseTagFamily('main')).toBeNull()
-    expect(parseTagFamily('nightly')).toBeNull()
-    expect(parseTagFamily('latest')).toBeNull()
-    expect(parseTagFamily('stable')).toBeNull()
-    expect(parseTagFamily('dev-build')).toBeNull()
-  })
+  it.each(['main', 'nightly', 'latest', 'stable', 'dev-build'])(
+    'returns null for %s, which carries no version',
+    tag => {
+      expect(parseTagFamily(tag)).toBeNull()
+    },
+  )
 
-  it('returns null for cores semver cannot represent', () => {
-    expect(parseTagFamily('1.2.3.4')).toBeNull()
-    expect(parseTagFamily('v1.2.3.4')).toBeNull()
-    expect(parseTagFamily('v01.02.03')).toBeNull()
-    expect(parseTagFamily('v12345678901234567890')).toBeNull()
+  it.each([
+    ['1.2.3.4', 'four segments'],
+    ['v1.2.3.4', 'four segments behind a v'],
+    ['v01.02.03', 'leading zeros'],
+    [
+      'build-12345678901234567890',
+      'a core beyond the safe integer range, prefixed so it is not read as a SHA',
+    ],
+  ])('returns null for %s, whose core semver cannot represent (%s)', tag => {
+    expect(parseTagFamily(tag)).toBeNull()
   })
 
   it('parses plain semver tags', () => {
@@ -65,33 +73,69 @@ describe('parseTagFamily', () => {
     })
   })
 
-  it('parses prefixed tag families', () => {
-    expect(parseTagFamily('actions-v0.1.1')).toMatchObject({
-      prefix: 'actions-v',
-      version: '0.1.1',
-      core: '0.1.1',
-    })
-    expect(parseTagFamily('actions-v0')).toMatchObject({
-      prefix: 'actions-v',
-      version: '0.0.0',
-      core: '0',
-    })
-    expect(parseTagFamily('codeql-bundle-v2.26.4')).toMatchObject({
-      prefix: 'codeql-bundle-v',
-      version: '2.26.4',
-    })
-    expect(parseTagFamily('get-vault-secrets/v2.0.1')).toMatchObject({
-      prefix: 'get-vault-secrets/v',
-      version: '2.0.1',
-    })
-    expect(parseTagFamily('release/v1')).toMatchObject({
-      prefix: 'release/v',
-      version: '1.0.0',
-    })
-    expect(parseTagFamily('build-123')).toMatchObject({
-      version: '123.0.0',
-      prefix: 'build-',
-    })
+  it.each<[string, TagFamily]>([
+    [
+      'actions-v0.1.1',
+      {
+        prefix: 'actions-v',
+        version: '0.1.1',
+        specificity: 3,
+        qualifier: '',
+        core: '0.1.1',
+      },
+    ],
+    [
+      'actions-v0',
+      {
+        prefix: 'actions-v',
+        version: '0.0.0',
+        specificity: 1,
+        qualifier: '',
+        core: '0',
+      },
+    ],
+    [
+      'codeql-bundle-v2.26.4',
+      {
+        prefix: 'codeql-bundle-v',
+        version: '2.26.4',
+        specificity: 3,
+        core: '2.26.4',
+        qualifier: '',
+      },
+    ],
+    [
+      'get-vault-secrets/v2.0.1',
+      {
+        prefix: 'get-vault-secrets/v',
+        version: '2.0.1',
+        specificity: 3,
+        qualifier: '',
+        core: '2.0.1',
+      },
+    ],
+    [
+      'release/v1',
+      {
+        prefix: 'release/v',
+        version: '1.0.0',
+        specificity: 1,
+        qualifier: '',
+        core: '1',
+      },
+    ],
+    [
+      'build-123',
+      {
+        version: '123.0.0',
+        prefix: 'build-',
+        specificity: 1,
+        qualifier: '',
+        core: '123',
+      },
+    ],
+  ])('parses the prefixed tag family of %s', (tag, expected) => {
+    expect(parseTagFamily(tag)).toStrictEqual(expected)
   })
 
   it('keeps scoped package names out of the version', () => {
@@ -141,7 +185,7 @@ describe('parseTagFamily', () => {
     })
   })
 
-  it.each([
+  it.each<[string, string, TagFamily]>([
     [
       'a prerelease number glued to its label',
       'v1.2.3-rc1',
@@ -187,11 +231,12 @@ describe('parseTagFamily', () => {
       },
     ],
   ])('keeps %s on the version of %s', (_description, tag, expected) => {
-    expect(parseTagFamily(tag)).toEqual(expected)
+    expect(parseTagFamily(tag)).toStrictEqual(expected)
   })
 
   it.each([
     ['node20-v1.2.3', 'node20-v'],
+    ['node20-v1', 'node20-v'],
     ['python3.11-v1.2.0', 'python3.11-v'],
   ])(
     'keeps the digits of the family name in the prefix of %s',

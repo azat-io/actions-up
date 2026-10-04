@@ -1,8 +1,10 @@
-import type { PathLike, Stats } from 'node:fs'
-
+// CSpell:ignore gitdir worktrees
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { stat } from 'node:fs/promises'
 
+import type { FakeEntry } from '../helpers/create-fake-file-system'
+
+import { createFakeFileSystem } from '../helpers/create-fake-file-system'
 import { findRepoRoot } from '../../core/fs/find-repo-root'
 
 vi.mock(import('node:fs/promises'), () => ({
@@ -10,68 +12,83 @@ vi.mock(import('node:fs/promises'), () => ({
 }))
 
 /**
- * `stat` narrowed to what the lookup relies on: it only checks that the call
- * resolves, so any subset of the stats will do.
+ * Serve `stat` from an in-memory tree for the running test.
+ *
+ * @param entries - Absolute paths mapped to file text or special entries.
  */
-let mockedStat = vi.mocked<(path: PathLike) => Promise<Partial<Stats>>>(stat)
+function installFileSystem(entries: Record<string, FakeEntry | string>): void {
+  let fileSystem = createFakeFileSystem(entries)
+  vi.mocked(stat).mockImplementation(fileSystem.stat)
+}
 
 describe('findRepoRoot', () => {
   beforeEach(() => {
-    vi.restoreAllMocks()
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
-  /**
-   * Configure the mocked stat to resolve only for the given existing paths.
-   *
-   * @param existing - Absolute paths that should be reported as existing.
-   */
-  function mockExisting(existing: string[]): void {
-    let set = new Set(existing)
-    mockedStat.mockImplementation((path: unknown) =>
-      set.has(String(path)) ?
-        Promise.resolve({})
-      : Promise.reject(new Error('ENOENT')),
-    )
-  }
-
   it('returns the start directory when it contains .git', async () => {
-    mockExisting(['/repo/.git'])
+    installFileSystem({
+      '/repo/.git/HEAD': 'ref: refs/heads/main\n',
+      '/repo/package.json': '{}\n',
+    })
 
-    await expect(findRepoRoot('/repo')).resolves.toBe('/repo')
+    let root = await findRepoRoot('/repo')
+
+    expect(root).toBe('/repo')
   })
 
   it('walks up to the nearest ancestor that contains .git', async () => {
-    mockExisting(['/repo/.git'])
+    installFileSystem({
+      '/repo/.git/HEAD': 'ref: refs/heads/main\n',
+      '/repo/src/cli/index.ts': 'export {}\n',
+    })
 
-    await expect(findRepoRoot('/repo/a/b')).resolves.toBe('/repo')
+    let root = await findRepoRoot('/repo/src/cli')
+
+    expect(root).toBe('/repo')
   })
 
   it('falls back to a .github directory when no .git is found', async () => {
-    mockExisting(['/repo/.github'])
+    installFileSystem({
+      '/repo/.github/workflows/ci.yml': 'on: push\n',
+      '/repo/src/index.ts': 'export {}\n',
+    })
 
-    await expect(findRepoRoot('/repo/a')).resolves.toBe('/repo')
+    let root = await findRepoRoot('/repo/src')
+
+    expect(root).toBe('/repo')
   })
 
   it('prefers the nearest marker', async () => {
-    mockExisting(['/repo/a/.git', '/repo/.git'])
+    installFileSystem({
+      '/repo/packages/app/.git/HEAD': 'ref: refs/heads/main\n',
+      '/repo/packages/app/src/index.ts': 'export {}\n',
+      '/repo/.git/HEAD': 'ref: refs/heads/main\n',
+    })
 
-    await expect(findRepoRoot('/repo/a/b')).resolves.toBe('/repo/a')
+    let root = await findRepoRoot('/repo/packages/app/src')
+
+    expect(root).toBe('/repo/packages/app')
   })
 
   it('treats a .git file (worktree) as a marker', async () => {
-    mockedStat.mockImplementation((path: unknown) =>
-      String(path) === '/repo/.git' ?
-        Promise.resolve({ isDirectory: () => false })
-      : Promise.reject(new Error('ENOENT')),
-    )
+    installFileSystem({
+      '/repo/.git': 'gitdir: /home/dev/main/.git/worktrees/repo\n',
+      '/repo/src/index.ts': 'export {}\n',
+    })
 
-    await expect(findRepoRoot('/repo/a')).resolves.toBe('/repo')
+    let root = await findRepoRoot('/repo/src')
+
+    expect(root).toBe('/repo')
   })
 
   it('returns null when no marker exists up to the filesystem root', async () => {
-    mockExisting([])
+    installFileSystem({
+      '/home/dev/notes/todo.md': '# Todo\n',
+    })
 
-    await expect(findRepoRoot('/repo/a')).resolves.toBeNull()
+    let root = await findRepoRoot('/home/dev/notes')
+
+    expect(root).toBeNull()
   })
 })

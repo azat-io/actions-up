@@ -1,52 +1,38 @@
+import type { YAMLMap } from 'yaml'
+
 import { describe, expect, it } from 'vitest'
 import { parseDocument } from 'yaml'
 
-import { isYAMLMap } from '../../../core/ast/guards/is-yaml-map'
 import { isScalar } from '../../../core/ast/guards/is-scalar'
-import { isPair } from '../../../core/ast/guards/is-pair'
 
 describe('isScalar', () => {
-  it('returns true for YAML Scalar nodes', () => {
-    let document_ = parseDocument('key: value')
-    let { contents } = document_
-    let isMap = isYAMLMap(contents)
-    expect(isMap).toBeTruthy()
-    let mapContents = contents as { items: unknown[] }
-    expect(mapContents.items[0]).toBeDefined()
-    let [firstPair] = mapContents.items
-    let pairResult = isPair(firstPair)
-    expect(pairResult).toBeTruthy()
-    let typedPair = firstPair as { value: unknown; key: unknown }
-    expect(isScalar(typedPair.value)).toBeTruthy()
+  it.each([
+    [
+      true,
+      'a scalar parsed from YAML',
+      parseDocument('name: CI\n').get('name', true),
+    ],
+    [
+      true,
+      'a scalar parsed from an empty value',
+      parseDocument('name:\n').get('name', true),
+    ],
+    [false, 'an object without a value', { key: 'name' }],
+    [false, 'null', null],
+    [false, 'undefined', undefined],
+    [false, 'a string', 'CI'],
+    [false, 'a number', 0],
+    [false, 'a boolean', true],
+    [false, 'an array', []],
+  ])('returns %s for %s', (expected, _description, node) => {
+    expect(isScalar(node)).toBe(expected)
   })
 
-  it('returns true for objects with value property', () => {
-    expect(isScalar({ value: 'test' })).toBeTruthy()
-    expect(isScalar({ value: 123 })).toBeTruthy()
-    expect(isScalar({ value: null })).toBeTruthy()
-    expect(isScalar({ value: undefined })).toBeTruthy()
-  })
+  describe('current behavior pending owner decision', () => {
+    it('accepts a map entry parsed from YAML as a scalar', () => {
+      let pair = parseDocument<YAMLMap.Parsed>('name: CI\n').contents?.items[0]
 
-  it('returns false for objects without value property', () => {
-    expect(isScalar({})).toBeFalsy()
-    expect(isScalar({ other: 'property' })).toBeFalsy()
-    expect(isScalar({ key: 'test' })).toBeFalsy()
-  })
-
-  it('returns false for non-objects', () => {
-    expect(isScalar(null)).toBeFalsy()
-    expect(isScalar(undefined)).toBeFalsy()
-    expect(isScalar('string')).toBeFalsy()
-    expect(isScalar(123)).toBeFalsy()
-    expect(isScalar(true)).toBeFalsy()
-    expect(isScalar([])).toBeFalsy()
-  })
-
-  it('works as type guard', () => {
-    let value: unknown = { value: 'test content' }
-    let result = isScalar(value)
-    expect(result).toBeTruthy()
-    let typedValue = value as { value: unknown }
-    expect(typedValue.value).toBe('test content')
+      expect(isScalar(pair)).toBeTruthy()
+    })
   })
 })

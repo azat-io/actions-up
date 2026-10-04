@@ -3,22 +3,27 @@ import { describe, expect, it } from 'vitest'
 import { isSha } from '../../core/versions/is-sha'
 
 describe('isSha', () => {
-  it('returns true for valid SHA strings', () => {
-    expect(isSha('a1b2c3d')).toBeTruthy()
-    expect(isSha(`v${'a'.repeat(40)}`)).toBeTruthy()
+  it.each([
+    ['a short SHA on the minimum length', 'abcdef0'],
+    ['a full-length SHA', '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8'],
+    ['an uppercase SHA', 'A1B2C3D'],
+    ['a SHA behind a v prefix', 'v59b9d7edfcad5b87fbe3f473a9a134a721ad03f8'],
+  ])('accepts %s', (_description, value) => {
+    expect(isSha(value)).toBeTruthy()
   })
 
-  it('returns false for invalid values', () => {
-    expect(isSha('abc')).toBeFalsy()
-    expect(isSha('not-a-sha')).toBeFalsy()
-    expect(isSha(null)).toBeFalsy()
-  })
-
-  it('handles boundary lengths and invalid characters', () => {
-    expect(isSha('abcdef')).toBeFalsy()
-    expect(isSha('abcdef0')).toBeTruthy()
-    expect(isSha('a'.repeat(40))).toBeTruthy()
-    expect(isSha('a'.repeat(41))).toBeFalsy()
-    expect(isSha('xyz1234')).toBeFalsy()
+  it.each([
+    ['a value one character below the minimum length', 'abcdef'],
+    [
+      'a value one character beyond a full SHA',
+      '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8a',
+    ],
+    ['a value with characters outside hex', 'xyz1234'],
+    ['a branch name with a v after its start', 'dev20240101'],
+    ['an empty string', ''],
+    ['null', null],
+    ['undefined', undefined],
+  ])('rejects %s', (_description, value) => {
+    expect(isSha(value)).toBeFalsy()
   })
 })

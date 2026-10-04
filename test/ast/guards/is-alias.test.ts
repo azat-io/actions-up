@@ -4,25 +4,23 @@ import { parseDocument } from 'yaml'
 import { isAlias } from '../../../core/ast/guards/is-alias'
 
 describe('isAlias', () => {
-  it('returns true for a YAML alias node', () => {
-    let document_ = parseDocument('first: &value 1\nsecond: *value\n')
-
-    expect(isAlias(document_.get('second', true))).toBeTruthy()
-  })
-
-  it('returns false for the anchored node and other YAML nodes', () => {
-    let document_ = parseDocument(
-      'first: &value 1\nsecond: *value\nlist: [a]\n',
-    )
-
-    expect(isAlias(document_.get('first', true))).toBeFalsy()
-    expect(isAlias(document_.get('list', true))).toBeFalsy()
-    expect(isAlias(document_.contents)).toBeFalsy()
-  })
-
-  it('returns false for non-objects', () => {
-    expect(isAlias(null)).toBeFalsy()
-    expect(isAlias(undefined)).toBeFalsy()
-    expect(isAlias('*value')).toBeFalsy()
+  it.each([
+    [
+      true,
+      'an alias parsed from YAML',
+      parseDocument('first: &step 1\nsecond: *step\n').get('second', true),
+    ],
+    [
+      false,
+      'the node its anchor defines',
+      parseDocument('first: &step 1\nsecond: *step\n').get('first', true),
+    ],
+    [false, 'a map parsed from YAML', parseDocument('name: CI\n').contents],
+    [false, 'an object whose resolve is not a function', { resolve: 'step' }],
+    [false, 'null', null],
+    [false, 'undefined', undefined],
+    [false, 'a string', '*step'],
+  ])('returns %s for %s', (expected, _description, node) => {
+    expect(isAlias(node)).toBe(expected)
   })
 })

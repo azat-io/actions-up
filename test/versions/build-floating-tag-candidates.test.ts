@@ -54,8 +54,15 @@ describe('buildFloatingTagCandidates', () => {
     ).toEqual(['actions-v0.2', 'actions-v0'])
   })
 
-  it('returns nothing across families or for prereleases', () => {
+  it('returns empty array across tag families', () => {
     expect(buildFloatingTagCandidates('actions-v0.1', 'v0.2.3')).toEqual([])
-    expect(buildFloatingTagCandidates('v1.0', 'v1.2.3-rc.1')).toEqual([])
+  })
+
+  it.each([
+    ['the latest tag is a prerelease', 'v1.0', 'v1.2.3-rc.1'],
+    ['the current tag is a prerelease', 'v1-rc.1', 'v2.3.4'],
+    ['the latest tag carries build metadata', 'v1.0', 'v1.2.3+build.5'],
+  ])('returns empty array when %s', (_description, current, latest) => {
+    expect(buildFloatingTagCandidates(current, latest)).toEqual([])
   })
 })

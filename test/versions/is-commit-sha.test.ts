@@ -3,24 +3,31 @@ import { describe, expect, it } from 'vitest'
 import { isCommitSha } from '../../core/versions/is-commit-sha'
 
 describe('isCommitSha', () => {
-  it('returns true for short and full commit SHAs in any case', () => {
-    expect(isCommitSha('abcdef0')).toBeTruthy()
-    expect(isCommitSha('ABCDEF0')).toBeTruthy()
-    expect(isCommitSha('a'.repeat(40))).toBeTruthy()
+  it.each([
+    ['a short SHA on the minimum length', 'abcdef0'],
+    ['a full-length SHA', '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8'],
+    ['an uppercase SHA', 'ABCDEF0'],
+  ])('accepts %s', (_description, value) => {
+    expect(isCommitSha(value)).toBeTruthy()
   })
 
-  it('returns false for values with a v prefix', () => {
-    expect(isCommitSha('v20240101')).toBeFalsy()
-    expect(isCommitSha(`v${'a'.repeat(40)}`)).toBeFalsy()
-  })
-
-  it('returns false for invalid lengths, characters and empty values', () => {
-    expect(isCommitSha('abcdef')).toBeFalsy()
-    expect(isCommitSha('a'.repeat(41))).toBeFalsy()
-    expect(isCommitSha('xyz1234')).toBeFalsy()
-    expect(isCommitSha('main')).toBeFalsy()
-    expect(isCommitSha('')).toBeFalsy()
-    expect(isCommitSha(null)).toBeFalsy()
-    expect(isCommitSha(undefined)).toBeFalsy()
+  it.each([
+    ['a value one character below the minimum length', 'abcdef'],
+    [
+      'a value one character beyond a full SHA',
+      '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8a',
+    ],
+    ['a value with characters outside hex', 'xyz1234'],
+    ['a v-prefixed date that names a branch', 'v20240101'],
+    [
+      'a full-length SHA behind a v prefix',
+      'v59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+    ],
+    ['a branch name', 'main'],
+    ['an empty string', ''],
+    ['null', null],
+    ['undefined', undefined],
+  ])('rejects %s', (_description, value) => {
+    expect(isCommitSha(value)).toBeFalsy()
   })
 })

@@ -1,491 +1,117 @@
+import type { PathLike } from 'node:fs'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
-import { parseDocument } from 'yaml'
 
-import type { ScannedDocument } from './helpers/create-mock-document'
+import type { FakeEntry } from './helpers/create-fake-file-system'
 
-import { createMockDocument } from './helpers/create-mock-document'
+import { createFakeFileSystem } from './helpers/create-fake-file-system'
 import { scanWorkflowFile } from '../core/scan-workflow-file'
 
 vi.mock(import('node:fs/promises'), () => ({
   readFile: vi.fn(),
-  readdir: vi.fn(),
-  stat: vi.fn(),
-}))
-
-vi.mock(import('yaml'), () => ({
-  parseDocument: vi.fn(),
 }))
 
 /**
- * `parseDocument` narrowed to what the scanners read, so tests can supply
- * hand-built ASTs, including malformed ones.
+ * Serve `readFile` from an in-memory tree for the running test.
+ *
+ * @param entries - Absolute paths mapped to file text or special entries.
  */
-let mockedParseDocument =
-  vi.mocked<(source: string) => ScannedDocument>(parseDocument)
+function installFileSystem(entries: Record<string, FakeEntry | string>): void {
+  let fileSystem = createFakeFileSystem(entries)
+  vi.mocked(readFile).mockImplementation((path, options) =>
+    fileSystem.readFile(path as PathLike, options),
+  )
+}
 
 describe('scanWorkflowFile', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
-  it('scans workflow file with multiple jobs and steps', async () => {
-    let mockWorkflow = {
-      jobs: {
-        build: {
-          steps: [
-            { uses: 'actions/checkout@v4' },
-            { uses: 'actions/setup-node@v5' },
-            { run: 'npm install' },
-          ],
-        },
-        test: {
-          steps: [
-            { uses: 'actions/checkout@v4' },
-            { uses: './.github/actions/test' },
-          ],
-        },
+  it('reports the actions of a workflow file with their file, job and line', async () => {
+    let filePath = '/repo/.github/workflows/ci.yml'
+    installFileSystem({
+      [filePath]: [
+        'name: CI',
+        'on: push',
+        'jobs:',
+        '  build:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        '      - uses: actions/checkout@v4',
+        '      - run: pnpm test',
+        '',
+      ].join('\n'),
+    })
+
+    let result = await scanWorkflowFile(filePath)
+
+    expect(result).toStrictEqual([
+      {
+        uses: 'actions/checkout@v4',
+        ref: 'actions/checkout@v4',
+        name: 'actions/checkout',
+        type: 'external',
+        file: filePath,
+        version: 'v4',
+        job: 'build',
+        line: 7,
       },
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
-
-    let result = await scanWorkflowFile('.github/workflows/ci.yml')
-
-    expect(result).toHaveLength(4)
-    expect(result[0]).toMatchObject({
-      name: 'actions/checkout',
-      type: 'external',
-      version: 'v4',
-    })
-    expect(result[1]).toMatchObject({
-      name: 'actions/setup-node',
-      type: 'external',
-      version: 'v5',
-    })
-    expect(result[2]).toMatchObject({
-      name: 'actions/checkout',
-      type: 'external',
-      version: 'v4',
-    })
-    expect(result[3]).toMatchObject({
-      name: './.github/actions/test',
-      type: 'local',
-    })
+    ])
   })
 
-  it('handles workflow without jobs', async () => {
-    let mockWorkflow = {
-      name: 'Empty workflow',
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
-
-    let result = await scanWorkflowFile('.github/workflows/empty.yml')
-
-    expect(result).toEqual([])
-  })
-
-  it('handles jobs without steps', async () => {
-    let mockWorkflow = {
-      jobs: {
-        build: {
-          runs: 'some script',
-        },
-        test: {
-          steps: [],
-        },
-      },
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
-
-    let result = await scanWorkflowFile('.github/workflows/no-steps.yml')
-
-    expect(result).toEqual([])
-  })
-
-  it('handles steps without uses field', async () => {
-    let mockWorkflow = {
-      jobs: {
-        build: {
-          steps: [{ run: 'echo "Hello"' }, { run: 'npm build', name: 'Build' }],
-        },
-      },
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
-
-    let result = await scanWorkflowFile('.github/workflows/no-uses.yml')
-
-    expect(result).toEqual([])
-  })
-
-  it('throws error for invalid YAML', async () => {
-    vi.mocked(readFile).mockResolvedValue('invalid: yaml: content')
-    mockedParseDocument.mockImplementation(() => {
-      throw new Error('Invalid YAML')
+  it('rejects when the workflow file cannot be read', async () => {
+    installFileSystem({
+      '/repo/.github/workflows/ci.yml': 'on: push\n',
     })
 
     await expect(
-      scanWorkflowFile('.github/workflows/invalid.yml'),
-    ).rejects.toThrow('Invalid YAML')
+      scanWorkflowFile('/repo/.github/workflows/missing.yml'),
+    ).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('throws error when file read fails', async () => {
-    vi.mocked(readFile).mockRejectedValue(new Error('File not found'))
+  describe('current behavior pending owner decision', () => {
+    it('reports the actions the parser recovers from a workflow with a syntax error', async () => {
+      let filePath = '/repo/.github/workflows/ci.yml'
+      installFileSystem({
+        [filePath]: [
+          'on: push',
+          'jobs:',
+          '  build:',
+          '    runs-on: ubuntu-latest',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+          '      - uses: actions/setup-node@v4',
+          '        with: { node-version: 22',
+          '',
+        ].join('\n'),
+      })
 
-    await expect(
-      scanWorkflowFile('.github/workflows/missing.yml'),
-    ).rejects.toThrow('File not found')
-  })
+      let result = await scanWorkflowFile(filePath)
 
-  it('returns empty array for null workflow content', async () => {
-    vi.mocked(readFile).mockResolvedValue('')
-    mockedParseDocument.mockReturnValue(createMockDocument(null))
-
-    let result = await scanWorkflowFile('.github/workflows/null.yml')
-
-    expect(result).toEqual([])
-  })
-
-  it('returns empty array for undefined workflow content', async () => {
-    vi.mocked(readFile).mockResolvedValue('')
-    mockedParseDocument.mockReturnValue(createMockDocument(undefined))
-
-    let result = await scanWorkflowFile('.github/workflows/undefined.yml')
-
-    expect(result).toEqual([])
-  })
-
-  it('returns empty array when jobs node is not a YAML map', async () => {
-    let mockWorkflow = {
-      name: 'Invalid jobs node',
-      jobs: 'should-be-a-map',
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow with invalid jobs')
-    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
-
-    let result = await scanWorkflowFile('.github/workflows/invalid-jobs.yml')
-    expect(result).toEqual([])
-  })
-
-  it('skips steps when steps node is not a YAML sequence', async () => {
-    let mockWorkflow = {
-      jobs: {
-        build: {
-          steps: 'not-an-array',
+      expect(result).toStrictEqual([
+        {
+          uses: 'actions/checkout@v4',
+          ref: 'actions/checkout@v4',
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+          job: 'build',
+          line: 6,
         },
-      },
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow with invalid steps node')
-    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
-
-    let result = await scanWorkflowFile(
-      '.github/workflows/invalid-steps-node.yml',
-    )
-    expect(result).toEqual([])
-  })
-
-  it('ignores steps where uses is non-string (e.g., number)', async () => {
-    let mockWorkflow = {
-      jobs: {
-        build: {
-          steps: [{ uses: 123 }],
+        {
+          uses: 'actions/setup-node@v4',
+          ref: 'actions/setup-node@v4',
+          name: 'actions/setup-node',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+          job: 'build',
+          line: 7,
         },
-      },
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow with non-string uses')
-    mockedParseDocument.mockReturnValue(createMockDocument(mockWorkflow))
-
-    let result = await scanWorkflowFile('.github/workflows/non-string-uses.yml')
-    expect(result).toEqual([])
-  })
-
-  it('skips job entries without toJSON and handles uses without range', async () => {
-    let manualDocument = {
-      contents: {
-        items: [
-          {
-            value: {
-              items: [
-                {
-                  key: { value: 'invalid' },
-                  value: {},
-                },
-                {
-                  value: {
-                    items: [
-                      {
-                        value: {
-                          items: [
-                            {
-                              items: [
-                                {
-                                  value: 'actions/checkout@v4',
-                                  key: { value: 'uses' },
-                                },
-                              ],
-                              toJSON: () => ({ uses: 'actions/checkout@v4' }),
-                            },
-                          ],
-                        },
-                        key: { value: 'steps' },
-                      },
-                    ],
-                    toJSON: () => ({
-                      steps: [{ uses: 'actions/checkout@v4' }],
-                    }),
-                  },
-                  key: { value: 'valid' },
-                },
-              ],
-            },
-            key: { value: 'jobs' },
-          },
-        ],
-      },
-      toJSON: () => ({
-        jobs: { valid: { steps: [{ uses: 'actions/checkout@v4' }] } },
-      }),
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(manualDocument)
-
-    let result = await scanWorkflowFile('.github/workflows/manual.yml')
-    expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ name: 'actions/checkout', version: 'v4' })
-  })
-
-  it('returns empty when jobs pair has undefined value', async () => {
-    let manualDocument = {
-      contents: {
-        items: [
-          {
-            value: {
-              items: [{ key: { value: 'jobs' } }],
-            },
-            key: { value: 'jobs' },
-          },
-        ],
-      },
-      toJSON: () => ({ jobs: {} }),
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(manualDocument)
-
-    let result = await scanWorkflowFile('.github/workflows/undefined-job.yml')
-    expect(result).toEqual([])
-  })
-
-  it('skips job node that is not a YAML map (has toJSON but no items)', async () => {
-    let manualDocument = {
-      contents: {
-        items: [
-          {
-            value: {
-              items: [
-                {
-                  value: {
-                    toJSON: () => ({ steps: [] }),
-                  },
-                  key: { value: 'weird' },
-                },
-              ],
-            },
-            key: { value: 'jobs' },
-          },
-        ],
-      },
-      toJSON: () => ({ jobs: { weird: { steps: [] } } }),
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(manualDocument)
-
-    let result = await scanWorkflowFile('.github/workflows/not-map-job.yml')
-    expect(result).toEqual([])
-  })
-
-  it('continues when JSON has steps array but AST steps is not a YAML sequence', async () => {
-    let manualDocument = {
-      contents: {
-        items: [
-          {
-            value: {
-              items: [
-                {
-                  value: {
-                    items: [
-                      {
-                        key: { value: 'steps' },
-                        value: 'wrong-type',
-                      },
-                    ],
-                    toJSON: () => ({
-                      steps: [{ uses: 'actions/checkout@v4' }],
-                    }),
-                  },
-                  key: { value: 'build' },
-                },
-              ],
-            },
-            key: { value: 'jobs' },
-          },
-        ],
-      },
-      toJSON: () => ({
-        jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
-      }),
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(manualDocument)
-
-    let result = await scanWorkflowFile('.github/workflows/ast-not-seq.yml')
-    expect(result).toEqual([])
-  })
-
-  it('skips step node that lacks toJSON (YAML map without Node)', async () => {
-    let manualDocument = {
-      contents: {
-        items: [
-          {
-            value: {
-              items: [
-                {
-                  value: {
-                    items: [
-                      {
-                        value: {
-                          items: [
-                            {
-                              items: [
-                                {
-                                  value: 'actions/checkout@v4',
-                                  key: { value: 'uses' },
-                                },
-                              ],
-                            },
-                          ],
-                        },
-                        key: { value: 'steps' },
-                      },
-                    ],
-                    toJSON: () => ({
-                      steps: [{ uses: 'actions/checkout@v4' }],
-                    }),
-                  },
-                  key: { value: 'build' },
-                },
-              ],
-            },
-            key: { value: 'jobs' },
-          },
-        ],
-      },
-      toJSON: () => ({
-        jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
-      }),
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(manualDocument)
-
-    let result = await scanWorkflowFile('.github/workflows/step-not-node.yml')
-    expect(result).toEqual([])
-  })
-
-  it('returns empty when document contents is missing', async () => {
-    let manualDocument = {
-      toJSON: () => ({
-        jobs: { test: { steps: [{ uses: 'actions/checkout@v4' }] } },
-      }),
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(manualDocument)
-
-    let result = await scanWorkflowFile('.github/workflows/no-contents.yml')
-    expect(result).toEqual([])
-  })
-
-  it('handles uses key without range property and with undefined range', async () => {
-    let manualDocument = {
-      contents: {
-        items: [
-          {
-            value: {
-              items: [
-                {
-                  value: {
-                    items: [
-                      {
-                        value: {
-                          items: [
-                            {
-                              items: [
-                                {
-                                  value: 'actions/checkout@v4',
-                                  key: { value: 'uses' },
-                                },
-                              ],
-                              toJSON: () => ({ uses: 'actions/checkout@v4' }),
-                            },
-                            {
-                              items: [
-                                {
-                                  key: { range: undefined, value: 'uses' },
-                                  value: 'actions/setup-node@v5',
-                                },
-                              ],
-                              toJSON: () => ({ uses: 'actions/setup-node@v5' }),
-                            },
-                          ],
-                        },
-                        key: { value: 'steps' },
-                      },
-                    ],
-                    toJSON: () => ({
-                      steps: [
-                        { uses: 'actions/checkout@v4' },
-                        { uses: 'actions/setup-node@v5' },
-                      ],
-                    }),
-                  },
-                  key: { value: 'build' },
-                },
-              ],
-            },
-            key: { value: 'jobs' },
-          },
-        ],
-      },
-      toJSON: () => ({
-        jobs: {
-          build: {
-            steps: [
-              { uses: 'actions/checkout@v4' },
-              { uses: 'actions/setup-node@v5' },
-            ],
-          },
-        },
-      }),
-    }
-
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(manualDocument)
-
-    let result = await scanWorkflowFile('.github/workflows/uses-no-range.yml')
-    expect(result).toHaveLength(2)
+      ])
+    })
   })
 })

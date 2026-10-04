@@ -1,141 +1,163 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PathLike } from 'node:fs'
 
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFile } from 'node:fs/promises'
+
+import { createFakeFileSystem } from '../helpers/create-fake-file-system'
 import { shouldIgnore } from '../../core/ignore/should-ignore'
 
 vi.mock(import('node:fs/promises'), () => ({
   readFile: vi.fn(),
 }))
 
+/**
+ * Serve `readFile` from an in-memory tree holding a single workflow file.
+ *
+ * @param filePath - Absolute path of the workflow file.
+ * @param lines - Lines of the workflow file.
+ */
+function installWorkflow(filePath: string, lines: string[]): void {
+  let fileSystem = createFakeFileSystem({ [filePath]: lines.join('\n') })
+  vi.mocked(readFile).mockImplementation((path, options) =>
+    fileSystem.readFile(path as PathLike, options),
+  )
+}
+
 describe('shouldIgnore', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
-  it('returns true when file has actions-up-ignore-file', async () => {
+  it('returns false when the file path is missing', async () => {
+    let ignored = await shouldIgnore(undefined, 5)
+
+    expect(ignored).toBeFalsy()
+  })
+
+  it.each([
+    { position: 'a line above the directive', line: 1 },
+    { position: 'a step below the directive', line: 7 },
+    { position: 'a missing line', line: undefined },
+  ])(
+    'ignores $position in a file marked actions-up-ignore-file',
+    async ({ line }) => {
+      let filePath = '/repo/.github/workflows/ci.yml'
+      installWorkflow(filePath, [
+        'name: CI',
+        '# actions-up-ignore-file',
+        'on: push',
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3',
+      ])
+
+      let ignored = await shouldIgnore(filePath, line)
+
+      expect(ignored).toBeTruthy()
+    },
+  )
+
+  it('only the file-level ignore applies when the line is unknown', async () => {
     let filePath = '/repo/.github/workflows/ci.yml'
-    let content = ['name: CI', '# actions-up-ignore-file', 'jobs:'].join('\n')
-
-    let { readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(content)
-
-    await expect(shouldIgnore(filePath, 10)).resolves.toBeTruthy()
-  })
-
-  it('returns false when file path is missing', async () => {
-    let { readFile } = await import('node:fs/promises')
-    await expect(shouldIgnore(undefined, 5)).resolves.toBeFalsy()
-    expect(readFile).not.toHaveBeenCalled()
-  })
-
-  it('ignores the immediate next physical line after actions-up-ignore-next-line', async () => {
-    let filePath = '/repo/.github/workflows/next-line.yml'
-    let content = [
-      'jobs:',
-      '  build:',
-      '    steps:',
-      '      # actions-up-ignore-next-line', // Line 4
-      '      - uses: actions/checkout@v3', // Line 5
-      '      - run: echo "hi"', // Line 6
-    ].join('\n')
-
-    let { readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(content)
-
-    await expect(shouldIgnore(filePath, 5)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 4)).resolves.toBeFalsy()
-    await expect(shouldIgnore(filePath, 6)).resolves.toBeFalsy()
-  })
-
-  it('does not skip through blank line for next-line', async () => {
-    let filePath = '/repo/.github/workflows/next-line-blank.yml'
-    let content = [
-      'jobs:',
-      '  build:',
-      '    steps:',
-      '      # actions-up-ignore-next-line', // Line 4 -> next is 5
-      '', // Line 5 (blank)
-      '      - uses: actions/checkout@v3', // Line 6 (should NOT be ignored)
-    ].join('\n')
-
-    let { readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(content)
-
-    await expect(shouldIgnore(filePath, 6)).resolves.toBeFalsy()
-    await expect(shouldIgnore(filePath, 5)).resolves.toBeTruthy()
-  })
-
-  it('ignores the same line when inline actions-up-ignore is present', async () => {
-    let filePath = '/repo/.github/workflows/inline.yml'
-    let content = [
-      'jobs:',
-      '  build:',
-      '    steps:',
-      '      - uses: actions/checkout@v3 # actions-up-ignore', // Line 4
-      '      - run: echo "hi"',
-    ].join('\n')
-
-    let { readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(content)
-
-    await expect(shouldIgnore(filePath, 4)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 5)).resolves.toBeFalsy()
-  })
-
-  it('ignores lines inside block from start to end inclusive', async () => {
-    let filePath = '/repo/.github/workflows/block.yml'
-    let content = [
-      'jobs:', // 1
-      '  build:', // 2
-      '    steps:', // 3
-      '      # actions-up-ignore-start', // 4
-      '      - uses: actions/checkout@v3', // 5
-      '      - uses: actions/setup-node@v4', // 6
-      '      # actions-up-ignore-end', // 7
-      '      - run: echo "done"', // 8
-    ].join('\n')
-
-    let { readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(content)
-
-    await expect(shouldIgnore(filePath, 4)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 5)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 6)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 7)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 8)).resolves.toBeFalsy()
-  })
-
-  it('file-level ignore has priority even when line is outside block', async () => {
-    let filePath = '/repo/.github/workflows/priority.yml'
-    let content = [
-      '# actions-up-ignore-file',
+    installWorkflow(filePath, [
+      'on: push',
       'jobs:',
       '  build:',
       '    steps:',
       '      - uses: actions/checkout@v3',
-    ].join('\n')
+    ])
 
-    let { readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(content)
+    let ignored = await shouldIgnore(filePath, undefined)
 
-    await expect(shouldIgnore(filePath, 5)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 1)).resolves.toBeTruthy()
-    await expect(shouldIgnore(filePath, 0)).resolves.toBeTruthy()
+    expect(ignored).toBeFalsy()
   })
 
-  it('when line is missing or <= 0, only file-level ignore applies', async () => {
-    let filePath = '/repo/.github/workflows/no-line.yml'
-    let content = [
+  it.each([
+    { role: 'the directive line', ignored: false, line: 4 },
+    { role: 'the line right after it', ignored: true, line: 5 },
+    { role: 'the line after that', ignored: false, line: 6 },
+  ])(
+    'ignores only the line right after actions-up-ignore-next-line: $role is ignored: $ignored',
+    async ({ ignored: expected, line }) => {
+      let filePath = '/repo/.github/workflows/next-line.yml'
+      installWorkflow(filePath, [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      # actions-up-ignore-next-line',
+        '      - uses: actions/checkout@v3',
+        '      - uses: actions/setup-node@v4',
+      ])
+
+      let ignored = await shouldIgnore(filePath, line)
+
+      expect(ignored).toBe(expected)
+    },
+  )
+
+  it('does not carry actions-up-ignore-next-line over a blank line', async () => {
+    let filePath = '/repo/.github/workflows/next-line-blank.yml'
+    installWorkflow(filePath, [
       'jobs:',
       '  build:',
       '    steps:',
       '      # actions-up-ignore-next-line',
+      '',
       '      - uses: actions/checkout@v3',
-    ].join('\n')
+    ])
 
-    let { readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(content)
+    let ignored = await shouldIgnore(filePath, 6)
 
-    await expect(shouldIgnore(filePath, 0)).resolves.toBeFalsy()
-    await expect(shouldIgnore(filePath, undefined)).resolves.toBeFalsy()
+    expect(ignored).toBeFalsy()
   })
+
+  it.each([
+    { role: 'the line carrying the directive', ignored: true, line: 4 },
+    { role: 'the line after it', ignored: false, line: 5 },
+  ])(
+    'ignores only the line carrying an inline actions-up-ignore: $role is ignored: $ignored',
+    async ({ ignored: expected, line }) => {
+      let filePath = '/repo/.github/workflows/inline.yml'
+      installWorkflow(filePath, [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3 # actions-up-ignore',
+        '      - uses: actions/setup-node@v4',
+      ])
+
+      let ignored = await shouldIgnore(filePath, line)
+
+      expect(ignored).toBe(expected)
+    },
+  )
+
+  it.each([
+    { role: 'the line before the block', ignored: false, line: 3 },
+    { role: 'the start directive', ignored: true, line: 4 },
+    { role: 'the first step inside the block', ignored: true, line: 5 },
+    { role: 'the last step inside the block', ignored: true, line: 6 },
+    { role: 'the end directive', ignored: true, line: 7 },
+    { role: 'the line after the block', ignored: false, line: 8 },
+  ])(
+    'ignores the lines from actions-up-ignore-start to actions-up-ignore-end inclusive: $role is ignored: $ignored',
+    async ({ ignored: expected, line }) => {
+      let filePath = '/repo/.github/workflows/block.yml'
+      installWorkflow(filePath, [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      # actions-up-ignore-start',
+        '      - uses: actions/checkout@v3',
+        '      - uses: actions/setup-node@v4',
+        '      # actions-up-ignore-end',
+        '      - run: echo "done"',
+      ])
+
+      let ignored = await shouldIgnore(filePath, line)
+
+      expect(ignored).toBe(expected)
+    },
+  )
 })

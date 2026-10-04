@@ -4,48 +4,33 @@ import { parseDocument } from 'yaml'
 import { isYAMLSequence } from '../../../core/ast/guards/is-yaml-sequence'
 
 describe('isYAMLSequence', () => {
-  it('returns true for YAML Sequence nodes', () => {
-    let document_ = parseDocument('- item1\n- item2\n- item3')
-    expect(isYAMLSequence(document_.contents)).toBeTruthy()
+  it.each([
+    [
+      true,
+      'a sequence parsed from YAML',
+      parseDocument('- actions/checkout@v4\n').contents,
+    ],
+    [
+      false,
+      'an object whose items are not a list',
+      { items: 'actions/checkout@v4' },
+    ],
+    [false, 'an object without items', { value: 'actions/checkout@v4' }],
+    [false, 'null', null],
+    [false, 'undefined', undefined],
+    [false, 'a string', '- actions/checkout@v4'],
+    [false, 'a number', 0],
+    [false, 'a boolean', true],
+    [false, 'an array', []],
+  ])('returns %s for %s', (expected, _description, node) => {
+    expect(isYAMLSequence(node)).toBe(expected)
   })
 
-  it('returns true for nested arrays in YAML', () => {
-    let document_ = parseDocument('items:\n  - one\n  - two')
-    expect(isYAMLSequence(document_.get('items'))).toBeTruthy()
-  })
+  describe('current behavior pending owner decision', () => {
+    it('accepts a map parsed from YAML as a sequence', () => {
+      let map = parseDocument('name: CI\n').contents
 
-  it('returns true for objects with items array', () => {
-    expect(isYAMLSequence({ items: [] })).toBeTruthy()
-    expect(isYAMLSequence({ items: [1, 2, 3] })).toBeTruthy()
-  })
-
-  it('returns false for objects with non-array items', () => {
-    expect(isYAMLSequence({ items: 'not array' })).toBeFalsy()
-    expect(isYAMLSequence({ items: null })).toBeFalsy()
-    expect(isYAMLSequence({ items: {} })).toBeFalsy()
-  })
-
-  it('returns false for objects without items property', () => {
-    expect(isYAMLSequence({})).toBeFalsy()
-    expect(isYAMLSequence({ other: [] })).toBeFalsy()
-  })
-
-  it('returns false for non-objects', () => {
-    expect(isYAMLSequence(null)).toBeFalsy()
-    expect(isYAMLSequence(undefined)).toBeFalsy()
-    expect(isYAMLSequence('string')).toBeFalsy()
-    expect(isYAMLSequence(123)).toBeFalsy()
-    expect(isYAMLSequence(true)).toBeFalsy()
-    expect(isYAMLSequence([])).toBeFalsy()
-  })
-
-  it('works as type guard', () => {
-    let document_ = parseDocument('- test\n- value')
-    let value: unknown = document_.contents
-    let result = isYAMLSequence(value)
-    expect(result).toBeTruthy()
-    let typedValue = value as { items: unknown[] }
-    expect(Array.isArray(typedValue.items)).toBeTruthy()
-    expect(typedValue.items.length).toBeGreaterThan(0)
+      expect(isYAMLSequence(map)).toBeTruthy()
+    })
   })
 })

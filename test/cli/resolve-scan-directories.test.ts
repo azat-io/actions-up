@@ -1,89 +1,74 @@
 import { describe, expect, it } from 'vitest'
-import { resolve } from 'node:path'
 
 import { resolveScanDirectories } from '../../cli/resolve-scan-directories'
 
 describe('resolveScanDirectories', () => {
-  let cwd = '/repo'
+  it('scans .github in the current directory when recursive mode is off', () => {
+    let directories = resolveScanDirectories({ cwd: '/repo' })
 
-  it('defaults to .github when recursive mode is off', () => {
-    let directories = resolveScanDirectories({ cwd })
-
-    expect(directories).toEqual([{ dir: '.github', root: cwd }])
+    expect(directories).toEqual([{ dir: '.github', root: '/repo' }])
   })
 
-  it('defaults to current directory when recursive mode is on', () => {
-    let directories = resolveScanDirectories({
-      recursive: true,
-      cwd,
-    })
+  it('makes the current directory the scan root in recursive mode without --dir', () => {
+    let directories = resolveScanDirectories({ recursive: true, cwd: '/repo' })
 
-    expect(directories).toEqual([{ root: resolve(cwd, '.'), dir: '.' }])
+    expect(directories).toEqual([{ root: '/repo', dir: '.' }])
   })
 
-  it('uses explicit dir when provided', () => {
+  it('makes a --dir directory the scan root in recursive mode', () => {
     let directories = resolveScanDirectories({
       dir: './nested/.github',
       recursive: true,
-      cwd,
+      cwd: '/repo',
     })
 
-    expect(directories).toEqual([
-      { root: resolve(cwd, 'nested/.github'), dir: '.' },
-    ])
+    expect(directories).toEqual([{ root: '/repo/nested/.github', dir: '.' }])
   })
 
   it('normalizes and deduplicates repeatable --dir values', () => {
     let directories = resolveScanDirectories({
       dir: ['.github', './.github', '/repo/.github', 'templates'],
-      cwd,
+      cwd: '/repo',
     })
 
     expect(directories).toEqual([
-      { dir: '.github', root: cwd },
-      { dir: 'templates', root: cwd },
+      { dir: '.github', root: '/repo' },
+      { dir: 'templates', root: '/repo' },
     ])
   })
 
-  it('resolves parent-relative path in recursive mode', () => {
+  it('makes a parent-relative --dir the scan root in recursive mode', () => {
     let directories = resolveScanDirectories({
       dir: '../outside',
       recursive: true,
-      cwd,
+      cwd: '/repo',
     })
 
-    expect(directories).toEqual([
-      { root: resolve(cwd, '../outside'), dir: '.' },
-    ])
+    expect(directories).toEqual([{ root: '/outside', dir: '.' }])
   })
 
-  it('resolves parent-relative path in non-recursive mode', () => {
+  it('splits a --dir outside the current directory into its parent and its name', () => {
     let directories = resolveScanDirectories({
       dir: '../outside/.github',
-      cwd,
+      cwd: '/repo',
     })
 
-    expect(directories).toEqual([
-      { root: resolve(cwd, '../outside'), dir: '.github' },
-    ])
+    expect(directories).toEqual([{ root: '/outside', dir: '.github' }])
   })
 
-  it('resolves absolute path in recursive mode', () => {
+  it('makes an absolute --dir the scan root in recursive mode', () => {
     let directories = resolveScanDirectories({
       dir: '/absolute/path',
       recursive: true,
-      cwd,
+      cwd: '/repo',
     })
 
     expect(directories).toEqual([{ root: '/absolute/path', dir: '.' }])
   })
 
-  it('uses .github when --dir points to cwd in non-recursive mode', () => {
-    let directories = resolveScanDirectories({
-      dir: '.',
-      cwd,
-    })
+  it('scans .github when --dir points to the current directory in non-recursive mode', () => {
+    let directories = resolveScanDirectories({ cwd: '/repo', dir: '.' })
 
-    expect(directories).toEqual([{ dir: '.github', root: cwd }])
+    expect(directories).toEqual([{ dir: '.github', root: '/repo' }])
   })
 })

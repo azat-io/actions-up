@@ -3,170 +3,109 @@ import { describe, expect, it } from 'vitest'
 import { printMinAgeWarning } from '../../cli/print-min-age-warning'
 import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 
+/**
+ * Reference of an update held back by the cool-down.
+ */
+interface BlockedOptions {
+  /**
+   * Version the reference is pinned to.
+   */
+  version?: string
+
+  /**
+   * Action name.
+   */
+  name?: string
+}
+
+/**
+ * Held-back entry in the shape the CLI hands to the printer.
+ */
+type BlockedUpdate = Parameters<typeof printMinAgeWarning>[0][number]
+
+/**
+ * Create an update the release age cool-down held back.
+ *
+ * @param options - Reference; `actions/checkout@v4` by default.
+ * @returns Fresh held-back update.
+ */
+function makeBlocked({
+  name = 'actions/checkout',
+  version = 'v4',
+}: BlockedOptions = {}): BlockedUpdate {
+  return { action: { version, name }, currentVersion: version }
+}
+
 describe('printMinAgeWarning', () => {
   let consoleInfoSpy = spyOnConsoleInfo()
 
-  it('does nothing for empty array', () => {
+  it('prints nothing when no update is held back', () => {
     printMinAgeWarning([], 1)
 
     expect(consoleInfoSpy).not.toHaveBeenCalled()
   })
 
-  it('uses update and day singular for a single item and one day', () => {
+  it.each([
+    {
+      expectedText:
+        '\n⏳ Skipped 1 update released less than 1 day ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
+        '   • actions/checkout@v4',
+      blocked: [makeBlocked()],
+      updates: 'one update',
+      days: 'a single day',
+      minAge: 1,
+    },
+    {
+      expectedText:
+        '\n⏳ Skipped 1 update released less than 7 days ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
+        '   • actions/checkout@v4',
+      blocked: [makeBlocked()],
+      updates: 'one update',
+      days: 'several days',
+      minAge: 7,
+    },
+    {
+      expectedText:
+        '\n⏳ Skipped 2 updates released less than 1 day ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
+        '   • actions/checkout@v4\n' +
+        '   • actions/setup-node@v4',
+      blocked: [makeBlocked(), makeBlocked({ name: 'actions/setup-node' })],
+      updates: 'several updates',
+      days: 'a single day',
+      minAge: 1,
+    },
+    {
+      expectedText:
+        '\n⏳ Skipped 2 updates released less than 7 days ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
+        '   • actions/checkout@v4\n' +
+        '   • actions/setup-node@v4',
+      blocked: [makeBlocked(), makeBlocked({ name: 'actions/setup-node' })],
+      updates: 'several updates',
+      days: 'several days',
+      minAge: 7,
+    },
+  ])(
+    'reports $updates held back for $days with how to bypass the cool-down',
+    ({ expectedText, blocked, minAge }) => {
+      printMinAgeWarning(blocked, minAge)
+
+      expect(consoleInfoSpy.printedText()).toBe(expectedText)
+    },
+  )
+
+  it('lists each held-back action once with the number of places it appears in', () => {
     let blocked = [
-      {
-        action: {
-          uses: 'actions/checkout@v3',
-          name: 'actions/checkout',
-          version: 'v3',
-        },
-        currentVersion: 'v3',
-      },
+      makeBlocked(),
+      makeBlocked({ name: 'actions/setup-node' }),
+      makeBlocked(),
     ]
 
-    printMinAgeWarning(blocked, 1)
+    printMinAgeWarning(blocked, 3)
 
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('1 update released less than 1 day ago'),
-    )
-  })
-
-  it('uses updates and days plural for multiple items and days', () => {
-    let blocked = [
-      {
-        action: { name: 'actions/checkout', version: 'v3' },
-        currentVersion: 'v3',
-      },
-      {
-        action: { name: 'actions/setup-node', version: 'v3' },
-        currentVersion: 'v3',
-      },
-    ]
-
-    printMinAgeWarning(blocked, 7)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('2 updates released less than 7 days ago'),
-    )
-  })
-
-  it('mentions how to disable the cool-down', () => {
-    let blocked = [
-      {
-        action: { name: 'actions/checkout', version: 'v3' },
-        currentVersion: 'v3',
-      },
-    ]
-
-    printMinAgeWarning(blocked, 1)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('--min-age 0'),
-    )
-  })
-
-  it('mentions how to exempt actions from the cool-down', () => {
-    let blocked = [
-      {
-        action: { name: 'my-org/deploy', version: 'v1' },
-        currentVersion: 'v1',
-      },
-    ]
-
-    printMinAgeWarning(blocked, 1)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('--min-age-exclude'),
-    )
-  })
-
-  it('uses action.uses when available as identifier', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'actions/checkout@v3',
-          name: 'actions/checkout',
-          version: 'v3',
-        },
-        currentVersion: 'v3',
-      },
-    ]
-
-    printMinAgeWarning(blocked, 1)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('actions/checkout@v3'),
-    )
-  })
-
-  it('falls back to name@version when uses is not set', () => {
-    let blocked = [
-      {
-        action: { name: 'actions/checkout', version: 'v3' },
-        currentVersion: 'v3',
-      },
-    ]
-
-    printMinAgeWarning(blocked, 1)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('actions/checkout@v3'),
-    )
-  })
-
-  it('deduplicates repeated identifiers and shows occurrence count', () => {
-    let entry = {
-      action: {
-        uses: 'actions/checkout@v3',
-        name: 'actions/checkout',
-        version: 'v3',
-      },
-      currentVersion: 'v3',
-    }
-    let blocked = [entry, entry, entry]
-
-    printMinAgeWarning(blocked, 1)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('1 update released less than 1 day ago'),
-    )
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('actions/checkout@v3 (×3)'),
-    )
-    expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
-  })
-
-  it('omits occurrence count for identifiers appearing once', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'actions/checkout@v3',
-          name: 'actions/checkout',
-          version: 'v3',
-        },
-        currentVersion: 'v3',
-      },
-    ]
-
-    printMinAgeWarning(blocked, 1)
-
-    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('×'),
-    )
-  })
-
-  it('shows unknown when currentVersion is null and uses is not set', () => {
-    let blocked = [
-      {
-        action: { name: 'actions/checkout' },
-        currentVersion: null,
-      },
-    ]
-
-    printMinAgeWarning(blocked, 1)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('actions/checkout@unknown'),
+    expect(consoleInfoSpy.printedText()).toBe(
+      '\n⏳ Skipped 2 updates released less than 3 days ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
+        '   • actions/checkout@v4 (×2)\n' +
+        '   • actions/setup-node@v4',
     )
   })
 })

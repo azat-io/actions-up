@@ -1,234 +1,249 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { ReferencePayload } from '../helpers/route-fetch'
+
+import {
+  makeTagObjectPayload,
+  makeReferencePayload,
+  serverError,
+  rateLimited,
+  routeFetch,
+  notFound,
+  ok,
+} from '../helpers/route-fetch'
+import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { createClientContext } from '../helpers/create-client-context'
 import { getTagSha } from '../../core/api/get-tag-sha'
 
+const COMMIT_SHA = '1d3bb3940b11fb19062da85539933c53a7bc9f1f'
+
+const TAG_OBJECT_SHA = '057b2c5fe322260608f0764aa0674139c14d3b65'
+
+const TREE_SHA = '59dd04d1d9d3144493ba5762a3180eb7f225020c'
+
+const REFERENCE_PATH = '/repos/actions/checkout/git/ref/tags/v4.2.2'
+
+const TAG_OBJECT_PATH = `/repos/actions/checkout/git/tags/${TAG_OBJECT_SHA}`
+
+/**
+ * Reference of the lightweight tag `v4.2.2`, pointing at the commit.
+ *
+ * @returns Fresh reference payload.
+ */
+function lightweightReference(): ReferencePayload {
+  return makeReferencePayload('refs/tags/v4.2.2', {
+    sha: COMMIT_SHA,
+    type: 'commit',
+  })
+}
+
+/**
+ * Reference of the annotated tag `v4.2.2`, pointing at its tag object.
+ *
+ * @returns Fresh reference payload.
+ */
+function annotatedReference(): ReferencePayload {
+  return makeReferencePayload('refs/tags/v4.2.2', {
+    sha: TAG_OBJECT_SHA,
+    type: 'tag',
+  })
+}
+
 describe('getTagSha', () => {
-  beforeEach(() => {
+  afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('resolves annotated tag to commit SHA', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      if ((url as string).includes('/git/ref/tags/v1.2.3')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'tagobj', type: 'tag' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if ((url as string).includes('/git/tags/tagobj')) {
-        return Promise.resolve(
-          new Response(JSON.stringify({ object: { sha: 'commit-sha' } }), {
-            status: 200,
-          }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let sha = await getTagSha(context, { tag: 'v1.2.3', owner: 'o', repo: 'r' })
-    expect(sha).toBe('commit-sha')
-  })
-
-  it('returns lightweight tag commit SHA', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({ object: { type: 'commit', sha: 'light' } }),
-        {
-          status: 200,
-        },
+  it('resolves an annotated tag to the commit its tag object points at', async () => {
+    routeFetch({
+      [TAG_OBJECT_PATH]: ok(
+        makeTagObjectPayload({
+          object: { sha: COMMIT_SHA, type: 'commit' },
+          sha: TAG_OBJECT_SHA,
+        }),
       ),
-    )
-
-    let sha = await getTagSha(context, { tag: 'v0.1.0', owner: 'o', repo: 'r' })
-    expect(sha).toBe('light')
-  })
-
-  it('returns cached entry without performing requests', async () => {
-    let context = createClientContext()
-    context.caches.tagSha.set('o/r#v1.0.0', 'cached')
-    let fetchSpy = vi.spyOn(globalThis, 'fetch')
-
-    let sha = await getTagSha(context, { tag: 'v1.0.0', owner: 'o', repo: 'r' })
-
-    expect(sha).toBe('cached')
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
-  it('returns null when cached entry is null', async () => {
-    let context = createClientContext()
-    context.caches.tagSha.set('o/r#v1.1.0', null)
-    let fetchSpy = vi.spyOn(globalThis, 'fetch')
-
-    let sha = await getTagSha(context, { tag: 'v1.1.0', owner: 'o', repo: 'r' })
-
-    expect(sha).toBeNull()
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
-  it('returns null when cached entry is undefined', async () => {
-    let context = createClientContext()
-    context.caches.tagSha.set('o/r#v1.1.1', 'cached-sha')
-    vi.spyOn(context.caches.tagSha, 'get').mockReturnValue(undefined)
-    let fetchSpy = vi.spyOn(globalThis, 'fetch')
-
-    let sha = await getTagSha(context, { tag: 'v1.1.1', owner: 'o', repo: 'r' })
-
-    expect(sha).toBeNull()
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
-
-  it('falls back to ref SHA when annotated tag details fail', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/git/ref/tags/v2.0.0')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'tagobj', type: 'tag' } }),
-            {
-              status: 200,
-            },
-          ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if (urlString.endsWith('/git/tags/tagobj')) {
-        return Promise.resolve(new Response('fail', { status: 500 }))
-      }
-      return Promise.reject(new Error('Unexpected URL'))
+      [REFERENCE_PATH]: ok(annotatedReference()),
     })
 
-    let sha = await getTagSha(context, { tag: 'v2.0.0', owner: 'o', repo: 'r' })
-    /* Cspell:disable-next-line */
-    expect(sha).toBe('tagobj')
+    let sha = await getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    expect(sha).toBe(COMMIT_SHA)
   })
 
-  it('returns null when annotated tag payload has no object.sha', async () => {
-    let context = createClientContext()
+  it('resolves a lightweight tag to its commit with a single request', async () => {
+    let api = routeFetch({ [REFERENCE_PATH]: ok(lightweightReference()) })
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/git/ref/tags/v2.2.0')) {
-        return Promise.resolve(
-          new Response(
-            /* Cspell:disable-next-line */
-            JSON.stringify({ object: { sha: 'tagobj', type: 'tag' } }),
-            {
-              status: 200,
-            },
+    let sha = await getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    expect(sha).toBe(COMMIT_SHA)
+    expect(api.paths).toStrictEqual([REFERENCE_PATH])
+  })
+
+  it('accepts a fully qualified tag reference', async () => {
+    routeFetch({ [REFERENCE_PATH]: ok(lightweightReference()) })
+
+    let sha = await getTagSha(createClientContext(), {
+      tag: 'refs/tags/v4.2.2',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    expect(sha).toBe(COMMIT_SHA)
+  })
+
+  it('returns null for a tag that exists only as a prefix of other tags', async () => {
+    routeFetch({
+      '/repos/actions/checkout/git/matching-refs/tags/v8': ok([
+        makeReferencePayload('refs/tags/v8.3.2', {
+          sha: COMMIT_SHA,
+          type: 'commit',
+        }),
+      ]),
+      '/repos/actions/checkout/git/ref/tags/v8': notFound(),
+    })
+
+    let sha = await getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v8',
+    })
+
+    expect(sha).toBeNull()
+  })
+
+  it('remembers a resolved tag for repeated lookups', async () => {
+    let api = routeFetch({ [REFERENCE_PATH]: ok(lightweightReference()) })
+    let context = createClientContext()
+    let parameters = { owner: 'actions', repo: 'checkout', tag: 'v4.2.2' }
+
+    let first = await getTagSha(context, parameters)
+    let second = await getTagSha(context, parameters)
+
+    expect([first, second]).toStrictEqual([COMMIT_SHA, COMMIT_SHA])
+    expect(api.paths).toStrictEqual([REFERENCE_PATH])
+  })
+
+  it('remembers a missing tag for repeated lookups', async () => {
+    let api = routeFetch({ [REFERENCE_PATH]: notFound() })
+    let context = createClientContext()
+    let parameters = { owner: 'actions', repo: 'checkout', tag: 'v4.2.2' }
+
+    let first = await getTagSha(context, parameters)
+    let second = await getTagSha(context, parameters)
+
+    expect([first, second]).toStrictEqual([null, null])
+    expect(api.paths).toStrictEqual([REFERENCE_PATH])
+  })
+
+  it('throws GitHubRateLimitError with the reset time from the response', async () => {
+    let resetAt = new Date('2026-10-03T14:37:21.000Z')
+    routeFetch({ [REFERENCE_PATH]: rateLimited(resetAt) })
+
+    let lookup = getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    await expect(lookup).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
+    )
+  })
+
+  it('returns null for a tag that points at a tree instead of a commit', async () => {
+    routeFetch({
+      [REFERENCE_PATH]: ok(
+        makeReferencePayload('refs/tags/v4.2.2', {
+          sha: TREE_SHA,
+          type: 'tree',
+        }),
+      ),
+    })
+
+    let sha = await getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    expect(sha).toBeNull()
+  })
+
+  describe('current behavior pending owner decision', () => {
+    it('returns the tag object SHA instead of a commit SHA when the tag object lookup fails', async () => {
+      routeFetch({
+        [REFERENCE_PATH]: ok(annotatedReference()),
+        [TAG_OBJECT_PATH]: serverError(),
+      })
+
+      let sha = await getTagSha(createClientContext(), {
+        owner: 'actions',
+        repo: 'checkout',
+        tag: 'v4.2.2',
+      })
+
+      expect(sha).toBe(TAG_OBJECT_SHA)
+    })
+
+    it('remembers a lookup that failed for a reason other than a rate limit as a missing tag', async () => {
+      let api = routeFetch({ [REFERENCE_PATH]: serverError() })
+      let context = createClientContext()
+      let parameters = { owner: 'actions', repo: 'checkout', tag: 'v4.2.2' }
+
+      let first = await getTagSha(context, parameters)
+      let second = await getTagSha(context, parameters)
+
+      expect([first, second]).toStrictEqual([null, null])
+      expect(api.paths).toStrictEqual([REFERENCE_PATH])
+    })
+  })
+
+  describe('defensive branches unreachable through the public API', () => {
+    it.each(['commit', 'tag'] as const)(
+      'returns null when the reference to a %s carries an empty SHA',
+      async type => {
+        routeFetch({
+          [REFERENCE_PATH]: ok(
+            makeReferencePayload('refs/tags/v4.2.2', { sha: '', type }),
           ),
-        )
-      }
-      /* Cspell:disable-next-line */
-      if (urlString.endsWith('/git/tags/tagobj')) {
-        return Promise.resolve(
-          new Response(JSON.stringify({ object: { sha: null } }), {
-            status: 200,
+        })
+
+        let sha = await getTagSha(createClientContext(), {
+          owner: 'actions',
+          repo: 'checkout',
+          tag: 'v4.2.2',
+        })
+
+        expect(sha).toBeNull()
+      },
+    )
+
+    it('returns null when the tag object names no target', async () => {
+      routeFetch({
+        [TAG_OBJECT_PATH]: ok(
+          makeTagObjectPayload({
+            object: { type: 'commit', sha: null },
+            sha: TAG_OBJECT_SHA,
           }),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
+        ),
+        [REFERENCE_PATH]: ok(annotatedReference()),
+      })
+
+      let sha = await getTagSha(createClientContext(), {
+        owner: 'actions',
+        repo: 'checkout',
+        tag: 'v4.2.2',
+      })
+
+      expect(sha).toBeNull()
     })
-
-    let sha = await getTagSha(context, { tag: 'v2.2.0', owner: 'o', repo: 'r' })
-    expect(sha).toBeNull()
-  })
-
-  it('returns null when exact tag does not exist', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('Not Found', {
-        statusText: 'Not Found',
-        status: 404,
-      }),
-    )
-
-    let sha = await getTagSha(context, { owner: 'o', repo: 'r', tag: 'v8' })
-
-    expect(sha).toBeNull()
-    expect(context.caches.tagSha.get('o/r#v8')).toBeNull()
-  })
-
-  it('throws GitHubRateLimitError on rate limit', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('API rate limit exceeded', {
-        statusText: 'Forbidden',
-        status: 403,
-      }),
-    )
-
-    await expect(
-      getTagSha(context, { tag: 'v0.0.1', owner: 'o', repo: 'r' }),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-  })
-
-  it('caches null on non rate limit failure', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('fatal', {
-        statusText: 'Internal Server Error',
-        status: 500,
-      }),
-    )
-
-    let sha = await getTagSha(context, { tag: 'v9.9.9', owner: 'o', repo: 'r' })
-
-    expect(sha).toBeNull()
-    expect(context.caches.tagSha.get('o/r#v9.9.9')).toBeNull()
-  })
-
-  it('returns null when ref sha is empty', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ object: { type: 'commit', sha: '' } }), {
-        status: 200,
-      }),
-    )
-
-    let sha = await getTagSha(context, { tag: 'v4.0.0', owner: 'o', repo: 'r' })
-    expect(sha).toBeNull()
-    expect(context.caches.tagSha.get('o/r#v4.0.0')).toBeNull()
-  })
-
-  it('returns commit SHA directly when ref type is commit', async () => {
-    let context = createClientContext()
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(url => {
-      let input = url as unknown
-      let urlString = typeof input === 'string' ? input : (input as URL).href
-      if (urlString.endsWith('/git/ref/tags/v3.0.0')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ object: { sha: 'directSha', type: 'commit' } }),
-            { status: 200 },
-          ),
-        )
-      }
-      return Promise.reject(new Error('Unexpected URL'))
-    })
-
-    let sha = await getTagSha(context, { tag: 'v3.0.0', owner: 'o', repo: 'r' })
-    expect(sha).toBe('directSha')
-    expect(context.caches.tagSha.get('o/r#v3.0.0')).toBe('directSha')
   })
 })

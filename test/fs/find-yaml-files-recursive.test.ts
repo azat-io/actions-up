@@ -1,273 +1,130 @@
-import type { PathLike, Stats } from 'node:fs'
+import type { PathLike } from 'node:fs'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readdir, lstat } from 'node:fs/promises'
 
+import type { FakeEntry } from '../helpers/create-fake-file-system'
+
+import {
+  fakeUnreadableDirectory,
+  createFakeFileSystem,
+  fakeDirectory,
+  fakeSymlink,
+} from '../helpers/create-fake-file-system'
 import { findYamlFilesRecursive } from '../../core/fs/find-yaml-files-recursive'
 
 vi.mock(import('node:fs/promises'), () => ({
-  readFile: vi.fn(),
   readdir: vi.fn(),
   lstat: vi.fn(),
-  stat: vi.fn(),
 }))
-
-/**
- * The part of `fs.Stats` that the walker reads.
- */
-type EntryStats = Pick<Stats, 'isSymbolicLink' | 'isDirectory' | 'isFile'>
-
-/**
- * `lstat` narrowed to the fields the walker reads.
- */
-let mockedLstat = vi.mocked<(path: PathLike) => Promise<EntryStats>>(lstat)
 
 /**
  * `readdir` narrowed to the overload the walker calls, which lists entry names.
  */
 let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
 
+/**
+ * Serve `readdir` and `lstat` from an in-memory tree for the running test.
+ *
+ * @param entries - Absolute paths mapped to file text or special entries.
+ */
+function installFileSystem(entries: Record<string, FakeEntry | string>): void {
+  let fileSystem = createFakeFileSystem(entries)
+  mockedReaddir.mockImplementation(fileSystem.readdir)
+  vi.mocked(lstat).mockImplementation(fileSystem.lstat)
+}
+
 describe('findYamlFilesRecursive', () => {
   beforeEach(() => {
-    vi.restoreAllMocks()
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
-  it('finds YAML files recursively', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root' || value === '/root/sub') {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
+  it('finds YAML files in the directory and in all its subdirectories', async () => {
+    installFileSystem({
+      '/repo/.github/workflows/deploy/release.yaml': 'on: push\n',
+      '/repo/.github/workflows/build.sh': 'pnpm build\n',
+      '/repo/.github/workflows/ci.yml': 'on: push\n',
+      '/repo/.github/dependabot.yml': 'version: 2\n',
+      '/repo/.github/README.md': '# CI\n',
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        return Promise.resolve(['ci.yml', 'sub', 'readme.md'])
-      }
-      if (value === '/root/sub') {
-        return Promise.resolve(['deploy.yaml', 'script.sh'])
-      }
-      return Promise.resolve([])
-    })
+    let files = await findYamlFilesRecursive('/repo/.github')
 
-    let files = await findYamlFilesRecursive('/root')
-
-    expect(files).toHaveLength(2)
-    expect(files).toContain('/root/ci.yml')
-    expect(files).toContain('/root/sub/deploy.yaml')
+    expect(files.toSorted()).toStrictEqual([
+      '/repo/.github/dependabot.yml',
+      '/repo/.github/workflows/ci.yml',
+      '/repo/.github/workflows/deploy/release.yaml',
+    ])
   })
 
-  it('skips symlinks', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      if (value === '/root/link-dir') {
-        return Promise.resolve({
-          isSymbolicLink: () => true,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      if (value === '/root/link-file.yml') {
-        return Promise.resolve({
-          isSymbolicLink: () => true,
-          isDirectory: () => false,
-          isFile: () => true,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
+  it('returns an empty list when the tree holds no YAML files', async () => {
+    installFileSystem({
+      '/repo/docs/assets': fakeDirectory(),
+      '/repo/docs/guide.md': '# Guide\n',
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        return Promise.resolve(['real.yml', 'link-dir', 'link-file.yml'])
-      }
-      return Promise.resolve([])
-    })
+    let files = await findYamlFilesRecursive('/repo/docs')
 
-    let files = await findYamlFilesRecursive('/root')
-
-    expect(files).toHaveLength(1)
-    expect(files).toContain('/root/real.yml')
+    expect(files).toStrictEqual([])
   })
 
-  it('returns empty array for empty directory', async () => {
-    mockedLstat.mockResolvedValue({
-      isSymbolicLink: () => false,
-      isDirectory: () => true,
-      isFile: () => false,
+  it('skips symbolic links to files and to directories', async () => {
+    installFileSystem({
+      '/repo/.github/linked-workflows': fakeSymlink('/shared/workflows'),
+      '/repo/.github/release.yml': fakeSymlink('/shared/release.yml'),
+      '/shared/workflows/deploy.yml': 'on: push\n',
+      '/repo/.github/ci.yml': 'on: push\n',
+      '/shared/release.yml': 'on: push\n',
     })
 
-    mockedReaddir.mockResolvedValue([])
+    let files = await findYamlFilesRecursive('/repo/.github')
 
-    let files = await findYamlFilesRecursive('/empty')
-
-    expect(files).toHaveLength(0)
+    expect(files).toStrictEqual(['/repo/.github/ci.yml'])
   })
 
-  it('skips non-YAML files', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
-    })
+  it('does not walk the directory when it is itself a symbolic link', async () => {
+    installFileSystem({ '/repo/.github/ci.yml': 'on: push\n' })
+    let linkStats = await createFakeFileSystem({
+      '/repo/.github': fakeSymlink('/shared/.github'),
+    }).lstat('/repo/.github')
+    /**
+     * The fake resolves a symbolic link only in the last path component, so
+     * entries below a linked directory would not be found through it. Only the
+     * first `lstat` call, the one for the walked directory, answers "symbolic
+     * link"; the walk would find `ci.yml` if it went on.
+     */
+    vi.mocked(lstat).mockResolvedValueOnce(linkStats)
 
-    mockedReaddir.mockResolvedValue(['readme.md', 'script.sh', 'config.json'])
+    let files = await findYamlFilesRecursive('/repo/.github')
 
-    let files = await findYamlFilesRecursive('/root')
-
-    expect(files).toHaveLength(0)
+    expect(files).toStrictEqual([])
   })
 
-  it('prevents visiting the same directory twice', async () => {
-    let visitCount = 0
-
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root' || value === '/root/sub') {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
+  it('keeps scanning when a subdirectory cannot be read', async () => {
+    installFileSystem({
+      '/repo/.github/workflows/release.yaml': 'on: push\n',
+      '/repo/.github/private': fakeUnreadableDirectory(),
+      '/repo/.github/workflows/ci.yml': 'on: push\n',
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        visitCount++
-        return Promise.resolve(['test.yml', 'sub'])
-      }
-      if (value === '/root/sub') {
-        return Promise.resolve([])
-      }
-      return Promise.resolve([])
-    })
+    let files = await findYamlFilesRecursive('/repo/.github')
 
-    await findYamlFilesRecursive('/root')
-
-    expect(visitCount).toBe(1)
+    expect(files.toSorted()).toStrictEqual([
+      '/repo/.github/workflows/ci.yml',
+      '/repo/.github/workflows/release.yaml',
+    ])
   })
 
-  it('skips already visited directory via path normalization', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root' || value === '/root/sub') {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
+  describe('defensive branches unreachable through the public API', () => {
+    it('does not walk a directory again when a listing leads back to it', async () => {
+      installFileSystem({ '/repo/.github/workflows/ci.yml': 'on: push\n' })
+      mockedReaddir
+        .mockResolvedValueOnce(['workflows'])
+        .mockResolvedValueOnce(['..', 'ci.yml'])
+
+      let files = await findYamlFilesRecursive('/repo/.github')
+
+      expect(files).toStrictEqual(['/repo/.github/workflows/ci.yml'])
     })
-
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        return Promise.resolve(['sub'])
-      }
-      if (value === '/root/sub') {
-        /**
-         * '..' normalizes to '/root' which is already visited.
-         */
-        return Promise.resolve(['..', 'test.yml'])
-      }
-      return Promise.resolve([])
-    })
-
-    let files = await findYamlFilesRecursive('/root')
-
-    expect(files).toHaveLength(1)
-    expect(files).toContain('/root/sub/test.yml')
-  })
-
-  it('continues scanning when individual entries fail', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      if (value === '/root/forbidden') {
-        return Promise.reject(new Error('EACCES'))
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
-    })
-
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value === '/root') {
-        return Promise.resolve(['good.yml', 'forbidden', 'also-good.yaml'])
-      }
-      return Promise.resolve([])
-    })
-
-    let files = await findYamlFilesRecursive('/root')
-
-    expect(files).toHaveLength(2)
-    expect(files).toContain('/root/good.yml')
-    expect(files).toContain('/root/also-good.yaml')
-  })
-
-  it('skips root directory if it is a symlink', async () => {
-    mockedLstat.mockResolvedValue({
-      isSymbolicLink: () => true,
-      isDirectory: () => true,
-      isFile: () => false,
-    })
-
-    let files = await findYamlFilesRecursive('/symlink-root')
-
-    expect(files).toHaveLength(0)
   })
 })

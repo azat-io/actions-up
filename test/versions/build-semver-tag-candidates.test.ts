@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import type { UpdateMode } from '../../types/update-mode'
+
 import { buildSemverTagCandidates } from '../../core/versions/build-semver-tag-candidates'
 
 describe('buildSemverTagCandidates', () => {
@@ -19,11 +21,16 @@ describe('buildSemverTagCandidates', () => {
     expect(buildSemverTagCandidates('6.2.3', 'major')).toEqual(['6'])
   })
 
-  it('returns empty array when latest is already at preferred granularity', () => {
-    expect(buildSemverTagCandidates('v6.2', 'patch')).toEqual([])
-    expect(buildSemverTagCandidates('v6', 'major')).toEqual([])
-    expect(buildSemverTagCandidates('v6', 'patch')).toEqual([])
-  })
+  it.each<[string, UpdateMode]>([
+    ['v6.2', 'patch'],
+    ['v6', 'major'],
+    ['v6', 'patch'],
+  ])(
+    'returns empty array when %s is at or below the preferred granularity of %s mode',
+    (latest, mode) => {
+      expect(buildSemverTagCandidates(latest, mode)).toEqual([])
+    },
+  )
 
   it('builds a major candidate for two-segment latest outside patch mode', () => {
     expect(buildSemverTagCandidates('v6.2', 'major')).toEqual(['v6'])

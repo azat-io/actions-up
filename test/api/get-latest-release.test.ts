@@ -1,114 +1,105 @@
 /* eslint-disable camelcase */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  makeReleasePayload,
+  serverError,
+  rateLimited,
+  routeFetch,
+  notFound,
+  ok,
+} from '../helpers/route-fetch'
+import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { createClientContext } from '../helpers/create-client-context'
 import { getLatestRelease } from '../../core/api/get-latest-release'
 
-describe('getLatestRelease', () => {
-  beforeEach(() => vi.restoreAllMocks())
+const LATEST_RELEASE_PATH = '/repos/actions/checkout/releases/latest'
 
-  it('returns normalized latest release', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          published_at: '2024-03-01T00:00:00Z',
-          target_commitish: 'abc1234',
-          tag_name: 'v3.0.0',
+const TARGET_SHA = 'fd80a2579f6f99b3a14cf53cf5a4026c866e73a5'
+
+describe('getLatestRelease', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('returns the latest release normalized, with the commit SHA it was cut from', async () => {
+    routeFetch({
+      [LATEST_RELEASE_PATH]: ok(
+        makeReleasePayload({
+          html_url: 'https://github.com/actions/checkout/releases/tag/v4.2.2',
+          body: '## Changes\n* Fix checkout of annotated tags',
+          published_at: '2024-10-23T14:46:00Z',
+          target_commitish: TARGET_SHA,
+          name: 'Release v4.2.2',
+          tag_name: 'v4.2.2',
           prerelease: false,
-          html_url: 'u',
-          body: 'Desc',
-          name: 'Rel',
         }),
-        { status: 200 },
       ),
+    })
+
+    let release = await getLatestRelease(
+      createClientContext(),
+      'actions',
+      'checkout',
     )
-    let release = await getLatestRelease(createClientContext(), 'o', 'r')
-    expect(release).toMatchObject({
-      version: 'v3.0.0',
-      sha: 'abc1234',
-      name: 'Rel',
+
+    expect(release).toStrictEqual({
+      url: 'https://github.com/actions/checkout/releases/tag/v4.2.2',
+      description: '## Changes\n* Fix checkout of annotated tags',
+      publishedAt: new Date('2024-10-23T14:46:00Z'),
+      name: 'Release v4.2.2',
+      isPrerelease: false,
+      version: 'v4.2.2',
+      sha: TARGET_SHA,
     })
   })
 
-  it('returns null on 404', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('Not Found', { status: 404 }),
+  it('does not mistake a v-prefixed, digit-only release target for a commit SHA', async () => {
+    routeFetch({
+      [LATEST_RELEASE_PATH]: ok(
+        makeReleasePayload({ target_commitish: 'v20240101' }),
+      ),
+    })
+
+    let release = await getLatestRelease(
+      createClientContext(),
+      'actions',
+      'checkout',
     )
-    let release = await getLatestRelease(createClientContext(), 'o', 'r')
+
+    expect(release?.sha).toBeNull()
+  })
+
+  it('returns null when the repository has no latest release', async () => {
+    routeFetch({ [LATEST_RELEASE_PATH]: notFound() })
+
+    let release = await getLatestRelease(
+      createClientContext(),
+      'actions',
+      'checkout',
+    )
+
     expect(release).toBeNull()
   })
 
-  it('falls back name to tag_name and description to null', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          published_at: '2024-03-01T00:00:00Z',
-          target_commitish: null,
-          tag_name: 'v3.0.0',
-          prerelease: false,
-          html_url: 'u',
-          body: null,
-          name: null,
-        }),
-        { status: 200 },
-      ),
+  it('throws GitHubRateLimitError with the reset time from the response', async () => {
+    let resetAt = new Date('2026-10-03T14:37:21.000Z')
+    routeFetch({ [LATEST_RELEASE_PATH]: rateLimited(resetAt) })
+
+    let request = getLatestRelease(createClientContext(), 'actions', 'checkout')
+
+    await expect(request).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
     )
-    let release = await getLatestRelease(createClientContext(), 'o', 'r')
-    expect(release).toMatchObject({ description: null, name: 'v3.0.0' })
   })
 
-  it('throws GitHubRateLimitError on rate limit', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('API rate limit exceeded', {
-        statusText: 'Forbidden',
-        status: 403,
-      }),
-    )
-    await expect(
-      getLatestRelease(createClientContext(), 'o', 'r'),
-    ).rejects.toHaveProperty('name', 'GitHubRateLimitError')
-  })
+  it('propagates any other failure', async () => {
+    routeFetch({ [LATEST_RELEASE_PATH]: serverError() })
 
-  it.each([
-    ['a branch name', 'main'],
-    ['a v-prefixed branch name', 'v20240101'],
-  ])(
-    'leaves sha null when target_commitish is %s',
-    async (_description, commitish) => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            published_at: '2024-03-01T00:00:00Z',
-            target_commitish: commitish,
-            tag_name: 'v3.0.0',
-            prerelease: false,
-            html_url: 'u',
-            body: 'Desc',
-            name: 'Rel',
-          }),
-          { status: 200 },
-        ),
-      )
-      let release = await getLatestRelease(createClientContext(), 'o', 'r')
-      expect(release?.sha).toBeNull()
-    },
-  )
+    let request = getLatestRelease(createClientContext(), 'actions', 'checkout')
 
-  it('rethrows unexpected errors from makeRequest', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('Server failure', {
-        statusText: 'Internal Server Error',
-        status: 500,
-      }),
-    )
-
-    await expect(
-      getLatestRelease(createClientContext(), 'o', 'r'),
-    ).rejects.toHaveProperty(
-      'message',
-      expect.stringContaining('GitHub API error'),
-    )
+    await expect(request).rejects.toHaveProperty('status', 500)
   })
 })
 

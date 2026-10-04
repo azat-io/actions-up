@@ -1,7 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PathLike } from 'node:fs'
 
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { writeFile, readFile } from 'node:fs/promises'
+
+import type { FakeFileSystem } from '../../helpers/create-fake-file-system'
 import type { ActionUpdate } from '../../../types/action-update'
+import type { GitHubAction } from '../../../types/github-action'
 
+import { createFakeFileSystem } from '../../helpers/create-fake-file-system'
 import { applyUpdates } from '../../../core/ast/update/apply-updates'
 
 vi.mock(import('node:fs/promises'), () => ({
@@ -9,868 +15,180 @@ vi.mock(import('node:fs/promises'), () => ({
   readFile: vi.fn(),
 }))
 
+/**
+ * Fields of an update to change; the scanned action is merged field by field.
+ */
+interface UpdateOverrides extends Partial<Omit<ActionUpdate, 'action'>> {
+  /**
+   * Fields of the scanned action to change.
+   */
+  action?: Partial<GitHubAction>
+}
+
 describe('applyUpdates', () => {
-  function assertString(value: unknown): asserts value is string {
-    if (typeof value !== 'string') {
-      throw new TypeError('Expected value to be a string')
+  let workflowPath = '/repo/.github/workflows/ci.yml'
+  let checkoutSha = '11bd71901bbe5b1630ceea73d27597364c9af683'
+  let setupNodeSha = '49933ea5288caeca8642d1e84afbd3f7d6820020'
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * Serve files from an in-memory file system through `node:fs/promises`.
+   *
+   * Like the real `readFile`, the text comes back only when an encoding is
+   * requested; otherwise the caller gets the raw bytes.
+   *
+   * @param files - Absolute paths mapped to file text.
+   * @returns File system holding the text the updater writes.
+   */
+  function installFiles(files: Record<string, string>): FakeFileSystem {
+    let fileSystem = createFakeFileSystem(files)
+    vi.mocked(readFile).mockImplementation((path, options) =>
+      fileSystem.readFile(path as PathLike, options),
+    )
+    vi.mocked(writeFile).mockImplementation((path, content) =>
+      fileSystem.writeFile(path as PathLike, content as string),
+    )
+    return fileSystem
+  }
+
+  /**
+   * Line on which `workflowWithStep` puts the step under update, and the line
+   * `createUpdate` records as the one the step was scanned from.
+   */
+  let stepLine = 4
+
+  /**
+   * First line number past the end of a file built by `workflowWithStep`.
+   */
+  let lineAfterStepWorkflow = 7
+
+  /**
+   * Build an update the way the CLI passes it on once the target is resolved:
+   * the `actions/checkout@v3` step scanned on `stepLine`, pinned to v4.2.2.
+   *
+   * @param overrides - Fields to change.
+   * @returns Update entry.
+   */
+  function createUpdate(overrides: UpdateOverrides = {}): ActionUpdate {
+    let { action, ...update } = overrides
+    return {
+      latestVersion: 'v4.2.2',
+      latestSha: checkoutSha,
+      targetRef: checkoutSha,
+      targetRefStyle: 'sha',
+      currentRefType: 'tag',
+      currentVersion: 'v3',
+      publishedAt: null,
+      isBreaking: true,
+      hasUpdate: true,
+      status: 'ok',
+      ...update,
+      action: {
+        name: 'actions/checkout',
+        file: workflowPath,
+        type: 'external',
+        line: stepLine,
+        version: 'v3',
+        ...action,
+      },
     }
   }
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
 
-  it('replaces unquoted uses with SHA and adds tag comment', async () => {
-    let filePath = '/repo/.github/workflows/ci.yml'
-    let original = [
+  /**
+   * Build an update that pins an `actions/setup-node@v3` step to v4.4.0.
+   *
+   * @param line - Line the step was scanned on.
+   * @returns Update entry.
+   */
+  function createSetupNodeUpdate(line: number): ActionUpdate {
+    return createUpdate({
+      action: { name: 'actions/setup-node', line },
+      latestVersion: 'v4.4.0',
+      latestSha: setupNodeSha,
+      targetRef: setupNodeSha,
+    })
+  }
+
+  /**
+   * Build a workflow whose `build` job runs the given step on `stepLine`.
+   *
+   * @param step - Line holding the step under update.
+   * @returns Workflow YAML text.
+   */
+  function workflowWithStep(step: string): string {
+    return [
       'jobs:',
       '  build:',
       '    steps:',
-      '      - uses: actions/checkout@v1',
-      '      - run: echo "hi"',
+      step,
+      '      - run: npm test',
       '',
     ].join('\n')
+  }
 
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
+  it('pins the scanned step to the target SHA and notes the version in a comment', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]: [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3',
+        '      - run: npm test',
+        '',
+      ].join('\n'),
+    })
+
+    await applyUpdates([createUpdate()])
+
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        '      - run: npm test',
+        '',
+      ].join('\n'),
     )
-
-    let sha = 'e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0'
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v1',
-        },
-        latestVersion: 'v4.2.0',
-        currentVersion: 'v1',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-        latestSha: sha,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0 # v4.2.0\n      - run: echo "hi"\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    let updated = content
-    expect(updated).toContain(`- uses: actions/checkout@${sha} # v4.2.0`)
-  })
-
-  it('replaces single-quoted uses preserving quotes', async () => {
-    let filePath = '/repo/.github/workflows/build.yml'
-    let original = ['steps:', `  - uses: 'actions/cache@v3'`, ''].join('\n')
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let sha = 'abc123def4567890abc123def4567890abc123de'
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestVersion: 'v3.1.2',
-        currentVersion: 'v3',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-        latestSha: sha,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      "steps:\n  - uses: 'actions/cache@abc123def4567890abc123def4567890abc123de' # v3.1.2\n",
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    let updated = content
-    expect(updated).toContain(`- uses: 'actions/cache@${sha}' # v3.1.2`)
-  })
-
-  it('preserves comment on next line with CRLF endings', async () => {
-    let filePath = '/repo/.github/workflows/comment-crlf.yml'
-    let original = [
-      'jobs:',
-      '  build:',
-      '    steps:',
-      '      - uses: actions/checkout@v2',
-      '      # keep me',
-      '      - run: echo "done"',
-      '',
-    ].join('\r\n')
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v2',
-        },
-        latestSha: '0123456789abcdef0123456789abcdef01234567',
-        latestVersion: 'v4.2.0',
-        currentVersion: 'v2',
-        publishedAt: null,
-        isBreaking: true,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'jobs:\r\n  build:\r\n    steps:\r\n      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.0\r\n      # keep me\r\n      - run: echo "done"\r\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toContain(
-      '- uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v4.2.0\r\n      # keep me',
-    )
-  })
-
-  it('replaces double-quoted uses and overwrites existing trailing comment', async () => {
-    let filePath = '/repo/.github/workflows/node.yml'
-    let original = [
-      'steps:',
-      `  - uses: "actions/setup-node@v5" # old comment`,
-      '',
-    ].join('\n')
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let sha = 'f1f2f3f4f5f6f7f8f9f0a1a2a3a4a5a6a7a8a9b0'
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/setup-node',
-          type: 'external',
-          file: filePath,
-          version: 'v5',
-        },
-        latestVersion: 'v5.1.0',
-        currentVersion: 'v5',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-        latestSha: sha,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'steps:\n  - uses: "actions/setup-node@f1f2f3f4f5f6f7f8f9f0a1a2a3a4a5a6a7a8a9b0" # v5.1.0\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    let updated = content
-    expect(updated).toContain(`- uses: "actions/setup-node@${sha}" # v5.1.0`)
-    expect(updated).not.toContain('old comment')
-  })
-
-  it('applies multiple updates within the same file', async () => {
-    let filePath = '/repo/.github/workflows/multi.yml'
-    let original = [
-      'jobs:',
-      '  build:',
-      '    steps:',
-      '      - uses: actions/checkout@v2',
-      '      - uses: "actions/setup-node@v4"',
-      '',
-    ].join('\n')
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v2',
-        },
-        latestSha: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-        latestVersion: 'v4.2.0',
-        currentVersion: 'v2',
-        publishedAt: null,
-        isBreaking: true,
-        hasUpdate: true,
-      },
-      {
-        action: {
-          name: 'actions/setup-node',
-          type: 'external',
-          file: filePath,
-          version: 'v4',
-        },
-        latestSha: 'ffffffffffffffffffffffffffffffffffffffff',
-        latestVersion: 'v5.0.1',
-        currentVersion: 'v4',
-        publishedAt: null,
-        isBreaking: true,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee # v4.2.0\n      - uses: "actions/setup-node@ffffffffffffffffffffffffffffffffffffffff" # v5.0.1\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    let updated = content
-    expect(updated).toContain(
-      '- uses: actions/checkout@eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee # v4.2.0',
-    )
-    expect(updated).toContain(
-      '- uses: "actions/setup-node@ffffffffffffffffffffffffffffffffffffffff" # v5.0.1',
-    )
-  })
-
-  it('updates flow-style JSON blocks with quoted uses keys and keeps delimiters', async () => {
-    let filePath = '/repo/.github/workflows/json-block.yml'
-    let original = [
-      '# flow-style steps',
-      'steps:',
-      "  - { 'uses': 'actions/checkout@v4' }",
-      "  - { 'uses': 'actions/setup-node@v4' }",
-      '',
-    ].join('\n')
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let checkoutSha = '1111111111111111111111111111111111111111'
-    let setupSha = '2222222222222222222222222222222222222222'
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v4',
-        },
-        latestVersion: 'v6.0.1',
-        latestSha: checkoutSha,
-        currentVersion: 'v4',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-      {
-        action: {
-          name: 'actions/setup-node',
-          type: 'external',
-          file: filePath,
-          version: 'v4',
-        },
-        latestVersion: 'v5.2.0',
-        currentVersion: 'v4',
-        latestSha: setupSha,
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      "# flow-style steps\nsteps:\n  - { 'uses': 'actions/checkout@1111111111111111111111111111111111111111' } # v6.0.1\n  - { 'uses': 'actions/setup-node@2222222222222222222222222222222222222222' } # v5.2.0\n",
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-
-    expect(content).toContain(
-      `{ 'uses': 'actions/checkout@${checkoutSha}' } # v6.0.1`,
-    )
-    expect(content).toContain(
-      `{ 'uses': 'actions/setup-node@${setupSha}' } # v5.2.0`,
-    )
-  })
-
-  it('does not inject comment when more content follows on the same line', async () => {
-    let filePath = '/repo/.github/workflows/json-inline.yml'
-    let original =
-      "steps: [ { 'uses': 'actions/checkout@v4', 'name': 'Checkout' } ]"
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v4',
-        },
-        latestSha: '3333333333333333333333333333333333333333',
-        latestVersion: 'v6.0.1',
-        currentVersion: 'v4',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-
-    expect(content).toContain(
-      `{ 'uses': 'actions/checkout@3333333333333333333333333333333333333333', 'name': 'Checkout' }`,
-    )
-    expect(content).not.toMatch(/#\s*v6\.0\.1/u)
-  })
-
-  it('updates multiple uses on the same line in flow-style arrays', async () => {
-    let filePath = '/repo/.github/workflows/multi-uses.yml'
-    let original =
-      "steps: [ { 'uses': 'actions/checkout@v4' }, { 'uses': 'actions/setup-node@v4' } ]"
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
-
-    let checkoutSha = '1111111111111111111111111111111111111111'
-    let setupSha = '2222222222222222222222222222222222222222'
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v4',
-        },
-        latestVersion: 'v6.0.1',
-        latestSha: checkoutSha,
-        currentVersion: 'v4',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-      {
-        action: {
-          name: 'actions/setup-node',
-          type: 'external',
-          file: filePath,
-          version: 'v4',
-        },
-        latestVersion: 'v5.2.0',
-        currentVersion: 'v4',
-        latestSha: setupSha,
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-
-    expect(content).toContain(`'actions/checkout@${checkoutSha}'`)
-    expect(content).toContain(`'actions/setup-node@${setupSha}'`)
-  })
-
-  it('handles actions with overlapping version prefixes without duplicating suffix in comment', async () => {
-    let filePath = '/repo/.github/workflows/prefix.yml'
-    let original = [
-      'name: deploy',
-      'on:',
-      '  push:',
-      '',
-      'jobs:',
-      '  build:',
-      '    name: build',
-      '    runs-on: ubuntu-latest',
-      '    steps:',
-      '      - name: checkout',
-      '        uses: actions/checkout@v3',
-      '',
-      '  publish_typescript_sdk:',
-      '    runs-on: ubuntu-latest',
-      '    name: publish typescript sdk',
-      '    steps:',
-      '      - id: checkout',
-      '        name: Checkout',
-      '        uses: actions/checkout@v3.0.2',
-      '',
-    ].join('\n')
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let sha = '08c6903cd8c0fde910a37f88322edcfb5dd907a8'
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestVersion: 'v5.0.0',
-        currentVersion: 'v3',
-        publishedAt: null,
-        isBreaking: true,
-        hasUpdate: true,
-        latestSha: sha,
-      },
-      {
-        action: {
-          name: 'actions/checkout',
-          version: 'v3.0.2',
-          type: 'external',
-          file: filePath,
-        },
-        currentVersion: 'v3.0.2',
-        latestVersion: 'v5.0.0',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-        latestSha: sha,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'name: deploy\non:\n  push:\n\njobs:\n  build:\n    name: build\n    runs-on: ubuntu-latest\n    steps:\n      - name: checkout\n        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0\n\n  publish_typescript_sdk:\n    runs-on: ubuntu-latest\n    name: publish typescript sdk\n    steps:\n      - id: checkout\n        name: Checkout\n        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toContain(`uses: actions/checkout@${sha} # v5.0.0`)
-    expect(content).not.toContain('# v5.0.0.0.2')
-  })
-
-  it('skips updates without latestSha', async () => {
-    let filePath = '/repo/.github/workflows/skip.yml'
-    let original = `uses: actions/checkout@v3\n`
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestVersion: 'v4.2.0',
-        currentVersion: 'v3',
-        isBreaking: false,
-        publishedAt: null,
-        latestSha: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'uses: actions/checkout@v3\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toBe(original)
-  })
-
-  it('handles missing currentVersion by matching bare @ and replacing, leaving original suffix', async () => {
-    let filePath = '/repo/.github/workflows/missing-version.yml'
-    let original = `steps:\n  - uses: actions/cache@v3\n`
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: filePath,
-          version: null,
-        },
-        latestSha: '1234567890abcdef1234567890abcdef12345678',
-        latestVersion: 'v3.1.5',
-        currentVersion: null,
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'steps:\n  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5v3\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toContain(
-      '  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5v3',
-    )
-  })
-
-  it('skips update when action name contains newline and logs error', async () => {
-    let filePath = '/repo/.github/workflows/invalid-name.yml'
-    let original = `steps:\n  - uses: actions/cache@v3\n`
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockImplementation(path =>
-      Promise.resolve(
-        typeof path === 'string' && path === filePath ? original : '',
-      ),
-    )
-
-    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache\nmalformed',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestSha: '1234567890abcdef1234567890abcdef12345678',
-        latestVersion: 'v3.1.5',
-        currentVersion: 'v3',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'steps:\n  - uses: actions/cache@v3\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toBe(original)
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Invalid action name: actions/cache\nmalformed',
-    )
-  })
-
-  it('skips update when file path is missing', async () => {
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue('')
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: undefined,
-          version: 'v3',
-        },
-        latestSha: '1234567890abcdef1234567890abcdef12345678',
-        latestVersion: 'v3.1.5',
-        currentVersion: 'v3',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(readFile).not.toHaveBeenCalled()
-    expect(writeFile).not.toHaveBeenCalled()
-  })
-
-  it('logs error when current version contains newline', async () => {
-    let filePath = '/repo/.github/workflows/invalid-version.yml'
-    let original = `steps:\n  - uses: actions/cache@v3\n`
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
-
-    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          version: 'v3\n',
-          file: filePath,
-        },
-        latestSha: '1234567890abcdef1234567890abcdef12345678',
-        latestVersion: 'v3.1.5',
-        currentVersion: 'v3\n',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
-    expect(consoleSpy).toHaveBeenCalledWith('Invalid version: v3\n')
-  })
-
-  it('logs error when latest SHA has invalid format', async () => {
-    let filePath = '/repo/.github/workflows/invalid-sha.yml'
-    let original = `steps:\n  - uses: actions/cache@v3\n`
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
-
-    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestVersion: 'v3.1.5',
-        latestSha: 'not-a-sha',
-        currentVersion: 'v3',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
-    expect(consoleSpy).toHaveBeenCalledWith('Invalid SHA format: not-a-sha')
-  })
-
-  it('writes preserve-style tag targets without inline version comment', async () => {
-    let filePath = '/repo/.github/workflows/preserve.yml'
-    let original = [
-      'steps:',
-      '  - uses: actions/checkout@v4 # keep this',
-      '',
-    ].join('\n')
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v4',
-        },
-        latestVersion: 'v5.0.0',
-        currentRefType: 'tag',
-        targetRefStyle: 'tag',
-        currentVersion: 'v4',
-        targetRef: 'v5.0.0',
-        publishedAt: null,
-        isBreaking: true,
-        latestSha: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'steps:\n  - uses: actions/checkout@v5.0.0 # keep this\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toContain('- uses: actions/checkout@v5.0.0 # keep this')
-  })
-
-  it('removes old inline version comment when switching to preserve-style tag target', async () => {
-    let filePath = '/repo/.github/workflows/remove-version-comment.yml'
-    let original = ['steps:', '  - uses: actions/cache@v3 # v3.1.2', ''].join(
-      '\n',
-    )
-
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestVersion: 'v3.2.0',
-        currentRefType: 'tag',
-        targetRefStyle: 'tag',
-        currentVersion: 'v3',
-        targetRef: 'v3.2.0',
-        isBreaking: false,
-        publishedAt: null,
-        latestSha: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'steps:\n  - uses: actions/cache@v3.2.0\n',
-      'utf8',
-    )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toContain('- uses: actions/cache@v3.2.0')
-    expect(content).not.toContain('# v3.1.2')
   })
 
   it.each([
     [
-      'a tab before the comment',
-      'steps:\n  - uses: actions/cache@v3\t# v3.1.2\n',
-      'steps:\n  - uses: actions/cache@v3.2.0\n',
+      'a single-quoted reference',
+      "      - uses: 'actions/checkout@v3'",
+      "      - uses: 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' # v4.2.2",
     ],
     [
-      'several spaces before the comment',
-      'steps:\n  - uses: actions/cache@v3   # v3.1.2\n',
-      'steps:\n  - uses: actions/cache@v3.2.0\n',
+      'a double-quoted reference',
+      '      - uses: "actions/checkout@v3"',
+      '      - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" # v4.2.2',
     ],
     [
-      'CRLF line endings',
-      'steps:\r\n  - uses: actions/cache@v3 # v3.1.2\r\n',
-      'steps:\r\n  - uses: actions/cache@v3.2.0\r\n',
+      'a reference with a comment',
+      '      - uses: actions/checkout@v3 # pinned by hand',
+      '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
     ],
     [
-      'a quoted reference',
-      "steps:\n  - uses: 'actions/cache@v3' # v3.1.2\n",
-      "steps:\n  - uses: 'actions/cache@v3.2.0'\n",
-    ],
-    [
-      'a flow mapping',
-      'steps:\n  - { uses: actions/cache@v3 } # v3.1.2\n',
-      'steps:\n  - { uses: actions/cache@v3.2.0 }\n',
+      'a double-quoted reference with a comment',
+      '      - uses: "actions/checkout@v3" # pinned by hand',
+      '      - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" # v4.2.2',
     ],
   ])(
-    'leaves no trailing whitespace after dropping a version comment: %s',
-    async (_description, original, expected) => {
-      let filePath = '/repo/.github/workflows/dropped-comment.yml'
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
+    'pins %s and puts the version comment in place of any other',
+    async (_description, step, expectedStep) => {
+      let fileSystem = installFiles({ [workflowPath]: workflowWithStep(step) })
 
-      await applyUpdates([
-        {
-          action: {
-            name: 'actions/cache',
-            type: 'external',
-            file: filePath,
-            version: 'v3',
-          },
-          latestVersion: 'v3.2.0',
-          currentRefType: 'tag',
-          targetRefStyle: 'tag',
-          currentVersion: 'v3',
-          targetRef: 'v3.2.0',
-          isBreaking: false,
-          publishedAt: null,
-          latestSha: null,
-          hasUpdate: true,
-        },
-      ])
+      await applyUpdates([createUpdate()])
 
-      expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-        filePath,
-        expected,
-        'utf8',
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithStep(expectedStep),
       )
     },
   )
@@ -878,270 +196,591 @@ describe('applyUpdates', () => {
   it.each([
     [
       'a plain reference',
-      '      - uses: &checkout actions/checkout@v4 # v4.1.0',
-      '      - uses: &checkout actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0 # v4.2.0',
+      '      - uses: &checkout actions/checkout@v3 # v3.6.0',
+      '      - uses: &checkout actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
     ],
     [
       'a quoted reference',
-      "      - uses: &checkout 'actions/checkout@v4'",
-      "      - uses: &checkout 'actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0' # v4.2.0",
+      "      - uses: &checkout 'actions/checkout@v3'",
+      "      - uses: &checkout 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' # v4.2.2",
     ],
     [
-      'a flow mapping',
-      '      - { uses: &checkout actions/checkout@v4 }',
-      '      - { uses: &checkout actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0 } # v4.2.0',
+      'a reference in a flow mapping',
+      '      - { uses: &checkout actions/checkout@v3 }',
+      '      - { uses: &checkout actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 } # v4.2.2',
     ],
   ])(
-    'updates a uses value that carries an anchor: %s',
-    async (_description, line, expected) => {
-      let filePath = '/repo/.github/workflows/anchor.yml'
+    'pins %s that carries an anchor and keeps the anchor for its aliases',
+    async (_description, step, expectedStep) => {
       let alias = '      - uses: *checkout'
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(
-        ['jobs:', '  build:', '    steps:', line, alias, ''].join('\n'),
-      )
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          step,
+          alias,
+          '',
+        ].join('\n'),
+      })
 
-      await applyUpdates([
-        {
-          action: {
-            name: 'actions/checkout',
-            type: 'external',
-            file: filePath,
-            version: 'v4',
-            line: 4,
-          },
-          latestSha: 'e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0',
-          latestVersion: 'v4.2.0',
-          currentVersion: 'v4',
-          isBreaking: false,
-          publishedAt: null,
-          hasUpdate: true,
-        },
-      ])
+      await applyUpdates([createUpdate()])
 
-      expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-        filePath,
-        ['jobs:', '  build:', '    steps:', expected, alias, ''].join('\n'),
-        'utf8',
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        ['jobs:', '  build:', '    steps:', expectedStep, alias, ''].join('\n'),
       )
     },
   )
 
-  it('does not duplicate suffix for preserve-style overlapping tag refs', async () => {
-    let filePath = '/repo/.github/workflows/preserve-overlap.yml'
-    let original = [
-      'steps:',
-      '  - uses: actions/checkout@v6.0.2',
-      '  - uses: actions/checkout@v6',
-      '',
-    ].join('\n')
+  it('keeps CRLF line endings and the comment on the next line', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]: [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3',
+        '      # keep me',
+        '      - run: npm test',
+        '',
+      ].join('\r\n'),
+    })
 
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
+    await applyUpdates([createUpdate()])
 
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v6',
-        },
-        latestVersion: 'v6.0.2',
-        currentRefType: 'tag',
-        targetRefStyle: 'tag',
-        currentVersion: 'v6',
-        targetRef: 'v6.0.2',
-        isBreaking: false,
-        publishedAt: null,
-        latestSha: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      'steps:\n  - uses: actions/checkout@v6.0.2\n  - uses: actions/checkout@v6.0.2\n',
-      'utf8',
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        '      # keep me',
+        '      - run: npm test',
+        '',
+      ].join('\r\n'),
     )
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content).toContain('- uses: actions/checkout@v6.0.2')
-    expect(content.match(/actions\/checkout@v6\.0\.2/gu)).toHaveLength(2)
-    expect(content).not.toContain('v6.0.2.0.2')
   })
 
-  it('logs error when target ref contains a newline', async () => {
-    let filePath = '/repo/.github/workflows/invalid-target-ref.yml'
-    let original = `steps:\n  - uses: actions/cache@v3\n`
+  it('applies each update to its own line of the same file', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]: [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3',
+        '      - uses: "actions/setup-node@v3"',
+        '',
+      ].join('\n'),
+    })
 
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
+    await applyUpdates([createUpdate(), createSetupNodeUpdate(5)])
 
-    let consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestVersion: 'v3.2.0',
-        currentRefType: 'tag',
-        targetRef: 'v3.2.0\n',
-        targetRefStyle: 'tag',
-        currentVersion: 'v3',
-        isBreaking: false,
-        publishedAt: null,
-        latestSha: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledWith(filePath, original, 'utf8')
-    expect(consoleSpy).toHaveBeenCalledWith('Invalid target ref: v3.2.0\n')
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        '      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020" # v4.4.0',
+        '',
+      ].join('\n'),
+    )
   })
 
-  it('leaves skipped updates untouched even when a latest SHA is known', async () => {
-    let filePath = '/repo/.github/workflows/skipped.yml'
-    let original = `steps:\n  - uses: actions/cache@v3\n`
+  it('updates flow-style steps with quoted uses keys and keeps their delimiters', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]: [
+        '# flow-style steps',
+        'steps:',
+        "  - { 'uses': 'actions/checkout@v3' }",
+        "  - { 'uses': 'actions/setup-node@v3' }",
+        '',
+      ].join('\n'),
+    })
 
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
+    await applyUpdates([
+      createUpdate({ action: { line: 3 } }),
+      createSetupNodeUpdate(4),
+    ])
 
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-        },
-        latestSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
-        skipReason: 'unsupported-style',
-        latestVersion: 'v4.2.0',
-        currentRefType: 'tag',
-        currentVersion: 'v3',
-        status: 'skipped',
-        isBreaking: false,
-        publishedAt: null,
-        hasUpdate: false,
-        targetRef: null,
-      },
-    ]
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      [
+        '# flow-style steps',
+        'steps:',
+        "  - { 'uses': 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' } # v4.2.2",
+        "  - { 'uses': 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020' } # v4.4.0",
+        '',
+      ].join('\n'),
+    )
+  })
 
-    await applyUpdates(updates)
+  it('adds no version comment when more of the step follows on the same line', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]:
+        "steps: [ { 'uses': 'actions/checkout@v3', 'name': 'Checkout' } ]\n",
+    })
+
+    await applyUpdates([createUpdate({ action: { line: 1 } })])
+
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      "steps: [ { 'uses': 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683', 'name': 'Checkout' } ]\n",
+    )
+  })
+
+  it('writes a file once however many of its references are updated', async () => {
+    installFiles({
+      [workflowPath]: [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3',
+        '      - uses: actions/setup-node@v3',
+        '',
+      ].join('\n'),
+    })
+
+    await applyUpdates([createUpdate(), createSetupNodeUpdate(5)])
 
     expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      original,
+      workflowPath,
+      expect.any(String),
       'utf8',
     )
   })
 
   it('rewrites only the occurrence the update was scanned from', async () => {
-    let filePath = '/repo/.github/workflows/duplicate.yml'
-    let original = [
-      'jobs:',
-      '  build:',
-      '    steps:',
-      '      - uses: actions/checkout@v3',
-      '      - uses: actions/checkout@v3',
-      '',
-    ].join('\n')
+    let fileSystem = installFiles({
+      [workflowPath]: [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3',
+        '      - uses: actions/checkout@v3',
+        '',
+      ].join('\n'),
+    })
 
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
+    await applyUpdates([createUpdate({ action: { line: 5 } })])
 
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/checkout',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-          line: 5,
-        },
-        latestVersion: 'v4.2.0',
-        currentRefType: 'tag',
-        targetRefStyle: 'tag',
-        currentVersion: 'v3',
-        targetRef: 'v4.2.0',
-        isBreaking: false,
-        publishedAt: null,
-        latestSha: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    let [, content] = vi.mocked(writeFile).mock.calls[0]!
-    assertString(content)
-    expect(content.split('\n', 4)[3]).toBe('      - uses: actions/checkout@v3')
-    expect(content.split('\n', 5)[4]).toBe(
-      '      - uses: actions/checkout@v4.2.0',
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3',
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        '',
+      ].join('\n'),
     )
   })
 
-  it('leaves the file untouched when the recorded line does not exist', async () => {
-    let filePath = '/repo/.github/workflows/stale-line.yml'
-    let original = `steps:\n  - uses: actions/cache@v3\n`
+  it('writes the resolved tag rather than the latest SHA the update carries', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
 
-    let { writeFile, readFile } = await import('node:fs/promises')
-    vi.mocked(readFile).mockResolvedValue(original)
+    await applyUpdates([
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v4.2.2' }),
+    ])
 
-    let updates: ActionUpdate[] = [
-      {
-        action: {
-          name: 'actions/cache',
-          type: 'external',
-          file: filePath,
-          version: 'v3',
-          line: 99,
-        },
-        latestVersion: 'v4.2.0',
-        currentRefType: 'tag',
-        targetRefStyle: 'tag',
-        currentVersion: 'v3',
-        targetRef: 'v4.2.0',
-        isBreaking: false,
-        publishedAt: null,
-        latestSha: null,
-        hasUpdate: true,
-      },
-    ]
-
-    await applyUpdates(updates)
-
-    expect(writeFile).toHaveBeenCalledExactlyOnceWith(
-      filePath,
-      original,
-      'utf8',
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      workflowWithStep('      - uses: actions/checkout@v4.2.2'),
     )
+  })
+
+  it('pins to the latest SHA when the update carries no resolved target', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
+
+    await applyUpdates([
+      createUpdate({ targetRefStyle: undefined, targetRef: undefined }),
+    ])
+
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      workflowWithStep(
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+      ),
+    )
+  })
+
+  it.each([
+    [
+      'a note',
+      '      - uses: actions/checkout@v3 # keep this',
+      '      - uses: actions/checkout@v4.2.2 # keep this',
+    ],
+    [
+      'a note that ends with an issue reference',
+      '      - uses: actions/checkout@v3 # workaround for #123',
+      '      - uses: actions/checkout@v4.2.2 # workaround for #123',
+    ],
+    [
+      'a note that starts with a version',
+      '      - uses: actions/checkout@v3 # v3 is the last release for node 16',
+      '      - uses: actions/checkout@v4.2.2 # v3 is the last release for node 16',
+    ],
+    [
+      'a word that starts with a digit',
+      '      - uses: actions/checkout@v3 # 3rd-party',
+      '      - uses: actions/checkout@v4.2.2 # 3rd-party',
+    ],
+  ])(
+    'keeps %s after a tag target',
+    async (_description, step, expectedStep) => {
+      let fileSystem = installFiles({ [workflowPath]: workflowWithStep(step) })
+
+      await applyUpdates([
+        createUpdate({ targetRefStyle: 'tag', targetRef: 'v4.2.2' }),
+      ])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithStep(expectedStep),
+      )
+    },
+  )
+
+  it.each([
+    '# v3.1.2',
+    '#v3',
+    '# 3.1.2',
+    '# V3',
+    '# v3.1.2-beta.1',
+    '# v10.12.0',
+  ])('drops the version comment %s after a tag target', async comment => {
+    let fileSystem = installFiles({
+      [workflowPath]: workflowWithStep(
+        `      - uses: actions/checkout@v3 ${comment}`,
+      ),
+    })
+
+    await applyUpdates([
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v4.2.2' }),
+    ])
+
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      workflowWithStep('      - uses: actions/checkout@v4.2.2'),
+    )
+  })
+
+  it.each([
+    [
+      'a tab',
+      '      - uses: actions/checkout@v3\t# v3.1.2',
+      '      - uses: actions/checkout@v4.2.2',
+    ],
+    [
+      'several spaces',
+      '      - uses: actions/checkout@v3   # v3.1.2',
+      '      - uses: actions/checkout@v4.2.2',
+    ],
+    [
+      'a quoted reference',
+      "      - uses: 'actions/checkout@v3' # v3.1.2",
+      "      - uses: 'actions/checkout@v4.2.2'",
+    ],
+    [
+      'the closing brace of a flow mapping',
+      '      - { uses: actions/checkout@v3 } # v3.1.2',
+      '      - { uses: actions/checkout@v4.2.2 }',
+    ],
+  ])(
+    'drops a version comment that follows %s without leaving trailing whitespace',
+    async (_description, step, expectedStep) => {
+      let fileSystem = installFiles({ [workflowPath]: workflowWithStep(step) })
+
+      await applyUpdates([
+        createUpdate({ targetRefStyle: 'tag', targetRef: 'v4.2.2' }),
+      ])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithStep(expectedStep),
+      )
+    },
+  )
+
+  it('drops a version comment without leaving whitespace before a CRLF line ending', async () => {
+    let fileSystem = installFiles({
+      [workflowPath]: [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v3 # v3.1.2',
+        '      - run: npm test',
+        '',
+      ].join('\r\n'),
+    })
+
+    await applyUpdates([
+      createUpdate({ targetRefStyle: 'tag', targetRef: 'v4.2.2' }),
+    ])
+
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - uses: actions/checkout@v4.2.2',
+        '      - run: npm test',
+        '',
+      ].join('\r\n'),
+    )
+  })
+
+  it.each<[string, UpdateOverrides]>([
+    [
+      'there is neither a target ref nor a SHA',
+      { targetRefStyle: null, latestSha: null, targetRef: null },
+    ],
+    [
+      'the update was skipped although its SHA is known',
+      {
+        skipReason: 'unsupported-style',
+        targetRefStyle: null,
+        status: 'skipped',
+        hasUpdate: false,
+        targetRef: null,
+      },
+    ],
+    [
+      'the recorded line is past the end of the file',
+      { action: { line: lineAfterStepWorkflow } },
+    ],
+  ])('leaves the file unchanged when %s', async (_description, overrides) => {
+    let original = workflowWithStep('      - uses: actions/checkout@v3')
+    let fileSystem = installFiles({ [workflowPath]: original })
+
+    await applyUpdates([createUpdate(overrides)])
+
+    expect(fileSystem.contentOf(workflowPath)).toBe(original)
+  })
+
+  it.each<[string, UpdateOverrides, string]>([
+    [
+      'an action name with a line break',
+      { action: { name: 'actions/checkout\nmalformed' } },
+      'Invalid action name: actions/checkout\nmalformed',
+    ],
+    [
+      'a current version with a line break',
+      { currentVersion: 'v3\n' },
+      'Invalid version: v3\n',
+    ],
+    [
+      'a target ref with a line break',
+      { targetRefStyle: 'tag', targetRef: 'v4.2.2\n' },
+      'Invalid target ref: v4.2.2\n',
+    ],
+    [
+      'a blank target ref',
+      { targetRefStyle: 'tag', targetRef: '  ' },
+      'Invalid target ref:   ',
+    ],
+    [
+      'a SHA target that is not hexadecimal',
+      { targetRef: 'not-a-sha' },
+      'Invalid SHA format: not-a-sha',
+    ],
+    [
+      'a SHA target one character too long',
+      { targetRef: '11bd71901bbe5b1630ceea73d27597364c9af6830' },
+      'Invalid SHA format: 11bd71901bbe5b1630ceea73d27597364c9af6830',
+    ],
+  ])(
+    'leaves the file unchanged and reports %s',
+    async (_description, overrides, expectedMessage) => {
+      let original = workflowWithStep('      - uses: actions/checkout@v3')
+      let fileSystem = installFiles({ [workflowPath]: original })
+      let consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await applyUpdates([createUpdate(overrides)])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(original)
+      expect(consoleError).toHaveBeenCalledExactlyOnceWith(expectedMessage)
+    },
+  )
+
+  it('writes no file for an update that records no file', async () => {
+    installFiles({
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
+
+    await applyUpdates([createUpdate({ action: { file: undefined } })])
+
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  describe('without a usable line', () => {
+    it.each([
+      ['missing', undefined],
+      ['recorded as unknown', 0],
+    ])(
+      'rewrites every reference to the current version when the line is %s',
+      async (_description, line) => {
+        let fileSystem = installFiles({
+          [workflowPath]: [
+            'jobs:',
+            '  build:',
+            '    steps:',
+            '      - uses: actions/checkout@v3',
+            '  test:',
+            '    steps:',
+            '      - uses: actions/checkout@v3',
+            '',
+          ].join('\n'),
+        })
+
+        await applyUpdates([createUpdate({ action: { line } })])
+
+        expect(fileSystem.contentOf(workflowPath)).toBe(
+          [
+            'jobs:',
+            '  build:',
+            '    steps:',
+            '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+            '  test:',
+            '    steps:',
+            '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+            '',
+          ].join('\n'),
+        )
+      },
+    )
+
+    it('leaves a longer version that starts with the current one untouched', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: actions/checkout@v3',
+          '  test:',
+          '    steps:',
+          '      - uses: actions/checkout@v3.0.2',
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([createUpdate({ action: { line: undefined } })])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+          '  test:',
+          '    steps:',
+          '      - uses: actions/checkout@v3.0.2',
+          '',
+        ].join('\n'),
+      )
+    })
+
+    it('leaves a commented-out step untouched', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      # - uses: actions/checkout@v3',
+          '      - uses: actions/checkout@v3',
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([createUpdate({ action: { line: undefined } })])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      # - uses: actions/checkout@v3',
+          '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+          '',
+        ].join('\n'),
+      )
+    })
+
+    it('pins a version and a longer version that starts with it, one update each', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: actions/checkout@v3',
+          '  test:',
+          '    steps:',
+          '      - uses: actions/checkout@v3.0.2',
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([
+        createUpdate({ action: { line: undefined } }),
+        createUpdate({
+          action: { version: 'v3.0.2', line: undefined },
+          currentVersion: 'v3.0.2',
+        }),
+      ])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+          '  test:',
+          '    steps:',
+          '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+          '',
+        ].join('\n'),
+      )
+    })
+
+    it('adds no version comment when the update has no line and more of the step follows', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'steps:',
+          '  - { uses: actions/checkout@v3, name: Checkout }',
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([createUpdate({ action: { line: undefined } })])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'steps:',
+          '  - { uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683, name: Checkout }',
+          '',
+        ].join('\n'),
+      )
+    })
   })
 
   describe('runs-on', () => {
-    let filePath = '/repo/.github/workflows/ci.yml'
+    /**
+     * Line on which `workflowWithRunner` puts the runner label, and the line
+     * `createRunnerUpdate` records as the one the label was scanned from.
+     */
+    let runnerLine = 3
 
-    function createRunnerUpdate(
-      overrides: Partial<ActionUpdate> = {},
-    ): ActionUpdate {
+    /**
+     * First line number past the end of a file built by `workflowWithRunner`.
+     */
+    let lineAfterRunnerWorkflow = 5
+
+    /**
+     * Build a runner update the way the CLI derives it from the runner table:
+     * the `ubuntu-22.04` label of the `build` job scanned on `runnerLine`.
+     *
+     * @param overrides - Fields to change.
+     * @returns Update entry.
+     */
+    function createRunnerUpdate(overrides: UpdateOverrides = {}): ActionUpdate {
+      let { action, ...update } = overrides
       return {
-        action: {
-          version: 'ubuntu-22.04',
-          name: 'runner/ubuntu',
-          type: 'runner',
-          file: filePath,
-          job: 'build',
-          line: 3,
-        },
         currentVersion: 'ubuntu-22.04',
         latestVersion: 'ubuntu-24.04',
         targetRef: 'ubuntu-24.04',
@@ -1151,204 +790,258 @@ describe('applyUpdates', () => {
         latestSha: null,
         hasUpdate: true,
         status: 'ok',
-        ...overrides,
+        ...update,
+        action: {
+          version: 'ubuntu-22.04',
+          name: 'runner/ubuntu',
+          file: workflowPath,
+          line: runnerLine,
+          type: 'runner',
+          job: 'build',
+          ...action,
+        },
       }
     }
 
-    async function applyToLine(
-      line: string,
-      overrides: Partial<ActionUpdate> = {},
-    ): Promise<string> {
-      let original = ['jobs:', '  build:', line, '    steps: []', ''].join('\n')
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
-      await applyUpdates([createRunnerUpdate(overrides)])
-      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
-      assertString(written)
-      return written.split('\n', 3)[2]!
+    /**
+     * Build a workflow whose `build` job declares its runner on `runnerLine`.
+     *
+     * @param runner - Line holding the runner label.
+     * @returns Workflow YAML text.
+     */
+    function workflowWithRunner(runner: string): string {
+      return ['jobs:', '  build:', runner, ''].join('\n')
     }
 
-    it('replaces an unquoted label', async () => {
-      await expect(applyToLine('    runs-on: ubuntu-22.04')).resolves.toBe(
+    it.each([
+      [
+        'an unquoted label',
+        '    runs-on: ubuntu-22.04',
         '    runs-on: ubuntu-24.04',
-      )
-    })
-
-    it('preserves single quotes around the label', async () => {
-      await expect(applyToLine("    runs-on: 'ubuntu-22.04'")).resolves.toBe(
+      ],
+      [
+        'a single-quoted label',
+        "    runs-on: 'ubuntu-22.04'",
         "    runs-on: 'ubuntu-24.04'",
-      )
-    })
-
-    it('preserves double quotes around the label', async () => {
-      await expect(applyToLine('    runs-on: "ubuntu-22.04"')).resolves.toBe(
+      ],
+      [
+        'a double-quoted label',
+        '    runs-on: "ubuntu-22.04"',
         '    runs-on: "ubuntu-24.04"',
-      )
-    })
-
-    it('preserves a quoted runs-on key', async () => {
-      await expect(applyToLine('    "runs-on": ubuntu-22.04')).resolves.toBe(
+      ],
+      [
+        'a label under a quoted key',
+        '    "runs-on": ubuntu-22.04',
         '    "runs-on": ubuntu-24.04',
-      )
-    })
-
-    it('keeps a trailing inline comment', async () => {
-      await expect(
-        applyToLine('    runs-on: ubuntu-22.04 # pinned on purpose'),
-      ).resolves.toBe('    runs-on: ubuntu-24.04 # pinned on purpose')
-    })
-
-    it('never appends a version comment of its own', async () => {
-      await expect(
-        applyToLine('    runs-on: ubuntu-22.04'),
-      ).resolves.not.toContain('#')
-    })
-
-    it.each([
-      ['without a comment', '    runs-on: ubuntu-22.04\r'],
-      ['with a comment', '    runs-on: ubuntu-22.04 # pinned\r'],
-      ['with a quoted label', '    runs-on: "ubuntu-22.04"  # pinned\r'],
-    ])('rewrites a CRLF line %s', async (_description, line) => {
-      let original = ['jobs:\r', '  build:\r', line, '\r', ''].join('\n')
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
+      ],
+      [
+        'a label followed by a comment',
+        '    runs-on: ubuntu-22.04 # pinned on purpose',
+        '    runs-on: ubuntu-24.04 # pinned on purpose',
+      ],
+    ])('replaces %s', async (_description, runner, expectedRunner) => {
+      let fileSystem = installFiles({
+        [workflowPath]: workflowWithRunner(runner),
+      })
 
       await applyUpdates([createRunnerUpdate()])
 
-      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
-      assertString(written)
-      expect(written.split('\n', 3)[2]).toBe(
-        line.replace('ubuntu-22.04', 'ubuntu-24.04'),
-      )
-      expect(written).not.toBe(original)
-    })
-
-    it('leaves the line alone when the label does not match', async () => {
-      await expect(applyToLine('    runs-on: ubuntu-24.04')).resolves.toBe(
-        '    runs-on: ubuntu-24.04',
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithRunner(expectedRunner),
       )
     })
 
-    it('leaves a flow mapping alone', async () => {
-      await expect(applyToLine('    { runs-on: ubuntu-22.04 }')).resolves.toBe(
-        '    { runs-on: ubuntu-22.04 }',
-      )
-    })
-
-    it('rewrites only the scanned line when two jobs share a label', async () => {
-      let original = [
-        'jobs:',
-        '  build:',
-        '    runs-on: ubuntu-22.04',
-        '  test:',
-        '    runs-on: ubuntu-22.04',
-        '',
-      ].join('\n')
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
-
-      await applyUpdates([createRunnerUpdate()])
-
-      let written = vi.mocked(writeFile).mock.calls[0]?.[1]
-      assertString(written)
-      expect(written.split('\n', 3)[2]).toBe('    runs-on: ubuntu-24.04')
-      expect(written.split('\n', 5)[4]).toBe('    runs-on: ubuntu-22.04')
-    })
-
-    it.each([
-      ['no target ref', { targetRef: null }],
-      ['no current version', { currentVersion: null }],
-      [
-        'no line number',
-        {
-          action: {
-            type: 'runner' as const,
-            name: 'runner/ubuntu',
-            file: filePath,
-          },
-        },
-      ],
-      [
-        'a non-positive line number',
-        {
-          action: {
-            type: 'runner' as const,
-            name: 'runner/ubuntu',
-            file: filePath,
-            line: 0,
-          },
-        },
-      ],
-    ])('writes the file unchanged with %s', async (_description, overrides) => {
-      let original = [
-        'jobs:',
-        '  build:',
-        '    runs-on: ubuntu-22.04',
-        '',
-      ].join('\n')
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
-
-      await applyUpdates([createRunnerUpdate(overrides)])
-
-      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
-    })
-
-    it('writes the file unchanged when the scanned line is gone', async () => {
-      let original = ['jobs:', '  build:', ''].join('\n')
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
+    it('replaces a label whose version has no minor part', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: workflowWithRunner('    runs-on: windows-2022'),
+      })
 
       await applyUpdates([
         createRunnerUpdate({
-          action: {
-            version: 'ubuntu-22.04',
-            name: 'runner/ubuntu',
-            type: 'runner',
-            file: filePath,
-            line: 99,
-          },
+          action: { version: 'windows-2022', name: 'runner/windows' },
+          currentVersion: 'windows-2022',
+          latestVersion: 'windows-2025',
+          targetRef: 'windows-2025',
         }),
       ])
 
-      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithRunner('    runs-on: windows-2025'),
+      )
     })
 
-    it('refuses to write a label that is not a runner label', async () => {
-      let errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      let original = [
-        'jobs:',
-        '  build:',
+    it.each([
+      [
+        'without a comment',
         '    runs-on: ubuntu-22.04',
-        '',
-      ].join('\n')
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
+        '    runs-on: ubuntu-24.04',
+      ],
+      [
+        'with a comment',
+        '    runs-on: ubuntu-22.04 # pinned',
+        '    runs-on: ubuntu-24.04 # pinned',
+      ],
+      [
+        'with a quoted label',
+        '    runs-on: "ubuntu-22.04"  # pinned',
+        '    runs-on: "ubuntu-24.04"  # pinned',
+      ],
+    ])(
+      'rewrites a CRLF line %s',
+      async (_description, runner, expectedRunner) => {
+        let fileSystem = installFiles({
+          [workflowPath]: ['jobs:', '  build:', runner, ''].join('\r\n'),
+        })
+
+        await applyUpdates([createRunnerUpdate()])
+
+        expect(fileSystem.contentOf(workflowPath)).toBe(
+          ['jobs:', '  build:', expectedRunner, ''].join('\r\n'),
+        )
+      },
+    )
+
+    it('rewrites only the scanned line when two jobs share a label', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  build:',
+          '    runs-on: ubuntu-22.04',
+          '  test:',
+          '    runs-on: ubuntu-22.04',
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([createRunnerUpdate()])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'jobs:',
+          '  build:',
+          '    runs-on: ubuntu-24.04',
+          '  test:',
+          '    runs-on: ubuntu-22.04',
+          '',
+        ].join('\n'),
+      )
+    })
+
+    it.each<[string, string, UpdateOverrides]>([
+      ['the line names another label', '    runs-on: ubuntu-24.04', {}],
+      ['the label sits in a flow mapping', '    { runs-on: ubuntu-22.04 }', {}],
+      [
+        'the update has no target label',
+        '    runs-on: ubuntu-22.04',
+        { targetRef: null },
+      ],
+      [
+        'the update has no current label',
+        '    runs-on: ubuntu-22.04',
+        { currentVersion: null },
+      ],
+      [
+        'the update records no line',
+        '    runs-on: ubuntu-22.04',
+        { action: { line: undefined } },
+      ],
+      [
+        'the update records the unknown line',
+        '    runs-on: ubuntu-22.04',
+        { action: { line: 0 } },
+      ],
+      [
+        'the recorded line is past the end of the file',
+        '    runs-on: ubuntu-22.04',
+        { action: { line: lineAfterRunnerWorkflow } },
+      ],
+      [
+        'the update was skipped',
+        '    runs-on: ubuntu-22.04',
+        { status: 'skipped' },
+      ],
+    ])(
+      'leaves the file unchanged when %s',
+      async (_description, runner, overrides) => {
+        let original = workflowWithRunner(runner)
+        let fileSystem = installFiles({ [workflowPath]: original })
+
+        await applyUpdates([createRunnerUpdate(overrides)])
+
+        expect(fileSystem.contentOf(workflowPath)).toBe(original)
+      },
+    )
+
+    it.each([
+      [
+        'a label followed by an injected line',
+        'ubuntu-24.04\nmalicious: true',
+        'Invalid runner label: ubuntu-24.04\nmalicious: true',
+      ],
+      [
+        'a label preceded by an injected line',
+        'malicious: true\nubuntu-24.04',
+        'Invalid runner label: malicious: true\nubuntu-24.04',
+      ],
+    ])(
+      'refuses to write %s',
+      async (_description, targetLabel, expectedMessage) => {
+        let original = workflowWithRunner('    runs-on: ubuntu-22.04')
+        let fileSystem = installFiles({ [workflowPath]: original })
+        let consoleError = vi
+          .spyOn(console, 'error')
+          .mockImplementation(() => {})
+
+        await applyUpdates([createRunnerUpdate({ targetRef: targetLabel })])
+
+        expect(fileSystem.contentOf(workflowPath)).toBe(original)
+        expect(consoleError).toHaveBeenCalledExactlyOnceWith(expectedMessage)
+      },
+    )
+  })
+
+  describe('current behavior pending owner decision', () => {
+    it('writes one version comment, for the last action only, after a flow-style line holding two updated actions', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]:
+          "steps: [ { 'uses': 'actions/checkout@v3' }, { 'uses': 'actions/setup-node@v3' } ]\n",
+      })
 
       await applyUpdates([
-        createRunnerUpdate({ targetRef: 'ubuntu-24.04\nmalicious: true' }),
+        createUpdate({ action: { line: 1 } }),
+        createSetupNodeUpdate(1),
       ])
 
-      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid runner label'),
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        "steps: [ { 'uses': 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' }, { 'uses': 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020' } ] # v4.4.0\n",
       )
-      errorSpy.mockRestore()
     })
 
-    it('skips a runner entry marked as skipped', async () => {
-      let original = [
-        'jobs:',
-        '  build:',
-        '    runs-on: ubuntu-22.04',
-        '',
-      ].join('\n')
-      let { writeFile, readFile } = await import('node:fs/promises')
-      vi.mocked(readFile).mockResolvedValue(original)
+    it('glues the original version to the comment when the current version is unknown', async () => {
+      let filePath = '/repo/.github/workflows/missing-version.yml'
+      let fileSystem = installFiles({
+        [filePath]: 'steps:\n  - uses: actions/cache@v3\n',
+      })
 
-      await applyUpdates([createRunnerUpdate({ status: 'skipped' })])
+      await applyUpdates([
+        createUpdate({
+          action: {
+            name: 'actions/cache',
+            line: undefined,
+            file: filePath,
+            version: null,
+          },
+          latestSha: '1234567890abcdef1234567890abcdef12345678',
+          targetRefStyle: undefined,
+          latestVersion: 'v3.1.5',
+          targetRef: undefined,
+          currentVersion: null,
+        }),
+      ])
 
-      expect(vi.mocked(writeFile).mock.calls[0]?.[1]).toBe(original)
+      expect(fileSystem.contentOf(filePath)).toBe(
+        'steps:\n  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5v3\n',
+      )
     })
   })
 })

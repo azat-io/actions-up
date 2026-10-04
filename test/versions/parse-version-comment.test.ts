@@ -3,48 +3,55 @@ import { describe, expect, it } from 'vitest'
 import { parseVersionComment } from '../../core/versions/parse-version-comment'
 
 describe('parseVersionComment', () => {
-  it('returns null for nullish and empty comments', () => {
-    expect(parseVersionComment(null)).toBeNull()
-    expect(parseVersionComment(undefined)).toBeNull()
-    expect(parseVersionComment('')).toBeNull()
-    expect(parseVersionComment(' '.repeat(3))).toBeNull()
-    expect(parseVersionComment('#')).toBeNull()
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['an empty comment', ''],
+    ['a whitespace-only comment', ' '.repeat(3)],
+    ['a bare #', '#'],
+  ])('returns null for %s', (_description, comment) => {
+    expect(parseVersionComment(comment)).toBeNull()
   })
 
-  it('reads the tag actions-up writes next to a SHA pin', () => {
-    expect(parseVersionComment(' v4.2.1')).toBe('v4.2.1')
-    expect(parseVersionComment('# v4.2.1')).toBe('v4.2.1')
-    expect(parseVersionComment('#v4.2.1')).toBe('v4.2.1')
-    expect(parseVersionComment('  #  v4.2.1  ')).toBe('v4.2.1')
+  it.each([' v4.2.1', '# v4.2.1', '#v4.2.1', '  #  v4.2.1  ', '## v4.2.1'])(
+    'reads the tag actions-up writes next to a SHA pin from %j',
+    comment => {
+      expect(parseVersionComment(comment)).toBe('v4.2.1')
+    },
+  )
+
+  it.each([
+    ['# actions-v0.1.1', 'actions-v0.1.1'],
+    ['# get-vault-secrets/v2.0.1', 'get-vault-secrets/v2.0.1'],
+    ['# @bedrock-rbx/core@0.2.3', '@bedrock-rbx/core@0.2.3'],
+    ['# codeql-bundle-v2.26.4', 'codeql-bundle-v2.26.4'],
+  ])('reads a prefixed tag family from %j', (comment, expected) => {
+    expect(parseVersionComment(comment)).toBe(expected)
   })
 
-  it('reads a prefixed tag family', () => {
-    expect(parseVersionComment('# actions-v0.1.1')).toBe('actions-v0.1.1')
-    expect(parseVersionComment('# get-vault-secrets/v2.0.1')).toBe(
-      'get-vault-secrets/v2.0.1',
-    )
-    expect(parseVersionComment('# @bedrock-rbx/core@0.2.3')).toBe(
-      '@bedrock-rbx/core@0.2.3',
-    )
-    expect(parseVersionComment('# codeql-bundle-v2.26.4')).toBe(
-      'codeql-bundle-v2.26.4',
-    )
+  it.each([
+    '# pinned to v1.2.3',
+    '# renovate: pin',
+    '# keep me',
+    '# see PR 123',
+  ])('ignores the prose comment %j', comment => {
+    expect(parseVersionComment(comment)).toBeNull()
   })
 
-  it('ignores prose comments', () => {
-    expect(parseVersionComment('# pinned to v1.2.3')).toBeNull()
-    expect(parseVersionComment('# renovate: pin')).toBeNull()
-    expect(parseVersionComment('# keep me')).toBeNull()
-    expect(parseVersionComment('# see PR 123')).toBeNull()
-  })
+  it.each(['# nightly', '# main', '# 1.2.3.4'])(
+    'ignores %j, whose token carries no version',
+    comment => {
+      expect(parseVersionComment(comment)).toBeNull()
+    },
+  )
 
-  it('ignores tokens that carry no version', () => {
-    expect(parseVersionComment('# nightly')).toBeNull()
-    expect(parseVersionComment('# main')).toBeNull()
-    expect(parseVersionComment('# 1.2.3.4')).toBeNull()
-  })
-
-  it('keeps only the leading token', () => {
-    expect(parseVersionComment('# v1.2.3 (breaking)')).toBe('v1.2.3')
-  })
+  it.each([
+    ['# v1.2.3 (breaking)', 'a note', 'v1.2.3'],
+    [' v4.2.1 #123', 'an issue reference', 'v4.2.1'],
+  ])(
+    'keeps only the leading token of %j followed by %s',
+    (comment, _description, expected) => {
+      expect(parseVersionComment(comment)).toBe(expected)
+    },
+  )
 })

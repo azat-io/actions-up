@@ -1,376 +1,275 @@
-import type { PathLike, Stats } from 'node:fs'
+import type { PathLike } from 'node:fs'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile, readdir, lstat } from 'node:fs/promises'
-import { parseDocument } from 'yaml'
 
-import type { ScannedDocument } from './helpers/create-mock-document'
+import type { FakeEntry } from './helpers/create-fake-file-system'
 
-import { createMockDocument } from './helpers/create-mock-document'
+import {
+  createFakeFileSystem,
+  fakeUnreadableFile,
+} from './helpers/create-fake-file-system'
 import { scanRecursive } from '../core/scan-recursive'
 
 vi.mock(import('node:fs/promises'), () => ({
   readFile: vi.fn(),
   readdir: vi.fn(),
   lstat: vi.fn(),
-  stat: vi.fn(),
-}))
-
-vi.mock(import('yaml'), () => ({
-  parseDocument: vi.fn(),
 }))
 
 /**
- * The part of `fs.Stats` that the walker reads.
+ * Serve `readFile`, `readdir` and `lstat` from an in-memory tree for the
+ * running test.
+ *
+ * @param entries - Absolute paths mapped to file text or special entries.
  */
-type EntryStats = Pick<Stats, 'isSymbolicLink' | 'isDirectory' | 'isFile'>
+function installFileSystem(entries: Record<string, FakeEntry | string>): void {
+  let fileSystem = createFakeFileSystem(entries)
+  vi.mocked(readFile).mockImplementation((path, options) =>
+    fileSystem.readFile(path as PathLike, options),
+  )
+  vi.mocked<(path: PathLike) => Promise<string[]>>(readdir).mockImplementation(
+    fileSystem.readdir,
+  )
+  vi.mocked(lstat).mockImplementation(fileSystem.lstat)
+}
 
 /**
- * `lstat` narrowed to the fields the walker reads.
+ * Text of an issue form: it has a `name` like a workflow or an action, but no
+ * `jobs` and no `runs`.
+ *
+ * @returns Issue form YAML text.
  */
-let mockedLstat = vi.mocked<(path: PathLike) => Promise<EntryStats>>(lstat)
+function makeIssueFormText(): string {
+  return [
+    'name: Bug report',
+    'description: Report a problem',
+    'labels: [bug]',
+    'body:',
+    '  - type: textarea',
+    '    attributes:',
+    '      label: What happened?',
+    '',
+  ].join('\n')
+}
 
 /**
- * `readdir` narrowed to the overload the scanner calls, which lists entry
- * names.
+ * Text of a composite action whose only step uses one action, on line 6.
+ *
+ * @param uses - Action reference of the step.
+ * @returns Composite action YAML text.
  */
-let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
+function makeCompositeActionText(uses: string): string {
+  return [
+    'name: Setup',
+    'description: Install the toolchain',
+    'runs:',
+    '  using: composite',
+    '  steps:',
+    `    - uses: ${uses}`,
+    '',
+  ].join('\n')
+}
 
 /**
- * `parseDocument` narrowed to what the scanners read, so tests can supply
- * hand-built ASTs, including malformed ones.
+ * Text of a workflow whose `test` job uses one action, on line 7.
+ *
+ * @param uses - Action reference of the step.
+ * @returns Workflow YAML text.
  */
-let mockedParseDocument =
-  vi.mocked<(source: string) => ScannedDocument>(parseDocument)
+function makeWorkflowText(uses: string): string {
+  return [
+    'name: CI',
+    'on: push',
+    'jobs:',
+    '  test:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    `      - uses: ${uses}`,
+    '',
+  ].join('\n')
+}
 
 describe('scanRecursive', () => {
   beforeEach(() => {
-    vi.restoreAllMocks()
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
-  it('works with absolute root and dot directory', async () => {
-    mockedLstat.mockRejectedValue(new Error('ENOENT'))
-
-    let result = await scanRecursive('/some/absolute/path', '.')
-
-    expect(result.workflows.size).toBe(0)
-    expect(result.compositeActions.size).toBe(0)
-    expect(result.actions).toHaveLength(0)
-  })
-
-  it('scans workflow files recursively', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('.github') || value.endsWith('workflows')) {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
+  it('reports the workflows found at any depth by their path relative to the root', async () => {
+    installFileSystem({
+      '/repo/templates/deploy.yml': makeWorkflowText(
+        'actions/download-artifact@v4',
+      ),
+      '/repo/.github/workflows/ci.yml': makeWorkflowText('actions/checkout@v4'),
+      '/repo/.github/ISSUE_TEMPLATE/bug.yml': makeIssueFormText(),
+      '/repo/README.md': '# Demo\n',
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('.github')) {
-        return Promise.resolve(['workflows'])
-      }
-      if (value.endsWith('workflows')) {
-        return Promise.resolve(['ci.yml'])
-      }
-      return Promise.resolve([])
-    })
+    let result = await scanRecursive('/repo', '.')
 
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(
-      createMockDocument({
-        jobs: {
-          build: {
-            steps: [{ uses: 'actions/checkout@v4' }],
-          },
-        },
-        on: { push: {} },
-      }),
-    )
-
-    let result = await scanRecursive('.', '.github')
-
-    expect(result.workflows.size).toBe(1)
-    expect(result.actions).toHaveLength(1)
-  })
-
-  it('scans composite action files recursively', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('.github') || value.endsWith('actions')) {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
-    })
-
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('.github')) {
-        return Promise.resolve(['actions'])
-      }
-      if (value.endsWith('actions')) {
-        return Promise.resolve(['action.yml'])
-      }
-      return Promise.resolve([])
-    })
-
-    vi.mocked(readFile).mockResolvedValue('action content')
-    mockedParseDocument.mockReturnValue(
-      createMockDocument({
-        runs: {
-          steps: [{ uses: 'actions/setup-node@v5' }],
-          using: 'composite',
-        },
-      }),
-    )
-
-    let result = await scanRecursive('.', '.github')
-
-    expect(result.compositeActions.size).toBe(1)
-    expect(result.compositeActions.has('.github/actions')).toBeTruthy()
-    expect(result.actions).toHaveLength(1)
-  })
-
-  it('uses parent directory name for composite action key', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (
-        value.endsWith('project') ||
-        value.endsWith('actions') ||
-        value.endsWith('build')
-      ) {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
-    })
-
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('project')) {
-        return Promise.resolve(['actions'])
-      }
-      if (value.endsWith('actions')) {
-        return Promise.resolve(['build'])
-      }
-      if (value.endsWith('build')) {
-        return Promise.resolve(['action.yml'])
-      }
-      return Promise.resolve([])
-    })
-
-    vi.mocked(readFile).mockResolvedValue('action content')
-    mockedParseDocument.mockReturnValue(
-      createMockDocument({
-        runs: {
-          steps: [{ uses: 'actions/setup-node@v5' }],
-          using: 'composite',
-        },
-      }),
-    )
-
-    let result = await scanRecursive('.', 'project')
-
-    expect(result.compositeActions.has('project/actions/build')).toBeTruthy()
-    expect(result.compositeActions.get('project/actions/build')).toContain(
-      'action.yml',
+    expect(result.workflows).toStrictEqual(
+      new Map([
+        [
+          'templates/deploy.yml',
+          [
+            {
+              uses: 'actions/download-artifact@v4',
+              ref: 'actions/download-artifact@v4',
+              file: '/repo/templates/deploy.yml',
+              name: 'actions/download-artifact',
+              type: 'external',
+              version: 'v4',
+              job: 'test',
+              line: 7,
+            },
+          ],
+        ],
+        [
+          '.github/workflows/ci.yml',
+          [
+            {
+              file: '/repo/.github/workflows/ci.yml',
+              uses: 'actions/checkout@v4',
+              ref: 'actions/checkout@v4',
+              name: 'actions/checkout',
+              type: 'external',
+              version: 'v4',
+              job: 'test',
+              line: 7,
+            },
+          ],
+        ],
+      ]),
     )
   })
 
-  it('uses file path as key for root-level composite action', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('action.yml')) {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => false,
-          isFile: () => true,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => true,
-        isFile: () => false,
+  it.each([
+    ['/repo/.github/actions/setup/action.yml', '.github/actions/setup'],
+    ['/repo/tools/lint/action.yaml', 'tools/lint'],
+    ['/repo/action.yml', 'action.yml'],
+  ])(
+    'registers the composite action %s under the name %s',
+    async (filePath, expectedName) => {
+      installFileSystem({
+        [filePath]: makeCompositeActionText('actions/setup-node@v4'),
       })
+
+      let result = await scanRecursive('/repo', '.')
+
+      expect(result.compositeActions.keys().toArray()).toStrictEqual([
+        expectedName,
+      ])
+    },
+  )
+
+  it('collects the actions of every workflow and composite action', async () => {
+    installFileSystem({
+      '/repo/.github/actions/setup/action.yml': makeCompositeActionText(
+        'actions/setup-node@v4',
+      ),
+      '/repo/.github/workflows/ci.yml': makeWorkflowText('actions/checkout@v4'),
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (!value.endsWith('.yml')) {
-        return Promise.resolve(['action.yml'])
-      }
-      return Promise.resolve([])
+    let result = await scanRecursive('/repo', '.')
+
+    expect(result.actions).toHaveLength(2)
+    expect(result.actions).toContainEqual({
+      file: '/repo/.github/workflows/ci.yml',
+      uses: 'actions/checkout@v4',
+      ref: 'actions/checkout@v4',
+      name: 'actions/checkout',
+      type: 'external',
+      version: 'v4',
+      job: 'test',
+      line: 7,
     })
-
-    vi.mocked(readFile).mockResolvedValue('action content')
-    mockedParseDocument.mockReturnValue(
-      createMockDocument({
-        runs: {
-          steps: [{ uses: 'actions/setup-node@v5' }],
-          using: 'composite',
-        },
-      }),
-    )
-
-    let result = await scanRecursive('.', '')
-
-    expect(result.compositeActions.size).toBe(1)
-    /**
-     * Root-level action.yml has '.' as parent, so path is used as key.
-     */
-    let [key] = result.compositeActions.keys()
-    expect(key).toBe('action.yml')
+    expect(result.actions).toContainEqual({
+      file: '/repo/.github/actions/setup/action.yml',
+      uses: 'actions/setup-node@v4',
+      ref: 'actions/setup-node@v4',
+      name: 'actions/setup-node',
+      type: 'external',
+      version: 'v4',
+      line: 6,
+    })
   })
 
-  it('skips files that are neither workflows nor actions', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('dir')) {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
+  it('does not classify YAML files that are neither workflows nor composite actions', async () => {
+    installFileSystem({
+      '/repo/.github/dependabot.yml': [
+        'version: 2',
+        'updates:',
+        '  - package-ecosystem: github-actions',
+        '    directory: /',
+        '    schedule:',
+        '      interval: weekly',
+        '',
+      ].join('\n'),
+      '/repo/.github/ISSUE_TEMPLATE/bug.yml': makeIssueFormText(),
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('dir')) {
-        return Promise.resolve(['random.yml'])
-      }
-      return Promise.resolve([])
+    let result = await scanRecursive('/repo', '.')
+
+    expect(result).toStrictEqual({
+      compositeActions: new Map(),
+      workflows: new Map(),
+      actions: [],
     })
-
-    vi.mocked(readFile).mockResolvedValue('random: content')
-    mockedParseDocument.mockReturnValue(
-      createMockDocument({
-        random: 'content',
-      }),
-    )
-
-    let result = await scanRecursive('.', 'dir')
-
-    expect(result.workflows.size).toBe(0)
-    expect(result.compositeActions.size).toBe(0)
-    expect(result.actions).toHaveLength(0)
   })
 
-  it('returns empty result when directory does not exist', async () => {
-    mockedLstat.mockRejectedValue(new Error('ENOENT'))
+  it('skips a YAML file that cannot be read and keeps scanning the others', async () => {
+    installFileSystem({
+      '/repo/.github/workflows/ci.yml': makeWorkflowText('actions/checkout@v4'),
+      '/repo/.github/workflows/broken.yml': fakeUnreadableFile(),
+    })
 
-    let result = await scanRecursive('.', 'nonexistent')
+    let result = await scanRecursive('/repo', '.')
 
-    expect(result.workflows.size).toBe(0)
-    expect(result.compositeActions.size).toBe(0)
-    expect(result.actions).toHaveLength(0)
+    expect(result.workflows.keys().toArray()).toStrictEqual([
+      '.github/workflows/ci.yml',
+    ])
   })
 
-  it('skips unreadable files gracefully', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('dir')) {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => true,
-          isFile: () => false,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => false,
-        isFile: () => true,
-      })
+  it('scans only the given directory and still reports paths relative to the root', async () => {
+    installFileSystem({
+      '/repo/gh-repo-defaults/workflows/ci.yml': makeWorkflowText(
+        'actions/checkout@v4',
+      ),
+      '/repo/.github/workflows/release.yml': makeWorkflowText(
+        'actions/setup-node@v4',
+      ),
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('dir')) {
-        return Promise.resolve(['broken.yml'])
-      }
-      return Promise.resolve([])
-    })
+    let result = await scanRecursive('/repo', 'gh-repo-defaults')
 
-    vi.mocked(readFile).mockRejectedValue(new Error('EACCES'))
-
-    let result = await scanRecursive('.', 'dir')
-
-    expect(result.workflows.size).toBe(0)
-    expect(result.compositeActions.size).toBe(0)
-    expect(result.actions).toHaveLength(0)
+    expect(result.workflows.keys().toArray()).toStrictEqual([
+      'gh-repo-defaults/workflows/ci.yml',
+    ])
   })
 
-  it('scans the current directory when directory is empty string', async () => {
-    mockedLstat.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (value.endsWith('ci.yml')) {
-        return Promise.resolve({
-          isSymbolicLink: () => false,
-          isDirectory: () => false,
-          isFile: () => true,
-        })
-      }
-      return Promise.resolve({
-        isSymbolicLink: () => false,
-        isDirectory: () => true,
-        isFile: () => false,
-      })
+  it('scans the whole root when the directory is empty', async () => {
+    installFileSystem({
+      '/repo/.github/workflows/ci.yml': makeWorkflowText('actions/checkout@v4'),
     })
 
-    mockedReaddir.mockImplementation((path: unknown) => {
-      let value = String(path)
-      if (!value.endsWith('.yml')) {
-        return Promise.resolve(['ci.yml'])
-      }
-      return Promise.resolve([])
+    let result = await scanRecursive('/repo', '')
+
+    expect(result.workflows.keys().toArray()).toStrictEqual([
+      '.github/workflows/ci.yml',
+    ])
+  })
+
+  it('returns an empty result when the directory does not exist', async () => {
+    installFileSystem({
+      '/repo/.github/workflows/ci.yml': makeWorkflowText('actions/checkout@v4'),
     })
 
-    vi.mocked(readFile).mockResolvedValue('workflow content')
-    mockedParseDocument.mockReturnValue(
-      createMockDocument({
-        jobs: {
-          build: {
-            steps: [{ uses: 'actions/checkout@v4' }],
-          },
-        },
-        on: { push: {} },
-      }),
-    )
+    let result = await scanRecursive('/repo', 'missing')
 
-    let result = await scanRecursive('.', '')
-
-    expect(result.workflows.size).toBe(1)
-    expect(result.actions).toHaveLength(1)
+    expect(result).toStrictEqual({
+      compositeActions: new Map(),
+      workflows: new Map(),
+      actions: [],
+    })
   })
 })

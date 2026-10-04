@@ -28,8 +28,11 @@ describe('preserveTagFormat', () => {
     expect(preserveTagFormat('v6', '7.0.2')).toBeNull()
   })
 
-  it('returns null when either ref is not semver-like', () => {
-    expect(preserveTagFormat('stable', 'stable-2')).toBeNull()
+  it.each([
+    ['stable', 'v7.0.2'],
+    ['v6', 'nightly'],
+  ])('returns null when %j or %j carries no version', (current, latest) => {
+    expect(preserveTagFormat(current, latest)).toBeNull()
   })
 
   it('returns null when the latest tag is less specific than the current tag', () => {

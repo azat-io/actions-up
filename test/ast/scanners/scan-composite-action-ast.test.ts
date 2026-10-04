@@ -1,62 +1,109 @@
-import { describe, expect, it, vi } from 'vitest'
+import type { Document } from 'yaml'
+
+import { describe, expect, it } from 'vitest'
 import { parseDocument } from 'yaml'
+
+import type { GitHubAction } from '../../../types/github-action'
 
 import { scanCompositeActionAst } from '../../../core/ast/scanners/scan-composite-action-ast'
 
 describe('scanCompositeActionAst', () => {
-  it('scans actions from composite action AST (runs -> steps)', () => {
-    let content = `${[
-      'name: My Action',
+  let filePath = '.github/actions/setup/action.yml'
+
+  /**
+   * Parse an action file and scan it.
+   *
+   * @param lines - Lines of the action file.
+   * @returns Actions found in the file.
+   */
+  function scan(lines: string[]): GitHubAction[] {
+    let content = lines.join('\n')
+    return scanCompositeActionAst(parseDocument(content), content, filePath)
+  }
+
+  it('reports the action of every step under runs with the line of its uses key', () => {
+    let actions = scan([
+      'name: Setup',
+      'description: Installs the toolchain',
       'runs:',
       '  using: composite',
       '  steps:',
-      '    - uses: actions/setup-node@v5',
-      '    - run: echo "hi"',
-    ].join('\n')}\n`
-    let document_ = parseDocument(content)
-    let actions = scanCompositeActionAst(
-      document_,
-      content,
-      '.github/actions/setup/action.yml',
-    )
-    expect(actions).toHaveLength(1)
-    expect(actions[0]).toMatchObject({
-      name: 'actions/setup-node',
-      type: 'external',
-      version: 'v5',
-    })
-  })
+      '    - uses: actions/setup-node@v4',
+      '    - run: npm ci',
+      '      shell: bash',
+      '    - name: Cache dependencies',
+      '      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3',
+      '',
+    ])
 
-  it('returns empty when runs/steps missing or not composite', () => {
-    let content = `${['name: Bad', 'runs:', '  using: docker', '  image: Dockerfile'].join('\n')}\n`
-    let document_ = parseDocument(content)
-    expect(scanCompositeActionAst(document_, content, 'file.yml')).toEqual([])
-  })
-
-  it('returns empty when steps entry is absent in runs map', () => {
-    let content = `${[
-      'name: Missing steps',
-      'runs:',
-      '  using: composite',
-      '  env:',
-      '    NODE_VERSION: 20',
-    ].join('\n')}\n`
-    let document_ = parseDocument(content)
-    expect(scanCompositeActionAst(document_, content, 'file.yml')).toEqual([])
-  })
-
-  it('returns empty when steps pair lacks AST value despite JSON array', () => {
-    let content = 'runs:\n  using: composite\n  steps: []\n'
-    let document_ = parseDocument(content)
-    document_.setIn(['runs', 'steps'], null)
-    vi.spyOn(document_, 'toJSON').mockReturnValue({
-      runs: {
-        using: 'composite',
-        steps: [],
+    expect(actions).toStrictEqual([
+      {
+        uses: 'actions/setup-node@v4',
+        ref: 'actions/setup-node@v4',
+        name: 'actions/setup-node',
+        type: 'external',
+        file: filePath,
+        version: 'v4',
+        line: 6,
       },
-    })
+      {
+        uses: 'actions/cache@5a3ec84eff668545956fd18022155c47e93e2684',
+        ref: 'actions/cache@5a3ec84eff668545956fd18022155c47e93e2684',
+        version: '5a3ec84eff668545956fd18022155c47e93e2684',
+        name: 'actions/cache',
+        comment: ' v4.2.3',
+        type: 'external',
+        file: filePath,
+        line: 10,
+      },
+    ])
+  })
 
-    expect(scanCompositeActionAst(document_, content, 'file.yml')).toEqual([])
+  it('returns no actions when runs declares no using', () => {
+    let actions = scan([
+      'name: Setup',
+      'runs:',
+      '  steps:',
+      '    - uses: actions/setup-node@v4',
+      '',
+    ])
+
+    expect(actions).toStrictEqual([])
+  })
+
+  it.each([
+    ['an empty file', ['']],
+    [
+      'a document that is a sequence',
+      [
+        '- runs:',
+        '    using: composite',
+        '    steps:',
+        '      - uses: actions/setup-node@v4',
+        '',
+      ],
+    ],
+    [
+      'an action without runs',
+      ['name: Setup', 'description: Installs the toolchain', ''],
+    ],
+    ['runs written as a plain scalar', ['name: Setup', 'runs: composite', '']],
+    [
+      'runs without steps',
+      ['name: Lint', 'runs:', '  using: docker', '  image: Dockerfile', ''],
+    ],
+    [
+      'steps written as a plain scalar',
+      [
+        'name: Setup',
+        'runs:',
+        '  using: composite',
+        '  steps: actions/setup-node@v4',
+        '',
+      ],
+    ],
+  ])('returns no actions for %s', (_description, lines) => {
+    expect(scan(lines)).toStrictEqual([])
   })
 
   it.each([
@@ -103,23 +150,78 @@ describe('scanCompositeActionAst', () => {
     ],
   ])(
     'reports an aliased %s once, where its anchor is written',
-    (_description, lines, line) => {
-      let content = lines.join('\n')
-      let filePath = '.github/actions/setup/action.yml'
-
-      expect(
-        scanCompositeActionAst(parseDocument(content), content, filePath),
-      ).toStrictEqual([
+    (_description, lines, expectedLine) => {
+      expect(scan(lines)).toStrictEqual([
         {
           uses: 'actions/setup-node@v4',
           ref: 'actions/setup-node@v4',
           name: 'actions/setup-node',
+          line: expectedLine,
           type: 'external',
           file: filePath,
           version: 'v4',
-          line,
         },
       ])
     },
   )
+
+  describe('current behavior pending owner decision', () => {
+    it('returns no actions for invalid YAML that repeats runs, reading the first entry from the tree and the last from its JSON', () => {
+      let actions = scan([
+        'name: Setup',
+        'runs:',
+        '  using: composite',
+        'runs:',
+        '  using: composite',
+        '  steps:',
+        '    - uses: actions/setup-node@v4',
+        '',
+      ])
+
+      expect(actions).toStrictEqual([])
+    })
+
+    it('reports the steps of an action whose runs uses docker', () => {
+      let actions = scan([
+        'name: Lint',
+        'runs:',
+        '  using: docker',
+        '  image: Dockerfile',
+        '  steps:',
+        '    - uses: actions/checkout@v4',
+        '',
+      ])
+
+      expect(actions).toStrictEqual([
+        {
+          uses: 'actions/checkout@v4',
+          ref: 'actions/checkout@v4',
+          name: 'actions/checkout',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+          line: 6,
+        },
+      ])
+    })
+  })
+
+  describe('defensive branches unreachable through the public API', () => {
+    it('returns no actions for an action whose root node is not a map', () => {
+      let document: Pick<Document, 'contents' | 'toJSON'> = {
+        toJSON: () => ({
+          runs: {
+            steps: [{ uses: 'actions/setup-node@v4' }],
+            using: 'composite',
+          },
+          name: 'Setup',
+        }),
+        contents: null,
+      }
+
+      expect(
+        scanCompositeActionAst(document as Document, '', filePath),
+      ).toStrictEqual([])
+    })
+  })
 })

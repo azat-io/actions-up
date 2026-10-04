@@ -1,60 +1,76 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import semver from 'semver'
 
 import { getUpdateLevel } from '../../core/versions/get-update-level'
 
 describe('getUpdateLevel', () => {
-  it('returns major for major changes', () => {
-    expect(getUpdateLevel('v1', 'v2')).toBe('major')
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
-  it('returns minor for minor changes', () => {
-    expect(getUpdateLevel('1.2.0', '1.3.0')).toBe('minor')
+  it.each([
+    ['v1', 'v2', 'major'],
+    ['1.2.0', '1.3.0', 'minor'],
+    ['v1.2.3', 'v1.2.4', 'patch'],
+    ['v1.0.0', '1.0.0', 'none'],
+  ])('rates the update from %s to %s as %s', (current, latest, expected) => {
+    expect(getUpdateLevel(current, latest)).toBe(expected)
   })
 
-  it('returns patch for patch changes', () => {
-    expect(getUpdateLevel('v1.2.3', 'v1.2.4')).toBe('patch')
+  it.each([
+    ['1.0.0', '2.0.0-rc.1', 'major'],
+    ['1.0.0', '1.1.0-beta.1', 'minor'],
+    ['1.0.0', '1.0.1-beta.1', 'patch'],
+  ])(
+    'rates the update from %s to the prerelease %s by its release core as %s',
+    (current, latest, expected) => {
+      expect(getUpdateLevel(current, latest)).toBe(expected)
+    },
+  )
+
+  it.each([
+    ['main', 'v1.0.0'],
+    ['v1.0.0', 'main'],
+    [null, '1.0.0'],
+    ['1.0.0', undefined],
+    ['', '1.0.0'],
+  ])('returns unknown when %j or %j carries no version', (current, latest) => {
+    expect(getUpdateLevel(current, latest)).toBe('unknown')
   })
 
-  it('returns none when versions are equal', () => {
-    expect(getUpdateLevel('v1.0.0', '1.0.0')).toBe('none')
-  })
+  describe('defensive branches unreachable through the public API', () => {
+    /**
+     * Both versions are coerced to plain `x.y.z` before the comparison and
+     * equal versions return early, so the real `semver.diff` only ever answers
+     * major, minor or patch here. The stub decides the difference, which makes
+     * the compared versions irrelevant.
+     */
+    it.each([
+      ['premajor', 'major'],
+      ['preminor', 'minor'],
+      ['prepatch', 'patch'],
+    ] as const)('rates a %s difference as %s', (difference, expected) => {
+      vi.spyOn(semver, 'diff').mockReturnValue(difference)
 
-  it('returns unknown when versions are not semver', () => {
-    expect(getUpdateLevel('main', 'v1.0.0')).toBe('unknown')
-  })
+      let result = getUpdateLevel('1.0.0', '1.0.1')
 
-  it('returns unknown when version is missing', () => {
-    expect(getUpdateLevel(null, '1.0.0')).toBe('unknown')
-  })
+      expect(result).toBe(expected)
+    })
 
-  it('returns none when semver diff is null', () => {
-    let diffSpy = vi.spyOn(semver, 'diff').mockReturnValue(null)
-    expect(getUpdateLevel('1.0.0', '1.0.1')).toBe('none')
-    diffSpy.mockRestore()
-  })
+    it('returns none when semver reports no difference between the versions', () => {
+      vi.spyOn(semver, 'diff').mockReturnValue(null)
 
-  it('returns unknown for unsupported diff types', () => {
-    let diffSpy = vi.spyOn(semver, 'diff').mockReturnValue('prerelease')
-    expect(getUpdateLevel('1.0.0', '1.0.1')).toBe('unknown')
-    diffSpy.mockRestore()
-  })
+      let result = getUpdateLevel('1.0.0', '1.0.1')
 
-  it('maps premajor to major', () => {
-    let diffSpy = vi.spyOn(semver, 'diff').mockReturnValue('premajor')
-    expect(getUpdateLevel('1.0.0', '2.0.0-rc.1')).toBe('major')
-    diffSpy.mockRestore()
-  })
+      expect(result).toBe('none')
+    })
 
-  it('maps preminor to minor', () => {
-    let diffSpy = vi.spyOn(semver, 'diff').mockReturnValue('preminor')
-    expect(getUpdateLevel('1.0.0', '1.1.0-beta.1')).toBe('minor')
-    diffSpy.mockRestore()
-  })
+    it('returns unknown for a difference kind it does not rate', () => {
+      vi.spyOn(semver, 'diff').mockReturnValue('prerelease')
 
-  it('maps prepatch to patch', () => {
-    let diffSpy = vi.spyOn(semver, 'diff').mockReturnValue('prepatch')
-    expect(getUpdateLevel('1.0.0', '1.0.1-beta.1')).toBe('patch')
-    diffSpy.mockRestore()
+      let result = getUpdateLevel('1.0.0', '1.0.1')
+
+      expect(result).toBe('unknown')
+    })
   })
 })

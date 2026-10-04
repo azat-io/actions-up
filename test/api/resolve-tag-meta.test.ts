@@ -6,24 +6,30 @@ import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { resolveTagMeta } from '../../core/api/resolve-tag-meta'
 import { createMockClient } from '../helpers/create-mock-client'
 
+const COMMIT_SHA = '4c8af723bc21ec22ec103ee99e8e84914c937128'
+
 describe('resolveTagMeta', () => {
   it('returns the tag date and commit SHA', async () => {
-    let date = new Date('2024-01-01T00:00:00Z')
+    let date = new Date('2024-10-23T14:46:00Z')
     let getTagInfo = vi.fn<GitHubClient['getTagInfo']>().mockResolvedValue({
-      sha: 'abc1234',
-      message: null,
-      tag: 'v1.0.0',
+      message: 'Release v4.2.2',
+      sha: COMMIT_SHA,
+      tag: 'v4.2.2',
       date,
     })
 
     let meta = await resolveTagMeta(createMockClient({ getTagInfo }), {
-      tag: 'v1.0.0',
-      owner: 'o',
-      repo: 'r',
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
     })
 
-    expect(meta).toStrictEqual({ sha: 'abc1234', date })
-    expect(getTagInfo).toHaveBeenCalledWith('o', 'r', 'v1.0.0')
+    expect(meta).toStrictEqual({ sha: COMMIT_SHA, date })
+    expect(getTagInfo).toHaveBeenCalledExactlyOnceWith(
+      'actions',
+      'checkout',
+      'v4.2.2',
+    )
   })
 
   it('returns nulls when the tag is not found', async () => {
@@ -32,9 +38,9 @@ describe('resolveTagMeta', () => {
     })
 
     let meta = await resolveTagMeta(client, {
-      tag: 'v1.0.0',
-      owner: 'o',
-      repo: 'r',
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
     })
 
     expect(meta).toStrictEqual({ date: null, sha: null })
@@ -42,26 +48,30 @@ describe('resolveTagMeta', () => {
 
   it('returns nulls when the lookup fails', async () => {
     let client = createMockClient({
-      getTagInfo: vi.fn().mockRejectedValue(new Error('boom')),
+      getTagInfo: vi.fn().mockRejectedValue(new TypeError('fetch failed')),
     })
 
     let meta = await resolveTagMeta(client, {
-      tag: 'v1.0.0',
-      owner: 'o',
-      repo: 'r',
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
     })
 
     expect(meta).toStrictEqual({ date: null, sha: null })
   })
 
   it('rethrows rate limit errors', async () => {
-    let error = new GitHubRateLimitError(new Date(0))
+    let error = new GitHubRateLimitError(new Date('2026-10-03T14:37:21.000Z'))
     let client = createMockClient({
       getTagInfo: vi.fn().mockRejectedValue(error),
     })
 
-    await expect(
-      resolveTagMeta(client, { tag: 'v1.0.0', owner: 'o', repo: 'r' }),
-    ).rejects.toBe(error)
+    let lookup = resolveTagMeta(client, {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    await expect(lookup).rejects.toBe(error)
   })
 })

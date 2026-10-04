@@ -49,7 +49,8 @@ describe('buildRunsOnPattern', () => {
 })
 
 describe('getLine', () => {
-  let content = ['first', 'second', 'third'].join('\n')
+  let lines = ['first', 'second', 'third']
+  let content = lines.join('\n')
 
   it('returns a 1-based line', () => {
     expect(getLine(content, 1)).toBe('first')
@@ -61,7 +62,9 @@ describe('getLine', () => {
     expect(getLine(content, -1)).toBeNull()
   })
 
-  it('returns null past the end of the content', () => {
-    expect(getLine(content, 99)).toBeNull()
+  it('returns null for the line just after the last one', () => {
+    let lineAfterLast = lines.length + 1
+
+    expect(getLine(content, lineAfterLast)).toBeNull()
   })
 })

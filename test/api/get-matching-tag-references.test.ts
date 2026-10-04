@@ -1,141 +1,169 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  makeReferencePayload,
+  rateLimited,
+  routeFetch,
+  notFound,
+  ok,
+} from '../helpers/route-fetch'
 import { getMatchingTagReferences } from '../../core/api/get-matching-tag-references'
+import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { createClientContext } from '../helpers/create-client-context'
 
+const ACTIONS_FAMILY_PATH =
+  '/repos/actions/checkout/git/matching-refs/tags/actions-'
+
+const CLI_FAMILY_PATH = '/repos/actions/checkout/git/matching-refs/tags/cli-'
+
+const OLDER_SHA = '41d32f03d2117279f74ab0cd07a5bd4a65a71054'
+
+const NEWER_SHA = '9d2d34b8001767372d5eb17b0519c9c06f733624'
+
+const TAG_OBJECT_SHA = '4ef8d745bf4e3c5ca37df501f0e66010fc5923db'
+
 describe('getMatchingTagReferences', () => {
-  beforeEach(() => vi.restoreAllMocks())
-
-  it('maps refs to TagInfo and strips the refs/tags prefix', async () => {
-    let fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          { object: { type: 'commit', sha: 'a' }, ref: 'refs/tags/pkg-v1.0.0' },
-          { object: { type: 'commit', sha: 'b' }, ref: 'refs/tags/pkg-v1.1.0' },
-        ]),
-        { status: 200 },
-      ),
-    )
-
-    let tags = await getMatchingTagReferences(createClientContext(), {
-      prefix: 'pkg-',
-      owner: 'o',
-      repo: 'r',
-    })
-
-    expect(tags).toEqual([
-      { tag: 'pkg-v1.0.0', message: null, date: null, sha: 'a' },
-      { tag: 'pkg-v1.1.0', message: null, date: null, sha: 'b' },
-    ])
-    expect(fetchSpy.mock.calls[0]![0]).toContain(
-      '/repos/o/r/git/matching-refs/tags/pkg-',
-    )
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
-  it('leaves the SHA unresolved for annotated tags', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            object: { sha: 'tag-object', type: 'tag' },
-            ref: 'refs/tags/pkg-v2',
-          },
-        ]),
-        { status: 200 },
-      ),
-    )
-
-    let tags = await getMatchingTagReferences(createClientContext(), {
-      prefix: 'pkg-',
-      owner: 'o',
-      repo: 'r',
+  it('lists the tags matching the prefix, without the refs/tags prefix', async () => {
+    routeFetch({
+      [ACTIONS_FAMILY_PATH]: ok([
+        makeReferencePayload('refs/tags/actions-v0.1.1', {
+          type: 'commit',
+          sha: OLDER_SHA,
+        }),
+        makeReferencePayload('refs/tags/actions-v0.1.2', {
+          type: 'commit',
+          sha: NEWER_SHA,
+        }),
+      ]),
     })
 
-    expect(tags).toEqual([
-      { tag: 'pkg-v2', message: null, date: null, sha: null },
+    let tags = await getMatchingTagReferences(createClientContext(), {
+      prefix: 'actions-',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    expect(tags).toStrictEqual([
+      { tag: 'actions-v0.1.1', sha: OLDER_SHA, message: null, date: null },
+      { tag: 'actions-v0.1.2', sha: NEWER_SHA, message: null, date: null },
     ])
   })
 
-  it('returns an empty array when nothing matches', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify([]), { status: 200 }),
-    )
-
-    await expect(
-      getMatchingTagReferences(createClientContext(), {
-        prefix: 'nope',
-        owner: 'o',
-        repo: 'r',
-      }),
-    ).resolves.toEqual([])
-  })
-
-  it('reuses the cache instead of requesting twice', async () => {
-    let fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            object: { type: 'commit', sha: 'a' },
-            ref: 'refs/tags/pkg-v1.0.0',
-          },
-        ]),
-        { status: 200 },
-      ),
-    )
-    let sharedContext = createClientContext()
-
-    let first = await getMatchingTagReferences(sharedContext, {
-      prefix: 'pkg-',
-      owner: 'o',
-      repo: 'r',
-    })
-    let second = await getMatchingTagReferences(sharedContext, {
-      prefix: 'pkg-',
-      owner: 'o',
-      repo: 'r',
+  it('leaves the SHA unknown for an annotated tag', async () => {
+    routeFetch({
+      [ACTIONS_FAMILY_PATH]: ok([
+        makeReferencePayload('refs/tags/actions-v0.2.0', {
+          sha: TAG_OBJECT_SHA,
+          type: 'tag',
+        }),
+      ]),
     })
 
-    expect(second).toEqual(first)
-    expect(fetchSpy.mock.calls).toHaveLength(1)
+    let tags = await getMatchingTagReferences(createClientContext(), {
+      prefix: 'actions-',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    expect(tags).toStrictEqual([
+      { tag: 'actions-v0.2.0', message: null, date: null, sha: null },
+    ])
   })
 
-  it('caches an empty result for failed lookups', async () => {
-    let fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response('not found', { status: 404 }))
-    let sharedContext = createClientContext()
+  it('returns an empty list when no tag matches', async () => {
+    routeFetch({ [ACTIONS_FAMILY_PATH]: ok([]) })
 
-    await expect(
-      getMatchingTagReferences(sharedContext, {
-        prefix: 'pkg-',
-        owner: 'o',
-        repo: 'r',
-      }),
-    ).resolves.toEqual([])
-    await expect(
-      getMatchingTagReferences(sharedContext, {
-        prefix: 'pkg-',
-        owner: 'o',
-        repo: 'r',
-      }),
-    ).resolves.toEqual([])
-    expect(fetchSpy.mock.calls).toHaveLength(1)
+    let tags = await getMatchingTagReferences(createClientContext(), {
+      prefix: 'actions-',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    expect(tags).toStrictEqual([])
   })
 
-  it('rethrows rate limit failures', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ message: 'API rate limit exceeded' }), {
-        headers: { 'x-ratelimit-remaining': '0' },
-        status: 403,
-      }),
+  it('answers a repeated lookup of a prefix from the cache', async () => {
+    let api = routeFetch({
+      [ACTIONS_FAMILY_PATH]: ok([
+        makeReferencePayload('refs/tags/actions-v0.1.2', {
+          type: 'commit',
+          sha: NEWER_SHA,
+        }),
+      ]),
+    })
+    let context = createClientContext()
+    let parameters = { prefix: 'actions-', owner: 'actions', repo: 'checkout' }
+
+    let first = await getMatchingTagReferences(context, parameters)
+    let second = await getMatchingTagReferences(context, parameters)
+
+    expect(second).toStrictEqual(first)
+    expect(api.paths).toStrictEqual([ACTIONS_FAMILY_PATH])
+  })
+
+  it('keeps the cached tags of different prefixes apart', async () => {
+    let api = routeFetch({
+      [ACTIONS_FAMILY_PATH]: ok([
+        makeReferencePayload('refs/tags/actions-v0.1.2', {
+          type: 'commit',
+          sha: NEWER_SHA,
+        }),
+      ]),
+      [CLI_FAMILY_PATH]: ok([
+        makeReferencePayload('refs/tags/cli-v2.0.0', {
+          type: 'commit',
+          sha: OLDER_SHA,
+        }),
+      ]),
+    })
+    let context = createClientContext()
+
+    let actionsFamily = await getMatchingTagReferences(context, {
+      prefix: 'actions-',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+    let cliFamily = await getMatchingTagReferences(context, {
+      owner: 'actions',
+      repo: 'checkout',
+      prefix: 'cli-',
+    })
+
+    expect([actionsFamily, cliFamily]).toStrictEqual([
+      [{ tag: 'actions-v0.1.2', sha: NEWER_SHA, message: null, date: null }],
+      [{ tag: 'cli-v2.0.0', sha: OLDER_SHA, message: null, date: null }],
+    ])
+    expect(api.paths).toStrictEqual([ACTIONS_FAMILY_PATH, CLI_FAMILY_PATH])
+  })
+
+  it('treats a repository it cannot see as having no matching tags, without asking again', async () => {
+    let api = routeFetch({ [ACTIONS_FAMILY_PATH]: notFound() })
+    let context = createClientContext()
+    let parameters = { prefix: 'actions-', owner: 'actions', repo: 'checkout' }
+
+    let first = await getMatchingTagReferences(context, parameters)
+    let second = await getMatchingTagReferences(context, parameters)
+
+    expect([first, second]).toStrictEqual([[], []])
+    expect(api.paths).toStrictEqual([ACTIONS_FAMILY_PATH])
+  })
+
+  it('throws GitHubRateLimitError with the reset time from the response', async () => {
+    let resetAt = new Date('2026-10-03T14:37:21.000Z')
+    routeFetch({ [ACTIONS_FAMILY_PATH]: rateLimited(resetAt) })
+
+    let request = getMatchingTagReferences(createClientContext(), {
+      prefix: 'actions-',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    await expect(request).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
     )
-
-    await expect(
-      getMatchingTagReferences(createClientContext(), {
-        prefix: 'pkg-',
-        owner: 'o',
-        repo: 'r',
-      }),
-    ).rejects.toMatchObject({ name: 'GitHubRateLimitError' })
   })
 })

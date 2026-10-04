@@ -1,54 +1,47 @@
 import { describe, expect, it } from 'vitest'
-import { join } from 'node:path'
 
 import { anchorDirectoryInputs } from '../../cli/anchor-directory-inputs'
 
 describe('anchorDirectoryInputs', () => {
-  it('returns inputs unchanged when no root is found', () => {
+  it('returns the --dir value unchanged when no root is found', () => {
     expect(
-      anchorDirectoryInputs({ dir: '.github', cwd: '/repo/a', root: null }),
-    ).toBe('.github')
+      anchorDirectoryInputs({ cwd: '/repo/a', dir: '.gitea', root: null }),
+    ).toBe('.gitea')
   })
 
-  it('returns inputs unchanged when the root equals the cwd', () => {
+  it('returns the --dir value unchanged when the root equals the cwd', () => {
     expect(
-      anchorDirectoryInputs({ root: '/repo', cwd: '/repo' }),
-    ).toBeUndefined()
+      anchorDirectoryInputs({ root: '/repo', dir: '.gitea', cwd: '/repo' }),
+    ).toBe('.gitea')
   })
 
-  it('anchors the default .github at the repository root', () => {
-    expect(anchorDirectoryInputs({ cwd: '/repo/a', root: '/repo' })).toEqual([
-      join('/repo', '.github'),
-    ])
+  it.each([
+    { input: 'without --dir', dir: undefined },
+    { input: 'for --dir "."', dir: '.' },
+  ])('anchors the default .github at the repository root $input', ({ dir }) => {
+    expect(
+      anchorDirectoryInputs({ cwd: '/repo/a', root: '/repo', dir }),
+    ).toEqual(['/repo/.github'])
   })
 
   it('anchors a simple relative --dir at the repository root', () => {
     expect(
       anchorDirectoryInputs({ cwd: '/repo/a', dir: '.gitea', root: '/repo' }),
-    ).toEqual([join('/repo', '.gitea')])
+    ).toEqual(['/repo/.gitea'])
   })
 
   it('anchors multiple --dir values at the repository root', () => {
     expect(
       anchorDirectoryInputs({ dir: ['x', 'y'], cwd: '/repo/a', root: '/repo' }),
-    ).toEqual([join('/repo', 'x'), join('/repo', 'y')])
+    ).toEqual(['/repo/x', '/repo/y'])
   })
 
-  it('leaves parent-relative --dir untouched', () => {
+  it.each([
+    { kind: 'a parent-relative', dir: '../x' },
+    { kind: 'an absolute', dir: '/abs' },
+  ])('leaves $kind --dir untouched', ({ dir }) => {
     expect(
-      anchorDirectoryInputs({ cwd: '/repo/a', root: '/repo', dir: '../x' }),
-    ).toEqual(['../x'])
-  })
-
-  it('leaves absolute --dir untouched', () => {
-    expect(
-      anchorDirectoryInputs({ cwd: '/repo/a', root: '/repo', dir: '/abs' }),
-    ).toEqual(['/abs'])
-  })
-
-  it('treats --dir "." as the default .github at the root', () => {
-    expect(
-      anchorDirectoryInputs({ cwd: '/repo/a', root: '/repo', dir: '.' }),
-    ).toEqual([join('/repo', '.github')])
+      anchorDirectoryInputs({ cwd: '/repo/a', root: '/repo', dir }),
+    ).toEqual([dir])
   })
 })

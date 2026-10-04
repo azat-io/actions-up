@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
 import { padString } from '../../core/interactive/pad-string'
-import { stripAnsi } from '../../core/interactive/strip-ansi'
 
 describe('padString', () => {
-  it('pads to the specified minimum length', () => {
-    let result = padString('abc', 5)
-    expect(result).toBe('abc  ')
+  it('pads a string with spaces up to the target length', () => {
+    expect(padString('abc', 5)).toBe('abc  ')
   })
 
-  it('returns original string when already long enough', () => {
-    expect(padString('abcdef', 3)).toBe('abcdef')
-    expect(padString('abcdef', 6)).toBe('abcdef')
+  it.each([
+    { role: 'longer than', length: 3 },
+    { role: 'exactly as long as', length: 6 },
+  ])('returns a string $role the target length unchanged', ({ length }) => {
+    expect(padString('abcdef', length)).toBe('abcdef')
   })
 
-  it('computes length ignoring ANSI and pads accordingly', () => {
+  it('measures a colored string by its visible text and keeps its color codes', () => {
     let colored = `\u{1B}[32mab\u{1B}[0m`
-    let padded = padString(colored, 5)
-    expect(stripAnsi(padded)).toBe('ab   ')
+
+    expect(padString(colored, 5)).toBe(`${colored}   `)
   })
 })

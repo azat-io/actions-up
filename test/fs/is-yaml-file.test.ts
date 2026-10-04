@@ -3,16 +3,21 @@ import { describe, expect, it } from 'vitest'
 import { isYamlFile } from '../../core/fs/is-yaml-file'
 
 describe('isYamlFile', () => {
-  it('should return true for .yml files', () => {
-    expect(isYamlFile('test.yml')).toBeTruthy()
+  it.each([
+    ['ci.yml'],
+    ['action.yaml'],
+    ['/repo/.github/workflows/release.yml'],
+  ])('treats %s as a YAML file', filePath => {
+    expect(isYamlFile(filePath)).toBeTruthy()
   })
 
-  it('should return true for .yaml files', () => {
-    expect(isYamlFile('test.yaml')).toBeTruthy()
-  })
-
-  it('should return false for non-YAML files', () => {
-    expect(isYamlFile('test.txt')).toBeFalsy()
-    expect(isYamlFile('test.json')).toBeFalsy()
+  it.each([
+    ['config.yml.bak'],
+    ['yml'],
+    ['yaml'],
+    ['dependabot.json'],
+    ['/repo/.github/workflows/README.md'],
+  ])('does not treat %s as a YAML file', filePath => {
+    expect(isYamlFile(filePath)).toBeFalsy()
   })
 })

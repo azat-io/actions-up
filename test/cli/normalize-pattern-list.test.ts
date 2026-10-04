@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { normalizePatternList } from '../../cli/normalize-pattern-list'
 
 describe('normalizePatternList', () => {
-  it('returns an empty list when no patterns are given', () => {
-    expect(normalizePatternList(undefined)).toEqual([])
-    expect(normalizePatternList([])).toEqual([])
+  it.each([
+    { input: undefined, given: 'no flag' },
+    { given: 'an empty list', input: [] },
+  ])('returns an empty list for $given', ({ input }) => {
+    expect(normalizePatternList(input)).toEqual([])
   })
 
   it('splits comma-separated values, trims them and drops empty entries', () => {
@@ -15,21 +17,21 @@ describe('normalizePatternList', () => {
   })
 
   it.each([
-    ['a quantifier range', 'actions/setup-node-v{1,3}'],
-    ['a character class', 'my-org/[a,b]-.*'],
-    ['a group', '(my-org,other-org)/.*'],
+    {
+      pattern: 'actions/setup-node-v{1,3}',
+      where: 'inside a quantifier range',
+    },
+    { where: 'inside a character class', pattern: 'my-org/[a,b]-.*' },
+    { pattern: '(my-org,other-org)/.*', where: 'inside a group' },
+    { pattern: String.raw`my-org\,beta`, where: 'that is escaped' },
   ])(
-    'keeps a comma inside %s as part of the pattern',
-    (_construct, pattern) => {
-      expect(normalizePatternList([pattern])).toEqual([pattern])
+    'keeps a comma $where as part of the pattern and splits on the next one',
+    ({ pattern }) => {
+      let result = normalizePatternList([`${pattern},next-org/.*`])
+
+      expect(result).toEqual([pattern, 'next-org/.*'])
     },
   )
-
-  it('does not split on an escaped comma', () => {
-    let pattern = String.raw`my-org\,beta`
-
-    expect(normalizePatternList([pattern])).toEqual([pattern])
-  })
 
   it('splits only on the commas between patterns', () => {
     let result = normalizePatternList(['my-org/.*, actions/setup-node-v{1,3}'])
