@@ -141,6 +141,65 @@ describe('parseTagFamily', () => {
     })
   })
 
+  it.each([
+    [
+      'a prerelease number glued to its label',
+      'v1.2.3-rc1',
+      {
+        version: '1.2.3-rc1',
+        qualifier: '-rc1',
+        specificity: 3,
+        core: '1.2.3',
+        prefix: 'v',
+      },
+    ],
+    [
+      'a glued prerelease of an unprefixed tag',
+      '2.0.0-beta2',
+      {
+        version: '2.0.0-beta2',
+        qualifier: '-beta2',
+        specificity: 3,
+        core: '2.0.0',
+        prefix: '',
+      },
+    ],
+    [
+      'a glued prerelease of a named family',
+      'actions-v1.4.0-alpha10',
+      {
+        version: '1.4.0-alpha10',
+        qualifier: '-alpha10',
+        prefix: 'actions-v',
+        specificity: 3,
+        core: '1.4.0',
+      },
+    ],
+    [
+      'glued build metadata',
+      'v1.2.3+build5',
+      {
+        qualifier: '+build5',
+        version: '1.2.3',
+        specificity: 3,
+        core: '1.2.3',
+        prefix: 'v',
+      },
+    ],
+  ])('keeps %s on the version of %s', (_description, tag, expected) => {
+    expect(parseTagFamily(tag)).toEqual(expected)
+  })
+
+  it.each([
+    ['node20-v1.2.3', 'node20-v'],
+    ['python3.11-v1.2.0', 'python3.11-v'],
+  ])(
+    'keeps the digits of the family name in the prefix of %s',
+    (tag, prefix) => {
+      expect(parseTagFamily(tag)).toMatchObject({ prefix })
+    },
+  )
+
   it('treats calendar versions as an unprefixed family', () => {
     expect(parseTagFamily('2024.10.1')).toMatchObject({
       version: '2024.10.1',

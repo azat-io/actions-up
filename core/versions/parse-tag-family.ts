@@ -5,15 +5,10 @@ import type { TagFamily } from '../../types/tag-family'
 import { isSha } from './is-sha'
 
 /**
- * Splits a tag into the literal text preceding its numeric core, the core
- * itself and an optional semver qualifier.
- *
- * The prefix can never end with a digit or a dot, which is what keeps the
- * boundary between `actions-v` and `0.1.1` unambiguous and rejects four-segment
- * versions such as `1.2.3.4`.
+ * The numeric core of a tag and the optional semver qualifier that ends it.
  */
-const TAG_FAMILY_PATTERN =
-  /^(?<prefix>(?:.*[^\d.])?)(?<core>\d+(?:\.\d+){0,2})(?<qualifier>[+-][\w+\-.]*)?$/u
+const VERSION_PATTERN =
+  /^(?<core>\d+(?:\.\d+){0,2})(?<qualifier>[+-][\w+\-.]*)?$/u
 
 /**
  * Parse a tag name into its family and version parts.
@@ -49,18 +44,52 @@ export function parseTagFamily(
     return null
   }
 
-  let match = TAG_FAMILY_PATTERN.exec(value)
+  /**
+   * A core starts at a digit that follows neither a digit nor a dot, so the
+   * prefix never ends with one; that keeps `actions-v` apart from `0.1.1` and
+   * rejects four-segment versions such as `1.2.3.4`. Several starts can still
+   * leave a valid version: `v1.2.3-rc1` reads as `v` with `1.2.3-rc1` or as
+   * `v1.2.3-rc` with `1`. The reading with the most specific core wins, which
+   * keeps a glued prerelease such as `rc1` on the version while digits in a
+   * family name (`node20-v1.2.3`) stay in the prefix. A tie keeps the longer
+   * prefix.
+   */
+  let family: TagFamily | null = null
+
+  for (let start = 0; start < value.length; start++) {
+    let candidate = readFamilyAt(value, start)
+
+    if (candidate && (!family || candidate.specificity >= family.specificity)) {
+      family = candidate
+    }
+  }
+
+  return family
+}
+
+/**
+ * Read the tag as a prefix ending right before `start` followed by a version.
+ *
+ * @param value - Trimmed tag name.
+ * @param start - Index where the numeric core would begin.
+ * @returns Parsed tag family, or null when no version starts there.
+ */
+function readFamilyAt(value: string, start: number): TagFamily | null {
+  let previous = value[start - 1]
+
+  if (previous !== undefined && /[\d.]/u.test(previous)) {
+    return null
+  }
+
+  let match = VERSION_PATTERN.exec(value.slice(start))
 
   if (!match?.groups) {
     return null
   }
 
   /**
-   * The prefix group always participates in a successful match, matching an
-   * empty string for unprefixed tags, so it never needs a fallback. The
-   * qualifier group is optional as a whole and stays undefined when absent.
+   * The qualifier group is optional as a whole and stays undefined when absent.
    */
-  let prefix = match.groups['prefix']!
   let core = match.groups['core']!
   let qualifier = match.groups['qualifier'] ?? ''
 
@@ -73,10 +102,10 @@ export function parseTagFamily(
   }
 
   return {
+    prefix: value.slice(0, start),
     specificity: segments.length,
     qualifier,
     version,
-    prefix,
     core,
   }
 }
