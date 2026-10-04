@@ -805,7 +805,7 @@ describe('applyUpdates', () => {
 
     expect(writeFile).toHaveBeenCalledExactlyOnceWith(
       filePath,
-      'steps:\n  - uses: actions/cache@v3.2.0 \n',
+      'steps:\n  - uses: actions/cache@v3.2.0\n',
       'utf8',
     )
     let [, content] = vi.mocked(writeFile).mock.calls[0]!
@@ -813,6 +813,67 @@ describe('applyUpdates', () => {
     expect(content).toContain('- uses: actions/cache@v3.2.0')
     expect(content).not.toContain('# v3.1.2')
   })
+
+  it.each([
+    [
+      'a tab before the comment',
+      'steps:\n  - uses: actions/cache@v3\t# v3.1.2\n',
+      'steps:\n  - uses: actions/cache@v3.2.0\n',
+    ],
+    [
+      'several spaces before the comment',
+      'steps:\n  - uses: actions/cache@v3   # v3.1.2\n',
+      'steps:\n  - uses: actions/cache@v3.2.0\n',
+    ],
+    [
+      'CRLF line endings',
+      'steps:\r\n  - uses: actions/cache@v3 # v3.1.2\r\n',
+      'steps:\r\n  - uses: actions/cache@v3.2.0\r\n',
+    ],
+    [
+      'a quoted reference',
+      "steps:\n  - uses: 'actions/cache@v3' # v3.1.2\n",
+      "steps:\n  - uses: 'actions/cache@v3.2.0'\n",
+    ],
+    [
+      'a flow mapping',
+      'steps:\n  - { uses: actions/cache@v3 } # v3.1.2\n',
+      'steps:\n  - { uses: actions/cache@v3.2.0 }\n',
+    ],
+  ])(
+    'leaves no trailing whitespace after dropping a version comment: %s',
+    async (_description, original, expected) => {
+      let filePath = '/repo/.github/workflows/dropped-comment.yml'
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(original)
+
+      await applyUpdates([
+        {
+          action: {
+            name: 'actions/cache',
+            type: 'external',
+            file: filePath,
+            version: 'v3',
+          },
+          latestVersion: 'v3.2.0',
+          currentRefType: 'tag',
+          targetRefStyle: 'tag',
+          currentVersion: 'v3',
+          targetRef: 'v3.2.0',
+          isBreaking: false,
+          publishedAt: null,
+          latestSha: null,
+          hasUpdate: true,
+        },
+      ])
+
+      expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+        filePath,
+        expected,
+        'utf8',
+      )
+    },
+  )
 
   it('does not duplicate suffix for preserve-style overlapping tag refs', async () => {
     let filePath = '/repo/.github/workflows/preserve-overlap.yml'

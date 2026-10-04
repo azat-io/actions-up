@@ -232,8 +232,15 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
               comment = existingComment
             }
 
+            /**
+             * The whitespace that separated a dropped comment from the ref
+             * would otherwise be left dangling at the end of the line.
+             */
+            let after =
+              !comment && groups.comment ? groups.after.trimEnd() : groups.after
+
             let action = `${groups.prefix}${groups.quote}${groups.name}`
-            let version = `${targetReference}${groups.quote}${groups.after}${comment}`
+            let version = `${targetReference}${groups.quote}${after}${comment}`
 
             return `${action}@${version}`
           },
