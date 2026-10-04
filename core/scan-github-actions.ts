@@ -414,11 +414,13 @@ async function getCurrentRepoSlug(root: string): Promise<string | null> {
     }
 
     /**
-     * Extract owner/repo from common GitHub URL forms.
+     * Extract owner/repo from common GitHub URL forms, such as
+     * `https://github.com/owner/repo.git` or `git@github.com:owner/repo`.
+     * Repository names may contain dots (`my.repo`), so only a trailing `.git`
+     * and a trailing slash are left out of the name.
      */
-    // https://github.com/owner/repo(.git)?
     let httpsMatch = url.match(
-      /github\.com[/:](?<owner>[^/]+)\/(?<repo>[^./]+)(?:\.git)?$/u,
+      /github\.com[/:](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u,
     )
     if (httpsMatch?.groups) {
       return `${httpsMatch.groups['owner']}/${httpsMatch.groups['repo']}`

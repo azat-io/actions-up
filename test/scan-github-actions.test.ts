@@ -890,6 +890,74 @@ describe('scanGitHubActions', () => {
     delete process.env['GITHUB_REPOSITORY']
   })
 
+  it.each([
+    ['an https remote', 'https://github.com/acme/my.repo.git'],
+    ['an ssh remote', 'git@github.com:acme/my.repo.git'],
+    ['a remote without the .git suffix', 'https://github.com/acme/my.repo'],
+    ['a remote with a trailing slash', 'https://github.com/acme/my.repo/'],
+  ])(
+    'follows same-repo composite actions of a repository whose name has a dot, read from %s',
+    async (_form, url) => {
+      vi.stubEnv('GITHUB_REPOSITORY', '')
+
+      vi.mocked(stat).mockImplementation((path: unknown) => {
+        let currentPath = String(path)
+        if (currentPath.endsWith('.github/workflows')) {
+          return Promise.resolve({ isDirectory: () => true } as Stats)
+        }
+        if (currentPath.endsWith('/repo/tools/action.yml')) {
+          return Promise.resolve({
+            isDirectory: () => false,
+            isFile: () => true,
+          } as Stats)
+        }
+        return Promise.reject(new Error('ENOENT'))
+      })
+      mockedReaddir.mockImplementation((path: unknown) =>
+        Promise.resolve(
+          String(path).endsWith('.github/workflows') ? ['ci.yml'] : [],
+        ),
+      )
+      vi.mocked(readFile).mockImplementation((path: unknown) => {
+        let currentPath = String(path)
+        if (currentPath.endsWith('/repo/.git/config')) {
+          return Promise.resolve(`[remote "origin"]\n\turl = ${url}\n`)
+        }
+        if (currentPath.endsWith('ci.yml')) {
+          return Promise.resolve('workflow content')
+        }
+        if (currentPath.endsWith('/repo/tools/action.yml')) {
+          return Promise.resolve('action content')
+        }
+        return Promise.reject(new Error('ENOENT'))
+      })
+      mockedParseDocument.mockImplementation((content: string) =>
+        createMockDocument(
+          content === 'workflow content' ?
+            {
+              jobs: { build: { steps: [{ uses: 'acme/my.repo/tools@v1' }] } },
+            }
+          : {
+              runs: {
+                steps: [{ uses: 'actions/setup-node@v5' }],
+                using: 'composite',
+              },
+            },
+        ),
+      )
+
+      let result = await scanGitHubActions('/repo')
+
+      expect(result.actions.map(action => action.name)).toEqual([
+        'acme/my.repo/tools',
+        'actions/setup-node',
+      ])
+
+      /* Cspell:disable-next-line */
+      vi.unstubAllEnvs()
+    },
+  )
+
   it('parses repo slug from .git/config when env is absent', async () => {
     delete process.env['GITHUB_REPOSITORY']
 
