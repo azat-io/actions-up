@@ -400,13 +400,16 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
     let decisions = await Promise.all(
       outdated.map(async update => {
-        let effectiveCurrentVersion = update.currentVersion
-        if (isSha(update.currentVersion)) {
-          let inline = parseVersionComment(update.action.comment)
-          if (inline) {
-            effectiveCurrentVersion = inline
-          }
-        }
+        /**
+         * A commit SHA names no version, so a SHA pin is measured from its
+         * version comment. Without one the update level is unknown and the
+         * minor and patch modes hold the pin back, rather than reading a
+         * version out of the digits of the hash.
+         */
+        let effectiveCurrentVersion =
+          isSha(update.currentVersion) ?
+            parseVersionComment(update.action.comment)
+          : update.currentVersion
 
         let level = getUpdateLevel(
           effectiveCurrentVersion,

@@ -1417,6 +1417,42 @@ describe('run', () => {
     )
   })
 
+  it.each([
+    ['minor', 'v4.2.2'],
+    ['patch', 'v4.0.1'],
+  ])(
+    'holds back a sha pin without a version comment in %s mode, even when its hash starts with digits that read like a compatible version',
+    async (mode, latestVersion) => {
+      process.argv = ['node', 'actions-up', '--mode', mode, '--yes']
+      let { action } = createUpdate()
+      let update = createUpdate({
+        currentVersion: '4f1a2b3c4d5e6f708192a3b4c5d6e7f809a1b2c3',
+        isBreaking: false,
+        latestVersion,
+        action,
+      })
+      vi.mocked(scanGitHubActions).mockResolvedValue(createScanResult([action]))
+      vi.mocked(checkUpdates).mockResolvedValue([update])
+      vi.mocked(getCompatibleUpdate).mockResolvedValue({
+        reason: 'no-candidate',
+        update: null,
+      })
+      vi.mocked(resolveTargetReference).mockResolvedValue({
+        ...update,
+        targetRef: 'a'.repeat(40),
+        targetRefStyle: 'sha',
+      })
+
+      run()
+
+      await vi.waitFor(() => {
+        expect(printModeWarning).toHaveBeenCalledExactlyOnceWith([update], mode)
+      })
+
+      expect(applyUpdates).not.toHaveBeenCalled()
+    },
+  )
+
   it('keeps a sha pin as is when its comment records no version', async () => {
     process.argv = ['node', 'actions-up', '--mode', 'minor']
     let action = { ...createUpdate().action, comment: ' renovate: pin' }
@@ -1437,7 +1473,7 @@ describe('run', () => {
 
     expect(getCompatibleUpdate).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ currentVersion: 'e'.repeat(40) }),
+      expect.objectContaining({ currentVersion: null }),
     )
   })
 
