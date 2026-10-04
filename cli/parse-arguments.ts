@@ -165,7 +165,11 @@ export function parseArguments(
     let rawMinAge = values['min-age']
     let minAge = rawMinAge === undefined ? 1 : Number(rawMinAge)
 
-    if (!Number.isFinite(minAge) || minAge < 0) {
+    /**
+     * `Number('')` is 0, so an empty value would silently switch the cool-down
+     * off instead of being reported.
+     */
+    if (rawMinAge?.trim() === '' || !Number.isFinite(minAge) || minAge < 0) {
       return {
         message: `Invalid --min-age "${rawMinAge}". Expected a non-negative number.`,
         kind: 'error',

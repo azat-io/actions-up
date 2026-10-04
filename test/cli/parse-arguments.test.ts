@@ -93,6 +93,18 @@ describe('parseArguments', () => {
     })
   })
 
+  it.each([
+    ['an empty', ['--min-age=']],
+    ['a blank', ['--min-age', '  ']],
+  ])(
+    'rejects %s --min-age instead of disabling the cool-down',
+    (_description, argv) => {
+      let result = parseArguments(argv, '1.0.0')
+
+      expect(result.kind).toBe('error')
+    },
+  )
+
   it('rejects a non-finite --min-age', () => {
     let result = parseArguments(['--min-age', 'Infinity'], '1.0.0')
 
