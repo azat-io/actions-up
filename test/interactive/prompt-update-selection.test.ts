@@ -1,6 +1,8 @@
+import type { EventEmitter } from 'node:events'
 import type { MockInstance } from 'vitest'
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { PassThrough } from 'node:stream'
 import enquirer from 'enquirer'
 import path from 'node:path'
 
@@ -21,7 +23,6 @@ interface PromptOptionsForTest {
   j?(): Promise<string[]>
   k?(): Promise<string[]>
   type: 'multiselect'
-  cancel?(): null
   message: string
   name: string
 }
@@ -85,6 +86,13 @@ let nextSelected: string[] = []
 let capturedOptions: PromptOptionsForTest | undefined
 let formattedSubmitOutput: undefined | string
 let promptError: Error | null = null
+
+/**
+ * Enquirer's real `prompt`, kept before the spy below replaces it. Besides
+ * answering, it re-emits the events of the prompts it runs.
+ */
+let realPrompt = enquirer.prompt as Pick<EventEmitter, 'once'> &
+  typeof enquirer.prompt
 
 vi.spyOn(enquirer, 'prompt')
 
@@ -417,7 +425,7 @@ describe('promptUpdateSelection', () => {
     warnSpy.mockRestore()
   })
 
-  it('executes prompt option callbacks (indicator/cancel/j/k)', async () => {
+  it('executes prompt option callbacks (indicator/j/k)', async () => {
     let updates: ActionUpdate[] = [
       {
         action: {
@@ -443,9 +451,6 @@ describe('promptUpdateSelection', () => {
     expect(typeof capturedOptions?.j).toBe('function')
     expect(typeof capturedOptions?.k).toBe('function')
     expect(typeof capturedOptions?.format).toBe('function')
-    expect(typeof capturedOptions?.cancel).toBe('function')
-
-    expect(capturedOptions?.cancel?.()).toBeNull()
   })
 
   it('formats submitted output as readable action count for group selections', async () => {
@@ -1079,5 +1084,113 @@ describe('promptUpdateSelection', () => {
     expect(selected).toHaveLength(1)
     expect(capturedOptions).toBeDefined()
     expect(getFirstRenderedRowMessage(capturedOptions!)).toContain('5.0.0')
+  })
+
+  describe('in a terminal', () => {
+    /**
+     * Answer the next selection with enquirer's real prompt in a fake terminal,
+     * typing the given keys once the prompt is shown.
+     *
+     * @param keys - Raw key sequences, such as `\r` for Enter.
+     */
+    function typeIntoPrompt(...keys: string[]): void {
+      let stdin = Object.assign(new PassThrough(), {
+        setRawMode: () => {},
+        isRaw: false,
+        isTTY: true,
+      })
+      let stdout = new PassThrough()
+      stdout.resume()
+
+      realPrompt.once('prompt', (prompt: EventEmitter) => {
+        prompt.once('run', () => {
+          for (let key of keys) {
+            stdin.write(key)
+          }
+        })
+      })
+      mockedPrompt.mockImplementationOnce(options =>
+        realPrompt<Record<string, string[]>>({
+          ...options,
+          stdout,
+          stdin,
+        } as never),
+      )
+    }
+
+    /**
+     * Create an outdated action update for the terminal tests.
+     *
+     * @param overrides - Fields that differ from a non-breaking update with a
+     *   resolved commit SHA.
+     * @returns Fresh action update.
+     */
+    function makeUpdate(overrides: Partial<ActionUpdate> = {}): ActionUpdate {
+      return {
+        action: {
+          file: '.github/workflows/ci.yml',
+          name: 'actions/checkout',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: 'b4ffde65f46336ab88eb53be808477a3936bae11',
+        latestVersion: 'v4.2.2',
+        currentVersion: 'v4',
+        isBreaking: false,
+        publishedAt: null,
+        hasUpdate: true,
+        ...overrides,
+      }
+    }
+
+    it('submits the updates that can be applied and are not breaking when Enter is pressed right away', async () => {
+      let nonBreaking = makeUpdate()
+      let breaking = makeUpdate({
+        action: {
+          file: '.github/workflows/ci.yml',
+          name: 'actions/setup-node',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: '49933ea5288caeca8642d1e84afbd3f7d6820020',
+        latestVersion: 'v5.0.0',
+        isBreaking: true,
+      })
+      let withoutTarget = makeUpdate({
+        action: {
+          file: '.github/workflows/ci.yml',
+          name: 'actions/cache',
+          type: 'external',
+          version: 'v4',
+        },
+        latestSha: null,
+      })
+      typeIntoPrompt('\r')
+
+      let selected = await promptUpdateSelection([
+        breaking,
+        nonBreaking,
+        withoutTarget,
+      ])
+
+      expect(selected).toStrictEqual([nonBreaking])
+    })
+
+    it.each([
+      ['Ctrl-C', '\u{3}'],
+      ['Esc', '\u{1B}'],
+    ])(
+      'closes the prompt and returns null when cancelled with %s',
+      async (_keyName, key) => {
+        typeIntoPrompt(key)
+
+        let selected = await promptUpdateSelection([makeUpdate()])
+
+        expect(selected).toBeNull()
+        expect(infoSpy).toHaveBeenCalledExactlyOnceWith(
+          expect.stringContaining('Selection cancelled'),
+        )
+      },
+    )
   })
 })

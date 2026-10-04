@@ -58,6 +58,12 @@ interface PromptOptionsLike {
   choices: (ChoiceSeparator | ChoiceItem | string)[]
 
   /**
+   * Handles Ctrl-C and Esc. It replaces enquirer's own `cancel` as the key
+   * action, so it has to close and reject the prompt itself.
+   */
+  cancel(this: EnquirerPromptLike): Promise<void>
+
+  /**
    * Alias to `down()` bound by enquirer.
    */
   j(): Promise<string[]> | undefined
@@ -88,6 +94,12 @@ interface PromptOptionsLike {
   type: 'multiselect'
 
   /**
+   * Names of the choices selected when the prompt opens. Enquirer clears the
+   * `enabled` flag of every choice on start, so this is the way to pre-select.
+   */
+  initial: string[]
+
+  /**
    * Pointer glyph for focused row.
    */
   pointer?: string
@@ -101,11 +113,6 @@ interface PromptOptionsLike {
    * Footer text under the list.
    */
   footer?: string
-
-  /**
-   * Alias to `cancel()` bound by enquirer.
-   */
-  cancel(): null
 
   /**
    * The name of the answer field returned by enquirer (holds selected).
@@ -224,6 +231,23 @@ interface FormatTableRowOptions {
    * Row data to format.
    */
   row: TableRow
+}
+
+/**
+ * The enquirer prompt instance that runs the option callbacks.
+ */
+interface EnquirerPromptLike {
+  /**
+   * Reports an event to the pending `enquirer.prompt()` call; `cancel` rejects
+   * it with the given reason.
+   */
+  emit(event: 'cancel', reason: string): boolean
+
+  /**
+   * Enquirer's own cancel action: renders the final state, closes the prompt
+   * and rejects it.
+   */
+  cancel(): Promise<void>
 }
 
 /**
@@ -351,6 +375,12 @@ export async function promptUpdateSelection(
   })
 
   let choices: (ChoiceSeparator | ChoiceItem)[] = []
+
+  /**
+   * Names of the rows selected when the prompt opens: every update that can be
+   * applied and is not breaking.
+   */
+  let preselected: string[] = []
 
   let maxActionLength = stripAnsi('Action').length
   let maxCurrentLength = stripAnsi('Current').length
@@ -501,7 +531,9 @@ export async function promptUpdateSelection(
       } else {
         let { update, index } = groupOrder[i - 1]!
         let hasTarget = hasResolvedTarget(update)
-        let enabled = hasTarget && !update.isBreaking
+        if (hasTarget && !update.isBreaking) {
+          preselected.push(String(index))
+        }
         groupChildren.push({
           message: formattedRow,
           value: String(index),
@@ -510,7 +542,6 @@ export async function promptUpdateSelection(
           // Remove auto-child indent to tighten left padding
           // @ts-expect-error enquirer supports indent on choice items
           indent: '',
-          enabled,
         })
       }
     }
@@ -524,7 +555,6 @@ export async function promptUpdateSelection(
       choices: groupChildren,
       name: `label|${file}`,
       isGroupLabel: true,
-      enabled: false,
     })
 
     /**
@@ -534,6 +564,12 @@ export async function promptUpdateSelection(
       choices.push({ role: 'separator', message: ' ', name: '' })
     }
   }
+
+  /**
+   * Records a Ctrl-C or Esc. The prompt then rejects with an empty string,
+   * which is not an `Error`. An object, because the flag is set in a callback.
+   */
+  let cancellation = { requested: false }
 
   try {
     let promptOptions: PromptOptionsLike = {
@@ -577,6 +613,21 @@ export async function promptUpdateSelection(
 
         return formatSelectionSummary(selectedCount)
       },
+      async cancel() {
+        cancellation.requested = true
+        let { cancel: cancelPrompt } = Object.getPrototypeOf(
+          this,
+        ) as EnquirerPromptLike
+        try {
+          await cancelPrompt.call(this)
+        } catch {
+          /**
+           * On Ctrl-C readline closes itself before enquirer reacts, so
+           * enquirer's cleanup throws before it rejects the prompt.
+           */
+          this.emit('cancel', '')
+        }
+      },
       message:
         'Choose which actions to update ' +
         `(Press ${pc.cyan('<space>')} to select, ` +
@@ -587,10 +638,6 @@ export async function promptUpdateSelection(
         em: pc.bgBlack,
         dark: pc.reset,
       },
-      cancel() {
-        logSelectionCancelled()
-        return null
-      },
       j() {
         return this.down?.() ?? Promise.resolve([])
       },
@@ -598,6 +645,7 @@ export async function promptUpdateSelection(
         return this.up?.() ?? Promise.resolve([])
       },
       footer: '\nEnter to start updating. Ctrl-c to cancel.',
+      initial: preselected,
       type: 'multiselect',
       name: 'selected',
       pointer: '❯',
@@ -617,10 +665,11 @@ export async function promptUpdateSelection(
     return result
   } catch (error) {
     if (
-      error instanceof Error &&
-      (error.message.includes('cancelled') ||
-        error.message.includes('ESC') ||
-        error.name === 'ExitPromptError')
+      cancellation.requested ||
+      (error instanceof Error &&
+        (error.message.includes('cancelled') ||
+          error.message.includes('ESC') ||
+          error.name === 'ExitPromptError'))
     ) {
       logSelectionCancelled()
       return null
