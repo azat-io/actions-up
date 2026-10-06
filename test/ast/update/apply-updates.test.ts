@@ -875,6 +875,58 @@ describe('applyUpdates', () => {
     },
   )
 
+  it.each([
+    [
+      'a plain reference',
+      '      - uses: &checkout actions/checkout@v4 # v4.1.0',
+      '      - uses: &checkout actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0 # v4.2.0',
+    ],
+    [
+      'a quoted reference',
+      "      - uses: &checkout 'actions/checkout@v4'",
+      "      - uses: &checkout 'actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0' # v4.2.0",
+    ],
+    [
+      'a flow mapping',
+      '      - { uses: &checkout actions/checkout@v4 }',
+      '      - { uses: &checkout actions/checkout@e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0 } # v4.2.0',
+    ],
+  ])(
+    'updates a uses value that carries an anchor: %s',
+    async (_description, line, expected) => {
+      let filePath = '/repo/.github/workflows/anchor.yml'
+      let alias = '      - uses: *checkout'
+      let { writeFile, readFile } = await import('node:fs/promises')
+      vi.mocked(readFile).mockResolvedValue(
+        ['jobs:', '  build:', '    steps:', line, alias, ''].join('\n'),
+      )
+
+      await applyUpdates([
+        {
+          action: {
+            name: 'actions/checkout',
+            type: 'external',
+            file: filePath,
+            version: 'v4',
+            line: 4,
+          },
+          latestSha: 'e2c02d0c8b12e4d0e8b8e0f0e0e0e0e0e0e0e0e0',
+          latestVersion: 'v4.2.0',
+          currentVersion: 'v4',
+          isBreaking: false,
+          publishedAt: null,
+          hasUpdate: true,
+        },
+      ])
+
+      expect(writeFile).toHaveBeenCalledExactlyOnceWith(
+        filePath,
+        ['jobs:', '  build:', '    steps:', expected, alias, ''].join('\n'),
+        'utf8',
+      )
+    },
+  )
+
   it('does not duplicate suffix for preserve-style overlapping tag refs', async () => {
     let filePath = '/repo/.github/workflows/preserve-overlap.yml'
     let original = [

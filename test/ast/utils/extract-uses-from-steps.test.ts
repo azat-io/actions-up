@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseDocument } from 'yaml'
 
 import { extractUsesFromSteps } from '../../../core/ast/utils/extract-uses-from-steps'
+import { createNodeVisitor } from '../../../core/ast/utils/create-node-visitor'
 import { findMapPair } from '../../../core/ast/utils/find-map-pair'
 
 describe('extractUsesFromSteps', () => {
@@ -21,6 +22,7 @@ describe('extractUsesFromSteps', () => {
     expect(steps?.value).toBeTruthy()
 
     let actions = extractUsesFromSteps({
+      visit: createNodeVisitor(document_),
       stepsNode: steps!.value,
       filePath,
       content,
@@ -50,6 +52,7 @@ describe('extractUsesFromSteps', () => {
 
     let actions = extractUsesFromSteps({
       filePath: '.github/workflows/ci.yml',
+      visit: createNodeVisitor(document_),
       stepsNode: steps!.value,
       content,
     })
@@ -60,6 +63,7 @@ describe('extractUsesFromSteps', () => {
 
   it('returns empty when steps node is not a YAML sequence', () => {
     let actions = extractUsesFromSteps({
+      visit: createNodeVisitor(parseDocument('')),
       filePath: 'file.yml',
       content: 'content',
       stepsNode: {},
@@ -82,6 +86,7 @@ describe('extractUsesFromSteps', () => {
 
     let actions = extractUsesFromSteps({
       filePath: '.github/workflows/ci.yml',
+      visit: createNodeVisitor(document_),
       stepsNode: steps!.value,
       content,
     })

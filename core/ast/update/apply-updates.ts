@@ -158,9 +158,10 @@ export async function applyUpdates(updates: ActionUpdate[]): Promise<void> {
         escapedVersion ? String.raw`(?=(?:['"]|[ \t\]}{,#]|$))` : ''
 
       /**
-       * Matches `uses` key (optionally quoted for JSON-style YAML).
+       * Matches `uses` key (optionally quoted for JSON-style YAML) and the
+       * anchor its value may carry (`uses: &checkout actions/checkout@v4`).
        */
-      let usesKey = String.raw`['"]?\buses\b['"]?\s*:\s*`
+      let usesKey = String.raw`['"]?\buses\b['"]?\s*:\s*(?:&[^\s,[\]{}]+\s+)?`
 
       /**
        * Prefix captures context before `uses:`:

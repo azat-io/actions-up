@@ -12,6 +12,11 @@ import { isPair } from '../guards/is-pair'
 
 interface ExtractUsesOptions {
   /**
+   * Hands out each node once, following aliases (see `createNodeVisitor`).
+   */
+  visit(node: unknown): unknown
+
+  /**
    * YAML sequence node containing workflow/action steps.
    */
   stepsNode: unknown
@@ -44,14 +49,16 @@ interface ExtractUsesOptions {
 export function extractUsesFromSteps(
   options: ExtractUsesOptions,
 ): GitHubAction[] {
-  let { stepsNode, filePath, content, jobName } = options
-  if (!isYAMLSequence(stepsNode)) {
+  let { stepsNode, filePath, content, jobName, visit } = options
+  let steps = visit(stepsNode)
+  if (!isYAMLSequence(steps)) {
     return []
   }
 
   let actions: GitHubAction[] = []
 
-  for (let stepNode of stepsNode.items) {
+  for (let entry of steps.items) {
+    let stepNode = visit(entry)
     if (!isYAMLMap(stepNode) || !isNode(stepNode)) {
       continue
     }
@@ -61,6 +68,10 @@ export function extractUsesFromSteps(
       continue
     }
 
+    /**
+     * An aliased value (`uses: *checkout`) is not a string here, so it is
+     * skipped: the update belongs to the text where its anchor is written.
+     */
     let stepObject = step as Record<string, unknown>
     if (typeof stepObject['uses'] !== 'string') {
       continue

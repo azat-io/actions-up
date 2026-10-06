@@ -58,4 +58,66 @@ describe('scanCompositeActionAst', () => {
 
     expect(scanCompositeActionAst(document_, content, 'file.yml')).toEqual([])
   })
+
+  it.each([
+    [
+      'runs',
+      [
+        'name: Setup',
+        'x-runs: &composite',
+        '  using: composite',
+        '  steps:',
+        '    - uses: actions/setup-node@v4',
+        'runs: *composite',
+        '',
+      ],
+      5,
+    ],
+    [
+      'steps list',
+      [
+        'name: Setup',
+        'x-steps: &steps',
+        '  - uses: actions/setup-node@v4',
+        'runs:',
+        '  using: composite',
+        '  steps: *steps',
+        '',
+      ],
+      3,
+    ],
+    [
+      'step',
+      [
+        'name: Setup',
+        'x-step: &step',
+        '  uses: actions/setup-node@v4',
+        'runs:',
+        '  using: composite',
+        '  steps:',
+        '    - *step',
+        '    - *step',
+        '',
+      ],
+      3,
+    ],
+  ])(
+    'reports an aliased %s once, where its anchor is written',
+    (_description, lines, line) => {
+      let content = lines.join('\n')
+      let filePath = '.github/actions/setup/action.yml'
+
+      expect(
+        scanCompositeActionAst(parseDocument(content), content, filePath),
+      ).toStrictEqual([
+        {
+          name: 'actions/setup-node',
+          type: 'external',
+          file: filePath,
+          version: 'v4',
+          line,
+        },
+      ])
+    },
+  )
 })

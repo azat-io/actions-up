@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { parseDocument } from 'yaml'
 
 import { extractUsesFromSteps } from '../../../core/ast/utils/extract-uses-from-steps'
+import { createNodeVisitor } from '../../../core/ast/utils/create-node-visitor'
 
 describe('extractUsesFromSteps (missing uses pair)', () => {
   it('falls back to line 0 when AST pair is missing', () => {
@@ -11,6 +13,7 @@ describe('extractUsesFromSteps (missing uses pair)', () => {
     let stepsNode = { items: [stepNode] }
 
     let actions = extractUsesFromSteps({
+      visit: createNodeVisitor(parseDocument('')),
       filePath: 'workflow.yml',
       content: 'content',
       stepsNode,

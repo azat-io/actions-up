@@ -5,6 +5,7 @@ import type { GitHubAction } from '../../../types/github-action'
 import { isCompositeActionStructure } from '../../schema/composite/is-composite-action-structure'
 import { isCompositeActionRuns } from '../../schema/composite/is-composite-action-runs'
 import { extractUsesFromSteps } from '../utils/extract-uses-from-steps'
+import { createNodeVisitor } from '../utils/create-node-visitor'
 import { findMapPair } from '../utils/find-map-pair'
 import { isYAMLMap } from '../guards/is-yaml-map'
 
@@ -13,6 +14,8 @@ import { isYAMLMap } from '../guards/is-yaml-map'
  *
  * Navigates AST structure `runs -> steps` and extracts `uses` entries with
  * corresponding line numbers when the action defines `using: composite`.
+ * Aliases along that path lead to their anchors, and each anchored node is
+ * reported once, where it is written.
  *
  * @param document - Parsed YAML document of a composite action file.
  * @param content - Original file content.
@@ -35,9 +38,10 @@ export function scanCompositeActionAst(
     return []
   }
 
-  let runsPair = findMapPair(document.contents, 'runs')
+  let visit = createNodeVisitor(document)
+  let runs = visit(findMapPair(document.contents, 'runs')?.value)
 
-  if (!runsPair?.value || !isYAMLMap(runsPair.value)) {
+  if (!isYAMLMap(runs)) {
     return []
   }
 
@@ -52,7 +56,7 @@ export function scanCompositeActionAst(
     return []
   }
 
-  let stepsPair = findMapPair(runsPair.value, 'steps')
+  let stepsPair = findMapPair(runs, 'steps')
 
   if (!stepsPair?.value) {
     return []
@@ -62,5 +66,6 @@ export function scanCompositeActionAst(
     stepsNode: stepsPair.value,
     filePath,
     content,
+    visit,
   })
 }

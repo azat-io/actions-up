@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseDocument } from 'yaml'
 
+import type { GitHubAction } from '../../../types/github-action'
+
 import { scanWorkflowAst } from '../../../core/ast/scanners/scan-workflow-ast'
 
 describe('scanWorkflowAst', () => {
@@ -480,5 +482,165 @@ describe('scanWorkflowAst', () => {
     expect(actions[0]?.job).toBeUndefined()
     expect(actions[0]?.name).toBe('org/repo/.github/workflows/test.yml')
     warnSpy.mockRestore()
+  })
+
+  describe('anchors and aliases', () => {
+    let filePath = '.github/workflows/anchors.yml'
+
+    function scan(lines: string[]): GitHubAction[] {
+      let content = lines.join('\n')
+      return scanWorkflowAst(parseDocument(content), content, filePath)
+    }
+
+    it.each([
+      [
+        'step',
+        [
+          'on: push',
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - &checkout',
+          '        uses: actions/checkout@v4',
+          '  test:',
+          '    steps:',
+          '      - *checkout',
+          '',
+        ],
+        6,
+      ],
+      [
+        'steps list',
+        [
+          'on: push',
+          'jobs:',
+          '  build:',
+          '    steps: &steps',
+          '      - uses: actions/checkout@v4',
+          '  test:',
+          '    steps: *steps',
+          '',
+        ],
+        5,
+      ],
+      [
+        'job',
+        [
+          'on: push',
+          'jobs:',
+          '  build: &job',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+          '  test: *job',
+          '',
+        ],
+        5,
+      ],
+      [
+        'uses value',
+        [
+          'on: push',
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: &checkout actions/checkout@v4',
+          '  test:',
+          '    steps:',
+          '      - uses: *checkout',
+          '',
+        ],
+        5,
+      ],
+    ])(
+      'reports an anchored %s once, where it is written',
+      (_description, lines, line) => {
+        expect(scan(lines)).toStrictEqual([
+          {
+            name: 'actions/checkout',
+            type: 'external',
+            file: filePath,
+            version: 'v4',
+            job: 'build',
+            line,
+          },
+        ])
+      },
+    )
+
+    it.each([
+      [
+        'steps',
+        [
+          'x-checkout: &checkout',
+          '  uses: actions/checkout@v4',
+          'on: push',
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - *checkout',
+          '  test:',
+          '    steps:',
+          '      - *checkout',
+          '',
+        ],
+        2,
+      ],
+      [
+        'steps lists',
+        [
+          'x-steps: &steps',
+          '  - uses: actions/checkout@v4',
+          'on: push',
+          'jobs:',
+          '  build:',
+          '    steps: *steps',
+          '  test:',
+          '    steps: *steps',
+          '',
+        ],
+        2,
+      ],
+      [
+        'jobs',
+        [
+          'x-job: &job',
+          '  steps:',
+          '    - uses: actions/checkout@v4',
+          'on: push',
+          'jobs:',
+          '  build: *job',
+          '  test: *job',
+          '',
+        ],
+        3,
+      ],
+      [
+        'jobs map',
+        [
+          'x-jobs: &jobs',
+          '  build:',
+          '    steps:',
+          '      - uses: actions/checkout@v4',
+          'on: push',
+          'jobs: *jobs',
+          '',
+        ],
+        4,
+      ],
+    ])(
+      'follows aliased %s to an anchor written outside the jobs',
+      (_description, lines, line) => {
+        expect(scan(lines)).toStrictEqual([
+          {
+            name: 'actions/checkout',
+            type: 'external',
+            file: filePath,
+            version: 'v4',
+            job: 'build',
+            line,
+          },
+        ])
+      },
+    )
   })
 })
