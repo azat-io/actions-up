@@ -111,6 +111,8 @@ describe('scanCompositeActionAst', () => {
         scanCompositeActionAst(parseDocument(content), content, filePath),
       ).toStrictEqual([
         {
+          uses: 'actions/setup-node@v4',
+          ref: 'actions/setup-node@v4',
           name: 'actions/setup-node',
           type: 'external',
           file: filePath,

@@ -364,7 +364,7 @@ interface JsonReportAction {
   line: number | null
 
   /**
-   * Original `uses` value, if available.
+   * The `uses` value as written; null for runner labels.
    */
   uses: string | null
 
@@ -374,7 +374,8 @@ interface JsonReportAction {
   job: string | null
 
   /**
-   * Full `owner/repo@ref` string, when available.
+   * Repository and ref as `owner/repo@ref`, without the path of an action
+   * inside the repository; null for local, Docker and runner entries.
    */
   ref: string | null
 

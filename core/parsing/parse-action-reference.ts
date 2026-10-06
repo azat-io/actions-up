@@ -17,6 +17,8 @@ import type { GitHubAction } from '../../types/github-action'
  * //   type: 'external',
  * //   name: 'actions/checkout',
  * //   version: 'v3',
+ * //   uses: 'actions/checkout@v3',
+ * //   ref: 'actions/checkout@v3',
  * //   file: 'workflow.yml',
  * //   line: 10,
  * // }
@@ -47,6 +49,7 @@ export function parseActionReference(
   if (reference.startsWith('docker://')) {
     return {
       version: undefined,
+      uses: reference,
       name: reference,
       type: 'docker',
       file,
@@ -60,6 +63,7 @@ export function parseActionReference(
   if (reference.startsWith('./') || reference.startsWith('../')) {
     return {
       version: undefined,
+      uses: reference,
       name: reference,
       type: 'local',
       file,
@@ -106,6 +110,8 @@ export function parseActionReference(
 
   return {
     type: isReusableWorkflow ? 'reusable-workflow' : 'external',
+    ref: `${owner}/${repo}@${version}`,
+    uses: reference,
     name: namePart,
     version,
     file,

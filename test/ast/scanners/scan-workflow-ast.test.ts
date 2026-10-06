@@ -556,6 +556,8 @@ describe('scanWorkflowAst', () => {
       (_description, lines, line) => {
         expect(scan(lines)).toStrictEqual([
           {
+            uses: 'actions/checkout@v4',
+            ref: 'actions/checkout@v4',
             name: 'actions/checkout',
             type: 'external',
             file: filePath,
@@ -632,6 +634,8 @@ describe('scanWorkflowAst', () => {
       (_description, lines, line) => {
         expect(scan(lines)).toStrictEqual([
           {
+            uses: 'actions/checkout@v4',
+            ref: 'actions/checkout@v4',
             name: 'actions/checkout',
             type: 'external',
             file: filePath,

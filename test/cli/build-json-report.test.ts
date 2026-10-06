@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { parseDocument } from 'yaml'
 
 import type { ActionUpdate } from '../../types/action-update'
 import type { ScanResult } from '../../types/scan-result'
 
+import { scanWorkflowAst } from '../../core/ast/scanners/scan-workflow-ast'
 import { buildJsonReport } from '../../cli/build-json-report'
 
 describe('buildJsonReport', () => {
@@ -567,5 +569,65 @@ describe('buildJsonReport', () => {
     expect(report.updates[0]?.action.file).toBe('relative/workflow.yml')
     expect(report.updates[0]?.currentRefType).toBeNull()
     expect(report.options.reportOnly).toBeTruthy()
+  })
+
+  it('reports the uses value and repository ref of scanned references', () => {
+    let filePath = '/repo/.github/workflows/ci.yml'
+    let content = [
+      'on: push',
+      'jobs:',
+      '  build:',
+      '    runs-on: ubuntu-22.04',
+      '    steps:',
+      '      - uses: actions/checkout@v4',
+      '      - uses: github/codeql-action/init@v3',
+      '  call:',
+      '    uses: owner/repo/.github/workflows/ci.yml@v1',
+      '',
+    ].join('\n')
+    let actions = scanWorkflowAst(parseDocument(content), content, filePath)
+
+    let report = buildJsonReport({
+      outdated: actions.map(action => ({
+        currentVersion: action.version ?? null,
+        latestVersion: 'v9.0.0',
+        publishedAt: null,
+        isBreaking: true,
+        hasUpdate: true,
+        latestSha: null,
+        action,
+      })),
+      scanResult: {
+        workflows: new Map([[filePath, actions]]),
+        compositeActions: new Map(),
+        actions,
+      },
+      directories: ['/repo/.github'],
+      status: 'updates-available',
+      minAgeExcludePatterns: [],
+      actionsToCheckCount: 4,
+      includeBranches: false,
+      excludePatterns: [],
+      preferTags: false,
+      blockedByMode: [],
+      blockedByAge: [],
+      recursive: false,
+      mode: 'major',
+      style: 'sha',
+      cwd: '/repo',
+      skipped: [],
+      minAge: 0,
+    })
+
+    expect(
+      report.updates.map(({ action }) => [action.uses, action.ref]),
+    ).toStrictEqual([
+      ['actions/checkout@v4', 'actions/checkout@v4'],
+      ['github/codeql-action/init@v3', 'github/codeql-action@v3'],
+      ['owner/repo/.github/workflows/ci.yml@v1', 'owner/repo@v1'],
+    ])
+    expect(
+      report.runners.map(({ action }) => [action.uses, action.ref]),
+    ).toStrictEqual([[null, null]])
   })
 })

@@ -41,7 +41,9 @@ export interface GitHubAction {
   file?: string
 
   /**
-   * Original `uses` string from workflow, if available.
+   * The `uses` value as written (e.g., 'github/codeql-action/init@v3').
+   *
+   * Absent for `runner` entries, which come from `runs-on` rather than `uses`.
    */
   uses?: string
 
@@ -60,7 +62,10 @@ export interface GitHubAction {
   name: string
 
   /**
-   * Original `ref` string from workflow, if available.
+   * Repository and ref the reference points to, as `owner/repo@ref` (e.g.,
+   * 'github/codeql-action@v3' for 'github/codeql-action/init@v3').
+   *
+   * Absent for local, Docker and `runner` entries, which name no repository.
    */
   ref?: string
 }

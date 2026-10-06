@@ -6,6 +6,8 @@ describe('parseActionReference', () => {
   it('parses external action with version tag', () => {
     let result = parseActionReference('actions/checkout@v4', 'workflow.yml', 10)
     expect(result).toEqual({
+      uses: 'actions/checkout@v4',
+      ref: 'actions/checkout@v4',
       name: 'actions/checkout',
       file: 'workflow.yml',
       type: 'external',
@@ -21,6 +23,8 @@ describe('parseActionReference', () => {
       5,
     )
     expect(result).toEqual({
+      uses: 'actions/setup-node@8f152de45cc393bb48ce5d89d36b731f54556e65',
+      ref: 'actions/setup-node@8f152de45cc393bb48ce5d89d36b731f54556e65',
       version: '8f152de45cc393bb48ce5d89d36b731f54556e65',
       name: 'actions/setup-node',
       file: 'workflow.yml',
@@ -36,6 +40,8 @@ describe('parseActionReference', () => {
       15,
     )
     expect(result).toEqual({
+      uses: 'octocat/hello-world@main',
+      ref: 'octocat/hello-world@main',
       name: 'octocat/hello-world',
       file: 'workflow.yml',
       type: 'external',
@@ -51,6 +57,7 @@ describe('parseActionReference', () => {
       20,
     )
     expect(result).toEqual({
+      uses: './.github/actions/build',
       name: './.github/actions/build',
       file: 'workflow.yml',
       version: undefined,
@@ -66,7 +73,9 @@ describe('parseActionReference', () => {
       12,
     )
     expect(result).toEqual({
+      uses: 'owner/repo/path/to/action@v1',
       name: 'owner/repo/path/to/action',
+      ref: 'owner/repo@v1',
       file: 'workflow.yml',
       type: 'external',
       version: 'v1',
@@ -81,6 +90,7 @@ describe('parseActionReference', () => {
       25,
     )
     expect(result).toEqual({
+      uses: 'docker://alpine:3.19',
       name: 'docker://alpine:3.19',
       file: 'workflow.yml',
       version: undefined,
@@ -117,8 +127,10 @@ describe('parseActionReference', () => {
       10,
     )
     expect(result).toEqual({
+      uses: 'org/repo/.github/workflows/ci.yml@v1.0.0',
       name: 'org/repo/.github/workflows/ci.yml',
       type: 'reusable-workflow',
+      ref: 'org/repo@v1.0.0',
       file: 'workflow.yml',
       version: 'v1.0.0',
       line: 10,
@@ -132,8 +144,10 @@ describe('parseActionReference', () => {
       15,
     )
     expect(result).toEqual({
+      uses: 'org/repo/.github/workflows/ci.yaml@main',
       name: 'org/repo/.github/workflows/ci.yaml',
       type: 'reusable-workflow',
+      ref: 'org/repo@main',
       file: 'workflow.yml',
       version: 'main',
       line: 15,
@@ -147,8 +161,10 @@ describe('parseActionReference', () => {
       20,
     )
     expect(result).toEqual({
+      uses: 'owner/repo/path/to/workflow.yml@v2.5.0',
       name: 'owner/repo/path/to/workflow.yml',
       type: 'reusable-workflow',
+      ref: 'owner/repo@v2.5.0',
       file: 'workflow.yml',
       version: 'v2.5.0',
       line: 20,
@@ -174,6 +190,8 @@ describe('parseActionReference', () => {
       25,
     )
     expect(result).toEqual({
+      uses: 'org/repo/.github/workflows/reusable.yml@a1b2c3d4e5f6789012345678901234567890abcd',
+      ref: 'org/repo@a1b2c3d4e5f6789012345678901234567890abcd',
       version: 'a1b2c3d4e5f6789012345678901234567890abcd',
       name: 'org/repo/.github/workflows/reusable.yml',
       type: 'reusable-workflow',
