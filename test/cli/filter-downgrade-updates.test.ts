@@ -6,10 +6,16 @@ import type { GitHubAction } from '../../types/github-action'
 import { filterDowngradeUpdates } from '../../cli/filter-downgrade-updates'
 
 /**
- * Path used as the file cache key for workflow content in tests.
+ * Workflow file the fixture actions are scanned from.
  */
 let workflowFile = '/repo/.github/workflows/ci.yml'
 
+/**
+ * Create an outdated update of a SHA-pinned action.
+ *
+ * @param overrides - Fields that differ from the default SHA-pinned update.
+ * @returns Fresh update.
+ */
 function createUpdate(overrides: Partial<ActionUpdate> = {}): ActionUpdate {
   return {
     currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
@@ -23,6 +29,12 @@ function createUpdate(overrides: Partial<ActionUpdate> = {}): ActionUpdate {
   }
 }
 
+/**
+ * Create a SHA-pinned action reference.
+ *
+ * @param overrides - Fields that differ from the default reference.
+ * @returns Fresh action reference.
+ */
 function createAction(overrides: Partial<GitHubAction> = {}): GitHubAction {
   return {
     uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
@@ -35,6 +47,13 @@ function createAction(overrides: Partial<GitHubAction> = {}): GitHubAction {
   }
 }
 
+/**
+ * Copy an update with a trailing comment on its `uses:` line.
+ *
+ * @param update - Update to copy.
+ * @param comment - Comment text without the leading `#`, or null for none.
+ * @returns Fresh update carrying the comment.
+ */
 function withComment(
   update: ActionUpdate,
   comment: string | null,
@@ -47,14 +66,11 @@ function withComment(
 
 describe('filterDowngradeUpdates', () => {
   it('blocks an update that would downgrade a sha-pinned action', () => {
-    let update = createUpdate()
+    let update = withComment(createUpdate(), ' v12.3119.0')
 
-    update = withComment(update, ' v12.3119.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([update])
-    expect(kept).toEqual([])
+    expect(result).toStrictEqual({ blocked: [update], kept: [] })
   })
 
   it('blocks a downgrade even when the latest sha is unknown', () => {
@@ -63,84 +79,79 @@ describe('filterDowngradeUpdates', () => {
      * latestSha is missing; the guard compares versions only, so it still
      * protects that path.
      */
-    let update = createUpdate({ latestSha: null })
+    let update = withComment(createUpdate({ latestSha: null }), ' v12.3119.0')
 
-    update = withComment(update, ' v12.3119.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([update])
-    expect(kept).toEqual([])
+    expect(result).toStrictEqual({ blocked: [update], kept: [] })
   })
 
   it('keeps an upgrade of a sha-pinned action', () => {
-    let update = createUpdate({ latestVersion: 'v1.3.0' })
+    let update = withComment(
+      createUpdate({ latestVersion: 'v1.3.0' }),
+      ' v1.2.0',
+    )
 
-    update = withComment(update, ' v1.2.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('keeps an equal-version re-pin to the canonical sha', () => {
-    let update = createUpdate({ latestVersion: 'v1.2.0' })
+    let update = withComment(
+      createUpdate({ latestVersion: 'v1.2.0' }),
+      ' v1.2.0',
+    )
 
-    update = withComment(update, ' v1.2.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('blocks a prerelease pin above the latest version', () => {
     /**
-     * Version normalization coerces away prerelease suffixes, so the pin is
-     * compared as 2.0.0.
+     * A prerelease of a higher version still ranks above the latest release:
+     * 2.0.0-rc.1 is newer than 1.9.0.
      */
-    let update = createUpdate({ latestVersion: 'v1.9.0' })
+    let update = withComment(
+      createUpdate({ latestVersion: 'v1.9.0' }),
+      ' v2.0.0-rc.1',
+    )
 
-    update = withComment(update, ' v2.0.0-rc.1')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([update])
-    expect(kept).toEqual([])
+    expect(result).toStrictEqual({ blocked: [update], kept: [] })
   })
 
-  it('keeps a prerelease pin matching the latest version', () => {
-    let update = createUpdate({ latestVersion: 'v2.0.0' })
+  it('keeps an update from a prerelease pin to its final release', () => {
+    /**
+     * A prerelease ranks below the release it precedes, so 2.0.0 is an upgrade
+     * from 2.0.0-rc.1.
+     */
+    let update = withComment(
+      createUpdate({ latestVersion: 'v2.0.0' }),
+      ' v2.0.0-rc.1',
+    )
 
-    update = withComment(update, ' v2.0.0-rc.1')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('keeps updates without an inline version comment', () => {
-    let update = createUpdate()
+    let update = withComment(createUpdate(), null)
 
-    update = withComment(update, null)
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('keeps updates with a non-version comment', () => {
-    let update = createUpdate()
+    let update = withComment(createUpdate(), ' some note')
 
-    update = withComment(update, ' some note')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('ignores actions referenced by tags', () => {
@@ -148,29 +159,29 @@ describe('filterDowngradeUpdates', () => {
      * The inline comment is only meaningful next to sha pins; a higher version
      * in a comment must not block tag references.
      */
-    let update = createUpdate({
-      action: createAction({ uses: 'owner/repo@v1', version: 'v1' }),
-      latestVersion: 'v2.0.0',
-      currentVersion: 'v1',
-    })
+    let update = withComment(
+      createUpdate({
+        action: createAction({ uses: 'owner/repo@v1', version: 'v1' }),
+        latestVersion: 'v2.0.0',
+        currentVersion: 'v1',
+      }),
+      ' v99.0.0',
+    )
 
-    update = withComment(update, ' v99.0.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('keeps updates without a latest version', () => {
-    let update = createUpdate({ latestVersion: null })
+    let update = withComment(
+      createUpdate({ latestVersion: null }),
+      ' v12.3119.0',
+    )
 
-    update = withComment(update, ' v12.3119.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('keeps updates when latest resolves to a floating major', () => {
@@ -178,121 +189,155 @@ describe('filterDowngradeUpdates', () => {
      * A floating tag like v12 moves with releases, so its SHA can be ahead of
      * the pin even though the coerced version (12.0.0) compares lower.
      */
-    let update = createUpdate({ latestVersion: 'v12' })
+    let update = withComment(
+      createUpdate({ latestVersion: 'v12' }),
+      ' v12.3119.0',
+    )
 
-    update = withComment(update, ' v12.3119.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('keeps updates when latest resolves to a floating minor', () => {
-    let update = createUpdate({ latestVersion: 'v12.1' })
+    let update = withComment(
+      createUpdate({ latestVersion: 'v12.1' }),
+      ' v12.1.5',
+    )
 
-    update = withComment(update, ' v12.1.5')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
-  it('keeps updates with a date-like comment', () => {
-    /**
-     * Comments such as audit dates must not masquerade as version claims.
-     */
-    let update = createUpdate()
+  /**
+   * Comments such as audit dates must not masquerade as version claims, even
+   * when their leading number reads as a version above the latest one.
+   */
+  it.each([
+    ['a full date', ' 2024-05-01 audited'],
+    ['a bare year', ' 2024 audit'],
+  ])('keeps updates with a comment that starts with %s', (_, comment) => {
+    let update = withComment(createUpdate(), comment)
 
-    update = withComment(update, ' 2024-05-01 audited')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('keeps updates with a non-semver latest version', () => {
-    let update = createUpdate({ latestVersion: 'nightly' })
+    let update = withComment(
+      createUpdate({ latestVersion: 'nightly' }),
+      ' v12.3119.0',
+    )
 
-    update = withComment(update, ' v12.3119.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([])
-    expect(kept).toEqual([update])
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('blocks downgrades of sha-pinned reusable workflows', () => {
-    let update = createUpdate({
-      action: createAction({
-        uses: 'owner/repo/.github/workflows/reusable.yml@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-        name: 'owner/repo/.github/workflows/reusable.yml',
-        type: 'reusable-workflow',
+    let update = withComment(
+      createUpdate({
+        action: createAction({
+          uses: 'owner/repo/.github/workflows/reusable.yml@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
+          name: 'owner/repo/.github/workflows/reusable.yml',
+          type: 'reusable-workflow',
+        }),
+        latestVersion: 'v2.0.0',
       }),
-      latestVersion: 'v2.0.0',
-    })
+      ' v3.0.0',
+    )
 
-    update = withComment(update, ' v3.0.0')
+    let result = filterDowngradeUpdates([update])
 
-    let { blocked, kept } = filterDowngradeUpdates([update])
-
-    expect(blocked).toEqual([update])
-    expect(kept).toEqual([])
+    expect(result).toStrictEqual({ blocked: [update], kept: [] })
   })
 
   it('splits mixed updates preserving order', () => {
-    let downgrade = createUpdate()
-    let upgrade = createUpdate({
-      action: createAction({
-        uses: 'owner/other@v1',
-        name: 'owner/other',
-        version: 'v1',
+    let firstDowngrade = withComment(createUpdate(), ' v12.3119.0')
+    let tagUpgrade = withComment(
+      createUpdate({
+        action: createAction({
+          uses: 'owner/other@v1',
+          name: 'owner/other',
+          version: 'v1',
+        }),
+        latestVersion: 'v2.0.0',
+        currentVersion: 'v1',
       }),
-      latestVersion: 'v2.0.0',
-      currentVersion: 'v1',
+      ' v12.3119.0',
+    )
+    let secondDowngrade = withComment(
+      createUpdate({
+        action: createAction({
+          uses: 'owner/tool@3f1c2d4e5b6a79801f2e3d4c5b6a798011223344',
+          version: '3f1c2d4e5b6a79801f2e3d4c5b6a798011223344',
+          name: 'owner/tool',
+          line: 7,
+        }),
+        currentVersion: '3f1c2d4e5b6a79801f2e3d4c5b6a798011223344',
+        latestVersion: 'v2.0.0',
+      }),
+      ' v3.0.0',
+    )
+    let shaUpgrade = withComment(
+      createUpdate({
+        action: createAction({
+          uses: 'owner/lib@8e7d6c5b4a3928170f6e5d4c3b2a190807060504',
+          version: '8e7d6c5b4a3928170f6e5d4c3b2a190807060504',
+          name: 'owner/lib',
+          line: 9,
+        }),
+        currentVersion: '8e7d6c5b4a3928170f6e5d4c3b2a190807060504',
+        latestVersion: 'v1.3.0',
+      }),
+      ' v1.2.0',
+    )
+
+    let result = filterDowngradeUpdates([
+      firstDowngrade,
+      tagUpgrade,
+      secondDowngrade,
+      shaUpgrade,
+    ])
+
+    expect(result).toStrictEqual({
+      blocked: [firstDowngrade, secondDowngrade],
+      kept: [tagUpgrade, shaUpgrade],
     })
-
-    upgrade = withComment(upgrade, ' v12.3119.0')
-    downgrade = withComment(downgrade, ' v12.3119.0')
-
-    let { blocked, kept } = filterDowngradeUpdates([upgrade, downgrade])
-
-    expect(blocked).toEqual([downgrade])
-    expect(kept).toEqual([upgrade])
   })
 
   it('blocks a downgrade inside a prefixed tag family', () => {
-    let update = createUpdate({ latestVersion: 'actions-v0.1.1' })
-
-    update = withComment(update, ' actions-v0.2.0')
+    let update = withComment(
+      createUpdate({ latestVersion: 'actions-v0.1.1' }),
+      ' actions-v0.2.0',
+    )
 
     let result = filterDowngradeUpdates([update])
 
-    expect(result.blocked).toHaveLength(1)
-    expect(result.kept).toHaveLength(0)
+    expect(result).toStrictEqual({ blocked: [update], kept: [] })
   })
 
   it('keeps an upgrade inside a prefixed tag family', () => {
-    let update = createUpdate({ latestVersion: 'actions-v0.2.0' })
-
-    update = withComment(update, ' actions-v0.1.1')
+    let update = withComment(
+      createUpdate({ latestVersion: 'actions-v0.2.0' }),
+      ' actions-v0.1.1',
+    )
 
     let result = filterDowngradeUpdates([update])
 
-    expect(result.kept).toHaveLength(1)
-    expect(result.blocked).toHaveLength(0)
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 
   it('never compares versions across tag families', () => {
-    let update = createUpdate({ latestVersion: 'v0.1.0' })
-
-    update = withComment(update, ' actions-v0.2.0')
+    let update = withComment(
+      createUpdate({ latestVersion: 'v0.1.0' }),
+      ' actions-v0.2.0',
+    )
 
     let result = filterDowngradeUpdates([update])
 
-    expect(result.kept).toHaveLength(1)
-    expect(result.blocked).toHaveLength(0)
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
   })
 })

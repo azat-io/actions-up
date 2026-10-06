@@ -113,7 +113,7 @@ actions-up/
 │   ├── interactive/   # Interactive prompts
 │   ├── parsing/       # YAML/action parsing
 │   └── schema/        # YAML schema helpers
-├── test/              # Tests (Vitest)
+├── test/              # Tests (Vitest), at the path of the file under test
 ├── types/             # Shared TypeScript types
 └── assets/            # Images and media
 ```

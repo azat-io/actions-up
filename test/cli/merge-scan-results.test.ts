@@ -5,132 +5,206 @@ import type { ScanResult } from '../../types/scan-result'
 
 import { mergeScanResults } from '../../cli/merge-scan-results'
 
+/**
+ * Create an action reference as the scanner reports it.
+ *
+ * @param overrides - Fields that differ from `actions/checkout@v4` on line 12
+ *   of the CI workflow.
+ * @returns Fresh action reference.
+ */
+function makeAction(overrides: Partial<GitHubAction> = {}): GitHubAction {
+  return {
+    file: '/repo/.github/workflows/ci.yml',
+    name: 'actions/checkout',
+    type: 'external',
+    version: 'v4',
+    job: 'build',
+    line: 12,
+    ...overrides,
+  }
+}
+
+/**
+ * Create the result of scanning one directory.
+ *
+ * @param overrides - Parts of the result that are not empty.
+ * @returns Fresh scan result.
+ */
+function makeScanResult(overrides: Partial<ScanResult> = {}): ScanResult {
+  return {
+    compositeActions: new Map(),
+    workflows: new Map(),
+    actions: [],
+    ...overrides,
+  }
+}
+
 describe('mergeScanResults', () => {
-  it('returns empty result for empty array', () => {
+  it('returns an empty result for no scan results', () => {
     let result = mergeScanResults([])
 
-    expect(result).toEqual({
+    expect(result).toStrictEqual({
       compositeActions: new Map(),
       workflows: new Map(),
       actions: [],
     })
   })
 
-  it('merges workflows from multiple results with index prefix', () => {
-    let results: ScanResult[] = [
-      {
+  it('keeps the workflows of every scan result with their actions in order', () => {
+    let ciActions = [makeAction()]
+    let releaseActions = [
+      makeAction({
+        file: '/repo/.github/workflows/release.yml',
+        name: 'actions/setup-node',
+        line: 20,
+      }),
+    ]
+    let lintActions = [
+      makeAction({
+        file: '/repo/tools/.github/workflows/lint.yml',
+        name: 'actions/cache',
+        line: 8,
+      }),
+    ]
+    let results = [
+      makeScanResult({
         workflows: new Map([
-          ['workflow1.yml', []],
-          ['workflow2.yml', []],
+          ['.github/workflows/release.yml', releaseActions],
+          ['.github/workflows/ci.yml', ciActions],
         ]),
-        compositeActions: new Map(),
-        actions: [],
-      },
-      {
-        workflows: new Map([['workflow3.yml', []]]),
-        compositeActions: new Map(),
-        actions: [],
-      },
+      }),
+      makeScanResult({
+        workflows: new Map([['.github/workflows/lint.yml', lintActions]]),
+      }),
     ]
 
     let result = mergeScanResults(results)
 
-    expect(result.workflows.size).toBe(3)
-    expect(result.workflows.has('0:workflow1.yml')).toBeTruthy()
-    expect(result.workflows.has('0:workflow2.yml')).toBeTruthy()
-    expect(result.workflows.has('1:workflow3.yml')).toBeTruthy()
+    expect(result.workflows.values().toArray()).toStrictEqual([
+      releaseActions,
+      ciActions,
+      lintActions,
+    ])
   })
 
-  it('merges composite actions from multiple results', () => {
-    let results: ScanResult[] = [
-      {
+  it('keeps the composite actions of every scan result in order', () => {
+    let results = [
+      makeScanResult({
         compositeActions: new Map([
-          ['action1', '/path/to/action1'],
-          ['action2', '/path/to/action2'],
+          ['build', '.github/actions/build'],
+          ['lint', '.github/actions/lint'],
         ]),
-        workflows: new Map(),
-        actions: [],
-      },
-      {
-        compositeActions: new Map([['action3', '/path/to/action3']]),
-        workflows: new Map(),
-        actions: [],
-      },
+      }),
+      makeScanResult({
+        compositeActions: new Map([['action.yml', 'action.yml']]),
+      }),
     ]
 
     let result = mergeScanResults(results)
 
-    expect(result.compositeActions.size).toBe(3)
-    expect(result.compositeActions.has('0:/path/to/action1')).toBeTruthy()
-    expect(result.compositeActions.has('0:/path/to/action2')).toBeTruthy()
-    expect(result.compositeActions.has('1:/path/to/action3')).toBeTruthy()
+    expect(result.compositeActions.values().toArray()).toStrictEqual([
+      '.github/actions/build',
+      '.github/actions/lint',
+      'action.yml',
+    ])
   })
 
-  it('merges actions from multiple results', () => {
-    let action1: GitHubAction = {
-      name: 'actions/checkout',
-      file: 'workflow1.yml',
-      type: 'external',
-      version: 'v4',
-      line: 10,
-    }
-    let action2: GitHubAction = {
+  it('counts workflows sharing a path in different scan results separately', () => {
+    let results = [
+      makeScanResult({
+        workflows: new Map([
+          [
+            '.github/workflows/ci.yml',
+            [makeAction({ file: '/repo/app/.github/workflows/ci.yml' })],
+          ],
+        ]),
+      }),
+      makeScanResult({
+        workflows: new Map([
+          [
+            '.github/workflows/ci.yml',
+            [makeAction({ file: '/repo/docs/.github/workflows/ci.yml' })],
+          ],
+        ]),
+      }),
+    ]
+
+    let result = mergeScanResults(results)
+
+    expect(result.workflows.size).toBe(2)
+  })
+
+  it('counts composite actions sharing a path in different scan results separately', () => {
+    let results = [
+      makeScanResult({
+        compositeActions: new Map([['build', '.github/actions/build']]),
+      }),
+      makeScanResult({
+        compositeActions: new Map([['build', '.github/actions/build']]),
+      }),
+    ]
+
+    let result = mergeScanResults(results)
+
+    expect(result.compositeActions.size).toBe(2)
+  })
+
+  it('keeps the actions of every scan result in order', () => {
+    let checkout = makeAction()
+    let setupNode = makeAction({
+      file: '/repo/.github/workflows/release.yml',
       name: 'actions/setup-node',
-      file: 'workflow2.yml',
-      type: 'external',
-      version: 'v3',
-      line: 15,
-    }
-    let results: ScanResult[] = [
-      {
-        compositeActions: new Map(),
-        workflows: new Map(),
-        actions: [action1],
-      },
-      {
-        compositeActions: new Map(),
-        workflows: new Map(),
-        actions: [action2],
-      },
+      line: 20,
+    })
+    let results = [
+      makeScanResult({ actions: [checkout] }),
+      makeScanResult({ actions: [setupNode] }),
     ]
 
     let result = mergeScanResults(results)
 
-    expect(result.actions).toEqual([action1, action2])
+    expect(result.actions).toStrictEqual([checkout, setupNode])
   })
 
-  it('deduplicates actions with same file:line:name:version', () => {
-    let action1: GitHubAction = {
-      name: 'actions/checkout',
-      file: 'workflow.yml',
-      type: 'external',
-      version: 'v4',
-      line: 10,
-    }
-    let action2: GitHubAction = {
-      name: 'actions/checkout',
-      file: 'workflow.yml',
-      type: 'external',
-      version: 'v4',
-      line: 10,
-    }
-    let action3: GitHubAction = {
-      name: 'actions/checkout',
-      file: 'workflow.yml',
-      type: 'external',
-      version: 'v4',
-      line: 20,
-    }
-    let results: ScanResult[] = [
-      {
-        actions: [action1, action2, action3],
-        compositeActions: new Map(),
-        workflows: new Map(),
-      },
-    ]
+  it.each([
+    {
+      other: makeAction({ file: '/repo/.github/workflows/release.yml' }),
+      component: 'file',
+    },
+    {
+      other: makeAction({ line: 30 }),
+      component: 'line',
+    },
+    {
+      other: makeAction({ name: 'actions/setup-node' }),
+      component: 'name',
+    },
+    {
+      other: makeAction({ version: 'v5' }),
+      component: 'version',
+    },
+  ])(
+    'keeps two actions from different scan results that differ only in $component',
+    ({ other }) => {
+      let action = makeAction()
 
-    let result = mergeScanResults(results)
+      let result = mergeScanResults([
+        makeScanResult({ actions: [action] }),
+        makeScanResult({ actions: [other] }),
+      ])
 
-    expect(result.actions).toEqual([action1, action3])
+      expect(result.actions).toStrictEqual([action, other])
+    },
+  )
+
+  it('keeps one of two identical actions found by different scan results', () => {
+    let action = makeAction()
+
+    let result = mergeScanResults([
+      makeScanResult({ actions: [action] }),
+      makeScanResult({ actions: [makeAction()] }),
+    ])
+
+    expect(result.actions).toStrictEqual([action])
   })
 })

@@ -3,201 +3,115 @@ import { describe, expect, it } from 'vitest'
 import { printDowngradeWarning } from '../../cli/print-downgrade-warning'
 import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 
+/**
+ * SHA-pinned reference of an update that would downgrade it.
+ */
+interface BlockedOptions {
+  /**
+   * Action name.
+   */
+  name?: string
+
+  /**
+   * Commit SHA the reference is pinned to.
+   */
+  sha?: string
+}
+
+/**
+ * Blocked entry in the shape the CLI hands to the printer.
+ */
+type BlockedUpdate = Parameters<typeof printDowngradeWarning>[0][number]
+
+/**
+ * Create an update blocked because it would downgrade a SHA-pinned action.
+ *
+ * @param options - Reference; `bridgecrewio/checkov-action` pinned to a SHA by
+ *   default.
+ * @returns Fresh blocked update.
+ */
+function makeBlocked({
+  sha = '99bb2caf247dfd9f03cf984373bc6043d4e32ebf',
+  name = 'bridgecrewio/checkov-action',
+}: BlockedOptions = {}): BlockedUpdate {
+  return { action: { version: sha, name }, currentVersion: sha }
+}
+
+/**
+ * Second SHA-pinned action, distinct from the default one.
+ *
+ * @returns Fresh blocked update for `actions/checkout`.
+ */
+function makeBlockedCheckout(): BlockedUpdate {
+  return makeBlocked({
+    sha: '11bd71901bbe5b1630ceea73d27597364c9af683',
+    name: 'actions/checkout',
+  })
+}
+
 describe('printDowngradeWarning', () => {
   let consoleInfoSpy = spyOnConsoleInfo()
 
-  it('does nothing for empty array', () => {
+  it('prints nothing when no update is blocked', () => {
     printDowngradeWarning([], false)
 
     expect(consoleInfoSpy).not.toHaveBeenCalled()
   })
 
-  it('uses update singular for a single item', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-    ]
+  it.each([
+    {
+      expectedText:
+        '\n⛔ Skipped 1 update that would downgrade a SHA-pinned action (resolved latest version is older than the pinned version, try --prefer-tags)\n' +
+        '   • bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf',
+      hint: 'suggesting --prefer-tags when tags are not preferred',
+      count: 'one blocked update',
+      blocked: [makeBlocked()],
+      preferTags: false,
+    },
+    {
+      expectedText:
+        '\n⛔ Skipped 1 update that would downgrade a SHA-pinned action (resolved latest version is older than the pinned version)\n' +
+        '   • bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf',
+      hint: 'without the hint when tags are preferred',
+      count: 'one blocked update',
+      blocked: [makeBlocked()],
+      preferTags: true,
+    },
+    {
+      expectedText:
+        '\n⛔ Skipped 2 updates that would downgrade SHA-pinned actions (resolved latest version is older than the pinned version, try --prefer-tags)\n' +
+        '   • bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf\n' +
+        '   • actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
+      hint: 'suggesting --prefer-tags when tags are not preferred',
+      blocked: [makeBlocked(), makeBlockedCheckout()],
+      count: 'several blocked updates',
+      preferTags: false,
+    },
+    {
+      expectedText:
+        '\n⛔ Skipped 2 updates that would downgrade SHA-pinned actions (resolved latest version is older than the pinned version)\n' +
+        '   • bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf\n' +
+        '   • actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
+      hint: 'without the hint when tags are preferred',
+      blocked: [makeBlocked(), makeBlockedCheckout()],
+      count: 'several blocked updates',
+      preferTags: true,
+    },
+  ])('reports $count $hint', ({ expectedText, preferTags, blocked }) => {
+    printDowngradeWarning(blocked, preferTags)
+
+    expect(consoleInfoSpy.printedText()).toBe(expectedText)
+  })
+
+  it('lists each blocked action once with the number of places it appears in', () => {
+    let blocked = [makeBlocked(), makeBlockedCheckout(), makeBlocked()]
 
     printDowngradeWarning(blocked, false)
 
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '1 update that would downgrade a SHA-pinned action',
-      ),
-    )
-  })
-
-  it('uses updates plural for multiple items', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-      {
-        action: {
-          uses: 'owner/other@99bb2caf247dfd9f03cf984373bc6043d4e32ebf',
-          version: '99bb2caf247dfd9f03cf984373bc6043d4e32ebf',
-          name: 'owner/other',
-        },
-        currentVersion: '99bb2caf247dfd9f03cf984373bc6043d4e32ebf',
-      },
-    ]
-
-    printDowngradeWarning(blocked, false)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '2 updates that would downgrade SHA-pinned actions',
-      ),
-    )
-  })
-
-  it('suggests --prefer-tags', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-    ]
-
-    printDowngradeWarning(blocked, false)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('--prefer-tags'),
-    )
-  })
-
-  it('omits the hint when prefer-tags is already active', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-    ]
-
-    printDowngradeWarning(blocked, true)
-
-    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('--prefer-tags'),
-    )
-  })
-
-  it('explains that the latest version is older than the pinned one', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-    ]
-
-    printDowngradeWarning(blocked, false)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('older than the pinned version'),
-    )
-  })
-
-  it('uses action.uses when available as identifier', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-    ]
-
-    printDowngradeWarning(blocked, false)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      ),
-    )
-  })
-
-  it('falls back to name@version when uses is not set', () => {
-    let blocked = [
-      {
-        action: {
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-    ]
-
-    printDowngradeWarning(blocked, false)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      ),
-    )
-  })
-
-  it('deduplicates repeated identifiers and shows occurrence count', () => {
-    let entry = {
-      action: {
-        uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-        version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-        name: 'owner/repo',
-      },
-      currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-    }
-    let blocked = [entry, entry, entry]
-
-    printDowngradeWarning(blocked, false)
-
-    expect(consoleInfoSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '1 update that would downgrade a SHA-pinned action',
-      ),
-    )
-    expect(consoleInfoSpy).toHaveBeenCalledWith(expect.stringContaining('(×3)'))
-    expect(consoleInfoSpy).toHaveBeenCalledTimes(2)
-  })
-
-  it('omits occurrence count for identifiers appearing once', () => {
-    let blocked = [
-      {
-        action: {
-          uses: 'owner/repo@59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          version: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-          name: 'owner/repo',
-        },
-        currentVersion: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8',
-      },
-    ]
-
-    printDowngradeWarning(blocked, false)
-
-    expect(consoleInfoSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('×'),
+    expect(consoleInfoSpy.printedText()).toBe(
+      '\n⛔ Skipped 2 updates that would downgrade SHA-pinned actions (resolved latest version is older than the pinned version, try --prefer-tags)\n' +
+        '   • bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf (×2)\n' +
+        '   • actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
     )
   })
 })
