@@ -1,6 +1,5 @@
-import pc from 'picocolors'
-
 import { groupByIdentifier } from './group-by-identifier'
+import { colors } from '../core/interactive/colors'
 
 /**
  * Prints a notice for updates held back by the minimum age cool-down.
@@ -28,7 +27,7 @@ export function printMinAgeWarning(
   let dayNoun = pluralRules.select(minAge) === 'one' ? 'day' : 'days'
 
   console.info(
-    pc.gray(
+    colors.gray(
       `\n⏳ Skipped ${grouped.length} ${updateNoun} released less than ` +
         `${minAge} ${dayNoun} ago (cool-down, use --min-age 0 to disable ` +
         'or --min-age-exclude to exempt actions)',
@@ -36,6 +35,6 @@ export function printMinAgeWarning(
   )
   for (let { identifier, count } of grouped) {
     let suffix = count > 1 ? ` (×${count})` : ''
-    console.info(pc.gray(`   • ${identifier}${suffix}`))
+    console.info(colors.gray(`   • ${identifier}${suffix}`))
   }
 }

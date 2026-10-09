@@ -1,4 +1,4 @@
-import pc from 'picocolors'
+import { colors } from '../core/interactive/colors'
 
 /**
  * Prints a notice for updates whose floating tag validation was rate limited.
@@ -21,7 +21,7 @@ export function printRateLimitWarning(
     pluralRules.select(affected.length) === 'one' ? 'update' : 'updates'
 
   console.info(
-    pc.gray(
+    colors.gray(
       `\n⚠️ Tag validation was rate limited for ${affected.length} ` +
         `${updateNoun}; exact versions were written instead of floating tags`,
     ),
@@ -30,6 +30,6 @@ export function printRateLimitWarning(
     let identifier =
       update.action.uses ??
       `${update.action.name}@${update.currentVersion ?? 'unknown'}`
-    console.info(pc.gray(`   • ${identifier}`))
+    console.info(colors.gray(`   • ${identifier}`))
   }
 }

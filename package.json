@@ -62,7 +62,6 @@
   "dependencies": {
     "enquirer": "^2.4.1",
     "nanospinner": "^1.2.2",
-    "picocolors": "^1.1.1",
     "semver": "^7.8.5",
     "yaml": "^2.9.1"
   },

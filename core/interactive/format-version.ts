@@ -1,5 +1,6 @@
 import semver from 'semver'
-import pc from 'picocolors'
+
+import { colors } from './colors'
 
 /**
  * Formats a version string for display, handling null/undefined values.
@@ -13,7 +14,7 @@ export function formatVersion(
   currentVersion: undefined | string | null,
 ): string {
   if (!latestVersion) {
-    return pc.gray('unknown')
+    return colors.gray('unknown')
   }
 
   let latest = semver.parse(latestVersion)
@@ -27,12 +28,12 @@ export function formatVersion(
   let change = semver.diff(normalizeVersion(currentVersion!), latestVersion)
   let unstable = current.major === 0
 
-  let changeColor = pc[unstable ? 'yellowBright' : 'gray']
+  let changeColor = colors[unstable ? 'yellowBright' : 'gray']
 
   let parts = [latest.major, latest.minor, latest.patch]
-  let colors = parts.map((_, i) => {
+  let partColors = parts.map((_, i) => {
     if (change === 'major') {
-      return pc.redBright
+      return colors.redBright
     }
     if (change === 'minor' && i >= 1) {
       return changeColor
@@ -45,11 +46,11 @@ export function formatVersion(
   })
 
   return (
-    colors[0]!(String(parts[0])) +
-    colors[0]!('.') +
-    colors[1]!(String(parts[1])) +
-    colors[1]!('.') +
-    colors[2]!(String(parts[2]))
+    partColors[0]!(String(parts[0])) +
+    partColors[0]!('.') +
+    partColors[1]!(String(parts[1])) +
+    partColors[1]!('.') +
+    partColors[2]!(String(parts[2]))
   )
 }
 

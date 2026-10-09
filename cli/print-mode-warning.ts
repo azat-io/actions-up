@@ -1,8 +1,7 @@
-import pc from 'picocolors'
-
 import type { UpdateMode } from '../types/update-mode'
 
 import { groupByIdentifier } from './group-by-identifier'
+import { colors } from '../core/interactive/colors'
 
 /**
  * Prints a warning message for actions that were skipped due to update mode
@@ -30,12 +29,12 @@ export function printModeWarning(
   let label = mode === 'minor' ? 'major' : 'major/minor'
 
   console.info(
-    pc.yellow(
+    colors.yellow(
       `\n⚠️  Skipped ${grouped.length} ${noun} due to ${label} updates`,
     ),
   )
   for (let { identifier, count } of grouped) {
     let suffix = count > 1 ? ` (×${count})` : ''
-    console.info(pc.gray(`   • ${identifier}${suffix}`))
+    console.info(colors.gray(`   • ${identifier}${suffix}`))
   }
 }

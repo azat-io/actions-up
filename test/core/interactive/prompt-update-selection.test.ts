@@ -4,28 +4,23 @@ import type { MockInstance } from 'vitest'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 import enquirer from 'enquirer'
-import pc from 'picocolors'
 
 import type { GitHubAction } from '../../../types/github-action'
 import type { ActionUpdate } from '../../../types/action-update'
 
 import { promptUpdateSelection } from '../../../core/interactive/prompt-update-selection'
 import { stripAnsi } from '../../../core/interactive/strip-ansi'
+import { colors } from '../../../core/interactive/colors'
 
 /**
- * Picocolors decides at import time whether to color, from the environment and
- * the terminal. The real library configured with colors on renders every row
- * the same way everywhere, and makes the column widths account for color codes
- * the way they must in a terminal.
+ * The colors module decides at import time whether to color, from the
+ * environment and the terminal. Colors turned on render every row the same way
+ * everywhere, and make the column widths account for color codes the way they
+ * must in a terminal.
  */
-vi.mock(import('picocolors'), async importOriginal => {
-  let { default: picocolors } = await importOriginal()
-  return {
-    default: {
-      ...picocolors.createColors(true),
-      createColors: picocolors.createColors,
-    },
-  }
+vi.mock(import('../../../core/interactive/colors'), async importOriginal => {
+  let actual = await importOriginal()
+  return { ...actual, colors: actual.createColors(true) }
 })
 
 /**
@@ -709,7 +704,7 @@ describe('promptUpdateSelection', () => {
   })
 
   it('renders colors in this file whatever the environment says, so color assertions are meaningful', () => {
-    expect(pc.gray('x')).not.toBe('x')
+    expect(colors.gray('x')).not.toBe('x')
   })
 
   it('returns null silently, without showing the prompt, when there are no updates', async () => {
@@ -725,7 +720,7 @@ describe('promptUpdateSelection', () => {
 
     expect(result).toBeNull()
     expect(info).toHaveBeenCalledExactlyOnceWith(
-      pc.green('✓ All actions are up to date!'),
+      colors.green('✓ All actions are up to date!'),
     )
     expect(enquirer.prompt).not.toHaveBeenCalled()
   })
@@ -734,8 +729,8 @@ describe('promptUpdateSelection', () => {
     await promptUpdateSelection([makeUpdate()])
 
     expect(prompt.shown()).toMatchObject({
-      message: `Choose which actions to update (Press ${pc.cyan('<space>')} to select, ${pc.cyan('<a>')} to toggle all, ${pc.cyan('<i>')} to invert selection)`,
-      styles: { success: pc.reset, dark: pc.reset, em: pc.bgBlack },
+      message: `Choose which actions to update (Press ${colors.cyan('<space>')} to select, ${colors.cyan('<a>')} to toggle all, ${colors.cyan('<i>')} to invert selection)`,
+      styles: { success: colors.reset, dark: colors.reset, em: colors.bgBlack },
       footer: '\nEnter to start updating. Ctrl-c to cancel.',
       type: 'multiselect',
       pointer: '❯',
@@ -749,7 +744,7 @@ describe('promptUpdateSelection', () => {
     await expect(promptUpdateSelection([makeUpdate()])).rejects.toBe(failure)
 
     expect(error).toHaveBeenCalledExactlyOnceWith(
-      pc.red('Unexpected error during selection:'),
+      colors.red('Unexpected error during selection:'),
       failure,
     )
   })
@@ -812,7 +807,7 @@ describe('promptUpdateSelection', () => {
 
       expect(result).toBeNull()
       expect(info).toHaveBeenCalledExactlyOnceWith(
-        pc.yellow('\nNo actions selected'),
+        colors.yellow('\nNo actions selected'),
       )
     })
 
@@ -890,19 +885,19 @@ describe('promptUpdateSelection', () => {
     it.each([
       {
         description: 'a group label after the user selects the group',
+        expected: ` ${colors.gray('●')}`,
         selection: ['workflows/ci.yml'],
-        expected: ` ${pc.gray('●')}`,
         text: 'workflows/ci.yml',
       },
       {
         description: 'a group label after the user selects each of its rows',
         selection: ['actions/cache', 'actions/checkout'],
-        expected: ` ${pc.gray('●')}`,
+        expected: ` ${colors.gray('●')}`,
         text: 'workflows/ci.yml',
       },
       {
         description: 'a group label with a row the user leaves unselected',
-        expected: ` ${pc.gray('○')}`,
+        expected: ` ${colors.gray('○')}`,
         selection: ['actions/cache'],
         text: 'workflows/ci.yml',
       },
@@ -1036,7 +1031,7 @@ describe('promptUpdateSelection', () => {
 
         expect(result).toBeNull()
         expect(info).toHaveBeenCalledExactlyOnceWith(
-          `\r\u{1B}[K${pc.yellow('Selection cancelled')}`,
+          `\r\u{1B}[K${colors.yellow('Selection cancelled')}`,
         )
       },
     )
@@ -1287,7 +1282,9 @@ describe('promptUpdateSelection', () => {
         }),
       ])
 
-      expect(rowOf('actions/cache').message).toContain(`4.2.${pc.gray('4')}`)
+      expect(rowOf('actions/cache').message).toContain(
+        `4.2.${colors.gray('4')}`,
+      )
     })
 
     it('paints the Target of a major update red', async () => {
@@ -1296,15 +1293,17 @@ describe('promptUpdateSelection', () => {
       ])
 
       expect(rowOf('actions/cache').message).toContain(
-        `${pc.redBright('5')}${pc.redBright('.')}${pc.redBright('0')}${pc.redBright('.')}${pc.redBright('0')}`,
+        `${colors.redBright('5')}${colors.redBright('.')}${colors.redBright('0')}${colors.redBright('.')}${colors.redBright('0')}`,
       )
     })
 
     it('dims the action and the job of an update without a target', async () => {
       await promptUpdateSelection([makeUpdateWithoutTarget()])
 
-      expect(rowOf('actions/cache').message).toContain(pc.gray('actions/cache'))
-      expect(rowOf('actions/cache').message).toContain(pc.gray('build'))
+      expect(rowOf('actions/cache').message).toContain(
+        colors.gray('actions/cache'),
+      )
+      expect(rowOf('actions/cache').message).toContain(colors.gray('build'))
     })
 
     it('does not dim the action and the job of an update that has a target', async () => {
@@ -1462,7 +1461,7 @@ describe('promptUpdateSelection', () => {
 
       expect(result).toBeNull()
       expect(info).toHaveBeenCalledExactlyOnceWith(
-        `\r\u{1B}[K${pc.yellow('Selection cancelled')}`,
+        `\r\u{1B}[K${colors.yellow('Selection cancelled')}`,
       )
     })
 
@@ -1523,7 +1522,7 @@ describe('promptUpdateSelection', () => {
 
       let mark = prompt.shown().indicator({}, { isGroupLabel: true })
 
-      expect(mark).toBe(` ${pc.gray('●')}`)
+      expect(mark).toBe(` ${colors.gray('●')}`)
     })
 
     it.each(['j', 'k'] as const)(

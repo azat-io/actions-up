@@ -1,9 +1,8 @@
-import pc from 'picocolors'
-
 import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
 
 import { groupByIdentifier } from './group-by-identifier'
+import { colors } from '../core/interactive/colors'
 
 /**
  * Prints a warning message for actions that were skipped during scanning.
@@ -121,9 +120,11 @@ function printSkippedGroup(
   let form = pluralRules.select(grouped.length)
   let noun = form === 'one' ? 'action' : 'actions'
 
-  console.info(pc.yellow(`\n⚠️  Skipped ${grouped.length} ${noun} ${reason}`))
+  console.info(
+    colors.yellow(`\n⚠️  Skipped ${grouped.length} ${noun} ${reason}`),
+  )
   for (let { identifier, count } of grouped) {
     let suffix = count > 1 ? ` (×${count})` : ''
-    console.info(pc.gray(`   • ${identifier}${suffix}`))
+    console.info(colors.gray(`   • ${identifier}${suffix}`))
   }
 }

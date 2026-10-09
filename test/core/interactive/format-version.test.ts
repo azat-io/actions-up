@@ -1,37 +1,32 @@
 import { describe, expect, it, vi } from 'vitest'
-import pc from 'picocolors'
 
 import { formatVersion } from '../../../core/interactive/format-version'
+import { colors } from '../../../core/interactive/colors'
 
 /**
- * Picocolors decides at import time whether to color, from the environment and
- * the terminal. The real library configured with colors on lets every test
- * check the same coloring everywhere.
+ * The colors module decides at import time whether to color, from the
+ * environment and the terminal. Colors turned on let every test check the same
+ * coloring everywhere.
  */
-vi.mock(import('picocolors'), async importOriginal => {
-  let { default: picocolors } = await importOriginal()
-  return {
-    default: {
-      ...picocolors.createColors(true),
-      createColors: picocolors.createColors,
-    },
-  }
+vi.mock(import('../../../core/interactive/colors'), async importOriginal => {
+  let actual = await importOriginal()
+  return { ...actual, colors: actual.createColors(true) }
 })
 
 describe('formatVersion', () => {
   it('renders colors in this file whatever the environment says, so color assertions are meaningful', () => {
-    expect(pc.gray('x')).not.toBe('x')
+    expect(colors.gray('x')).not.toBe('x')
   })
 
   it.each([
     {
-      expected: `${pc.redBright('2')}${pc.redBright('.')}${pc.redBright('0')}${pc.redBright('.')}${pc.redBright('0')}`,
+      expected: `${colors.redBright('2')}${colors.redBright('.')}${colors.redBright('0')}${colors.redBright('.')}${colors.redBright('0')}`,
       description: 'paints every part red for a major update',
       current: '1.2.3',
       latest: '2.0.0',
     },
     {
-      expected: `${pc.redBright('1')}${pc.redBright('.')}${pc.redBright('0')}${pc.redBright('.')}${pc.redBright('0')}`,
+      expected: `${colors.redBright('1')}${colors.redBright('.')}${colors.redBright('0')}${colors.redBright('.')}${colors.redBright('0')}`,
       description: 'paints every part red for a major update out of 0.x',
       current: '0.9.0',
       latest: '1.0.0',
@@ -39,28 +34,28 @@ describe('formatVersion', () => {
     {
       description:
         'paints the minor and patch parts gray for a minor update of a stable version',
-      expected: `1.${pc.gray('3')}${pc.gray('.')}${pc.gray('0')}`,
+      expected: `1.${colors.gray('3')}${colors.gray('.')}${colors.gray('0')}`,
       current: '1.2.3',
       latest: '1.3.0',
     },
     {
       description:
         'paints only the patch part gray for a patch update of a stable version',
-      expected: `1.2.${pc.gray('4')}`,
+      expected: `1.2.${colors.gray('4')}`,
       current: '1.2.3',
       latest: '1.2.4',
     },
     {
       description:
         'paints the minor and patch parts yellow for a minor update of a 0.x version',
-      expected: `0.${pc.yellowBright('2')}${pc.yellowBright('.')}${pc.yellowBright('0')}`,
+      expected: `0.${colors.yellowBright('2')}${colors.yellowBright('.')}${colors.yellowBright('0')}`,
       current: '0.1.0',
       latest: '0.2.0',
     },
     {
       description:
         'paints only the patch part yellow for a patch update of a 0.x version',
-      expected: `0.1.${pc.yellowBright('1')}`,
+      expected: `0.1.${colors.yellowBright('1')}`,
       current: '0.1.0',
       latest: '0.1.1',
     },
@@ -77,7 +72,7 @@ describe('formatVersion', () => {
   it.each([null, undefined])(
     'prints a gray unknown when latest is %s',
     latest => {
-      expect(formatVersion(latest, '1.2.3')).toBe(pc.gray('unknown'))
+      expect(formatVersion(latest, '1.2.3')).toBe(colors.gray('unknown'))
     },
   )
 
@@ -91,12 +86,12 @@ describe('formatVersion', () => {
 
   it.each([
     {
-      expected: `1.0.${pc.gray('1')}`,
+      expected: `1.0.${colors.gray('1')}`,
       latest: '1.0.1',
       current: 'v1',
     },
     {
-      expected: `1.${pc.gray('3')}${pc.gray('.')}${pc.gray('0')}`,
+      expected: `1.${colors.gray('3')}${colors.gray('.')}${colors.gray('0')}`,
       current: 'v1.2',
       latest: '1.3.0',
     },
@@ -110,7 +105,7 @@ describe('formatVersion', () => {
   describe('current behavior pending owner decision', () => {
     it('drops the v prefix of latest once the change is colored', () => {
       expect(formatVersion('v1.3.0', '1.2.3')).toBe(
-        `1.${pc.gray('3')}${pc.gray('.')}${pc.gray('0')}`,
+        `1.${colors.gray('3')}${colors.gray('.')}${colors.gray('0')}`,
       )
     })
 

@@ -1,6 +1,5 @@
-import pc from 'picocolors'
-
 import { groupByIdentifier } from './group-by-identifier'
+import { colors } from '../core/interactive/colors'
 
 /**
  * Prints a notice for updates blocked because they would downgrade SHA-pinned
@@ -32,7 +31,7 @@ export function printDowngradeWarning(
   let hint = preferTags ? '' : ', try --prefer-tags'
 
   console.info(
-    pc.gray(
+    colors.gray(
       `\n⛔ Skipped ${grouped.length} ${updateNoun} that would downgrade ` +
         `${actionNoun} (resolved latest version is older than the pinned ` +
         `version${hint})`,
@@ -40,6 +39,6 @@ export function printDowngradeWarning(
   )
   for (let { identifier, count } of grouped) {
     let suffix = count > 1 ? ` (×${count})` : ''
-    console.info(pc.gray(`   • ${identifier}${suffix}`))
+    console.info(colors.gray(`   • ${identifier}${suffix}`))
   }
 }

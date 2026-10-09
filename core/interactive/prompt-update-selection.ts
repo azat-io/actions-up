@@ -1,7 +1,6 @@
 import enquirer from 'enquirer'
 import 'node:worker_threads'
 import path from 'node:path'
-import pc from 'picocolors'
 
 import type { ActionUpdate } from '../../types/action-update'
 
@@ -11,6 +10,7 @@ import { GITHUB_DIRECTORY } from '../constants'
 import { isSha } from '../versions/is-sha'
 import { stripAnsi } from './strip-ansi'
 import { padString } from './pad-string'
+import { colors } from './colors'
 
 /**
  * Global minimum widths for the action and current version columns.
@@ -316,7 +316,7 @@ export async function promptUpdateSelection(
   let outdated = updates.filter(update => update.hasUpdate)
 
   if (outdated.length === 0) {
-    console.info(pc.green('✓ All actions are up to date!'))
+    console.info(colors.green('✓ All actions are up to date!'))
     return null
   }
 
@@ -414,7 +414,7 @@ export async function promptUpdateSelection(
           `${padString(
             currentComputed.versionForPadding,
             maxVersionLength + 1,
-          )}${pc.gray(`(${currentComputed.shortSha})`)}`,
+          )}${colors.gray(`(${currentComputed.shortSha})`)}`,
         ).length
       : 0,
     )
@@ -478,7 +478,7 @@ export async function promptUpdateSelection(
       let currentComputed = currentComputedByIndex[index]!
       let current = currentComputed.display
       if (currentComputed.versionForPadding && currentComputed.shortSha) {
-        current = `${padString(currentComputed.versionForPadding, globalVersionWidth + 1)}${pc.gray(`(${currentComputed.shortSha})`)}`
+        current = `${padString(currentComputed.versionForPadding, globalVersionWidth + 1)}${colors.gray(`(${currentComputed.shortSha})`)}`
       }
       let effectiveCurrentForDiff =
         currentComputed.effectiveForDiff ?? update.currentVersion
@@ -493,20 +493,20 @@ export async function promptUpdateSelection(
         getResolvedTarget(update)
       ) {
         let shortSha = getResolvedTarget(update)!.slice(0, 7)
-        latest = `${padString(latest, globalVersionWidth + 1)}${pc.gray(`(${shortSha})`)}`
+        latest = `${padString(latest, globalVersionWidth + 1)}${colors.gray(`(${shortSha})`)}`
       }
 
       if (!hasTarget) {
-        latest = pc.gray(latest)
-        current = pc.gray(current)
-        actionName = pc.gray(actionName)
+        latest = colors.gray(latest)
+        current = colors.gray(current)
+        actionName = colors.gray(actionName)
       }
 
       let jobName = update.action.job ?? '–'
       let age = formatAge(update.publishedAt)
       tableRows.push({
-        job: hasTarget ? jobName : pc.gray(jobName),
-        age: hasTarget ? age : pc.gray(age),
+        job: hasTarget ? jobName : colors.gray(jobName),
+        age: hasTarget ? age : colors.gray(age),
         action: actionName,
         target: latest,
         arrow: '❯',
@@ -531,7 +531,7 @@ export async function promptUpdateSelection(
       })
       if (isHeader) {
         groupChildren.push({
-          message: pc.gray(` ○ ${formattedRow}`),
+          message: colors.gray(` ○ ${formattedRow}`),
           role: 'separator',
           // Remove auto-child indent to tighten left padding
           // @ts-expect-error enquirer supports indent on choice-like objects
@@ -560,7 +560,7 @@ export async function promptUpdateSelection(
      * Push focusable group label with nested children.
      */
     choices.push({
-      message: pc.gray(file),
+      message: colors.gray(file),
       value: `label|${file}`,
       choices: groupChildren,
       name: `label|${file}`,
@@ -603,7 +603,7 @@ export async function promptUpdateSelection(
           let selectedCount = rows.filter(row => row.enabled).length
           let mark = selectedCount === total ? '●' : '○'
 
-          return ` ${pc.gray(mark)}`
+          return ` ${colors.gray(mark)}`
         }
 
         return `   ${choice.enabled ? '●' : '○'}`
@@ -640,13 +640,13 @@ export async function promptUpdateSelection(
       },
       message:
         'Choose which actions to update ' +
-        `(Press ${pc.cyan('<space>')} to select, ` +
-        `${pc.cyan('<a>')} to toggle all, ` +
-        `${pc.cyan('<i>')} to invert selection)`,
+        `(Press ${colors.cyan('<space>')} to select, ` +
+        `${colors.cyan('<a>')} to toggle all, ` +
+        `${colors.cyan('<i>')} to invert selection)`,
       styles: {
-        success: pc.reset,
-        em: pc.bgBlack,
-        dark: pc.reset,
+        success: colors.reset,
+        em: colors.bgBlack,
+        dark: colors.reset,
       },
       j() {
         return this.down?.() ?? Promise.resolve([])
@@ -668,7 +668,7 @@ export async function promptUpdateSelection(
     let result = getSelectedUpdates(outdated, selectedIndexes)
 
     if (result.length === 0) {
-      console.info(pc.yellow('\nNo actions selected'))
+      console.info(colors.yellow('\nNo actions selected'))
       return null
     }
 
@@ -685,7 +685,7 @@ export async function promptUpdateSelection(
       return null
     }
 
-    console.error(pc.red('Unexpected error during selection:'), error)
+    console.error(colors.red('Unexpected error during selection:'), error)
     throw error
   }
 }
@@ -797,7 +797,7 @@ function getSelectedUpdates(
  */
 function formatVersionOrSha(version: undefined | string | null): string {
   if (!version) {
-    return pc.gray('unknown')
+    return colors.gray('unknown')
   }
 
   if (isSha(version)) {
@@ -848,7 +848,7 @@ function getResolvedTarget(update: ActionUpdate): string | null {
  * cancellation message.
  */
 function logSelectionCancelled(): void {
-  console.info(`\r\u{1B}[K${pc.yellow('Selection cancelled')}`)
+  console.info(`\r\u{1B}[K${colors.yellow('Selection cancelled')}`)
 }
 
 function hasResolvedTarget(update: ActionUpdate): boolean {

@@ -1,7 +1,6 @@
 import { createSpinner } from 'nanospinner'
 import { resolve } from 'node:path'
 import 'node:worker_threads'
-import pc from 'picocolors'
 
 import type { CompatibleUpdate } from '../core/api/get-compatible-update'
 import type { JsonReportStatus } from './build-json-report'
@@ -36,6 +35,7 @@ import { mergeScanResults } from './merge-scan-results'
 import { printModeWarning } from './print-mode-warning'
 import { scanRecursive } from '../core/scan-recursive'
 import { buildJsonReport } from './build-json-report'
+import { colors } from '../core/interactive/colors'
 import { parseArguments } from './parse-arguments'
 import { scanGitHubActions } from '../core/index'
 import { isSha } from '../core/versions/is-sha'
@@ -90,7 +90,7 @@ export function run(): void {
   }
 
   if (parsed.kind === 'error') {
-    console.error(pc.redBright('\nError:'), parsed.message)
+    console.error(colors.redBright('\nError:'), parsed.message)
     process.exit(1)
   }
 
@@ -128,7 +128,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     validateCliOptions({ yes: options.yes, json })
 
     if (!json) {
-      console.info(pc.cyan('\n🚀 Actions Up!\n'))
+      console.info(colors.cyan('\n🚀 Actions Up!\n'))
       spinner = createSpinner('Scanning GitHub Actions...').start()
     }
 
@@ -203,23 +203,23 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let totalCompositeActions = scanResult.compositeActions.size
 
     spinner?.success(
-      `Found ${pc.yellow(totalActions)} ${pluralize(
+      `Found ${colors.yellow(totalActions)} ${pluralize(
         totalActions,
         'action',
         'actions',
       )}${
         totalRunners > 0 ?
-          ` and ${pc.yellow(totalRunners)} ${pluralize(
+          ` and ${colors.yellow(totalRunners)} ${pluralize(
             totalRunners,
             'runner',
             'runners',
           )}`
         : ''
-      } in ${pc.yellow(totalWorkflows)} ${pluralize(
+      } in ${colors.yellow(totalWorkflows)} ${pluralize(
         totalWorkflows,
         'workflow',
         'workflows',
-      )} and ${pc.yellow(totalCompositeActions)} composite ${pluralize(
+      )} and ${colors.yellow(totalCompositeActions)} composite ${pluralize(
         totalCompositeActions,
         'action',
         'actions',
@@ -235,7 +235,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         })
         return
       }
-      console.info(pc.green('\n✨ No GitHub Actions found in this repository'))
+      console.info(
+        colors.green('\n✨ No GitHub Actions found in this repository'),
+      )
       return
     }
 
@@ -292,7 +294,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         })
         return
       }
-      console.info(pc.green('\n✨ Nothing to check after excludes\n'))
+      console.info(colors.green('\n✨ Nothing to check after excludes\n'))
       return
     }
 
@@ -593,7 +595,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       }
       printWarnings()
       console.info(
-        pc.green('\n✨ Everything is already at the latest version!\n'),
+        colors.green('\n✨ Everything is already at the latest version!\n'),
       )
       return
     }
@@ -601,13 +603,13 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     let breaking = outdated.filter(update => update.isBreaking)
 
     spinner?.success(
-      `Found ${pc.yellow(outdated.length)} ${pluralize(
+      `Found ${colors.yellow(outdated.length)} ${pluralize(
         outdated.length,
         'update',
         'updates',
       )} available${
         breaking.length > 0 ?
-          ` (${pc.redBright(breaking.length)} breaking)`
+          ` (${colors.redBright(breaking.length)} breaking)`
         : ''
       }`,
     )
@@ -628,23 +630,25 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     printWarnings()
 
     if (options.dryRun) {
-      console.info(pc.yellow('\n📋 Dry Run - No changes will be made\n'))
+      console.info(colors.yellow('\n📋 Dry Run - No changes will be made\n'))
 
       for (let update of outdated) {
         let target =
           update.targetRefStyle === 'sha' && update.targetRef ?
-            `${update.latestVersion} ${pc.gray(`(${update.targetRef.slice(0, 7)})`)}`
+            `${update.latestVersion} ${colors.gray(`(${update.targetRef.slice(0, 7)})`)}`
           : update.targetRef
         console.info(
-          `${pc.cyan(update.action.file ?? 'unknown')}:\n` +
-            `${update.action.name}: ${pc.redBright(update.currentVersion)} → ${pc.green(
+          `${colors.cyan(update.action.file ?? 'unknown')}:\n` +
+            `${update.action.name}: ${colors.redBright(update.currentVersion)} → ${colors.green(
               target,
             )}\n`,
         )
       }
 
       let noun = pluralize(outdated.length, 'entry', 'entries')
-      console.info(pc.gray(`\n${outdated.length} ${noun} would be updated\n`))
+      console.info(
+        colors.gray(`\n${outdated.length} ${noun} would be updated\n`),
+      )
       return
     }
 
@@ -653,7 +657,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
        * Auto-update every eligible entry, actions and runners alike.
        */
       console.info(
-        pc.yellow(
+        colors.yellow(
           `\n🔄 Updating ${outdated.length} ${pluralize(
             outdated.length,
             'entry',
@@ -680,12 +684,12 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       })
 
       if (!selected || selected.length === 0) {
-        console.info(pc.gray('\nNo updates applied'))
+        console.info(colors.gray('\nNo updates applied'))
         return
       }
 
       console.info(
-        pc.yellow(
+        colors.yellow(
           `\n🔄 Updating ${selected.length} selected ${pluralize(
             selected.length,
             'entry',
@@ -696,7 +700,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
       await applyUpdates(selected)
     }
-    console.info(pc.green('\n✓ Updates applied successfully!'))
+    console.info(colors.green('\n✓ Updates applied successfully!'))
   } catch (error) {
     spinner?.error('Failed')
 
@@ -704,12 +708,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
      * Handle rate limit errors with helpful message.
      */
     if (error instanceof Error && error.name === 'GitHubRateLimitError') {
-      console.error(pc.yellow('\n⚠️ Rate Limit Exceeded\n'))
+      console.error(colors.yellow('\n⚠️ Rate Limit Exceeded\n'))
       console.error(error.message)
-      console.error(pc.gray('\nExample: GITHUB_TOKEN=ghp_xxxx actions-up\n'))
+      console.error(
+        colors.gray('\nExample: GITHUB_TOKEN=ghp_xxxx actions-up\n'),
+      )
     } else {
       console.error(
-        pc.redBright('\nError:'),
+        colors.redBright('\nError:'),
         error instanceof Error ? error.message : String(error),
       )
     }
