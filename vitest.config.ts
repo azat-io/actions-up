@@ -12,7 +12,7 @@ export default defineConfig(
           branches: 100,
           lines: 100,
         },
-        exclude: ['test/**'],
+        include: ['cli/**', 'core/**'],
         provider: 'v8',
       },
     },

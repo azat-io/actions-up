@@ -76,6 +76,7 @@
     "@types/node": "^26.6.2",
     "@types/semver": "^7.8.0",
     "@vitest/coverage-v8": "^5.0.1",
+    "@xterm/headless": "^6.0.0",
     "changelogen": "^0.6.2",
     "changelogithub": "^15.0.5",
     "clean-publish": "^7.1.0",

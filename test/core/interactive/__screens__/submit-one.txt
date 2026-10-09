@@ -1,0 +1,118 @@
+=== initial ===
+cursor: hidden, row 2, column 107
+times the cursor was shown: 0
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+{cyan:?} Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:…}
+{cyan:❯} {gray:○} {gray bgBlack:actions/setup/action.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ● actions/cache                             –      4.2.0   {gray:(1bd1e32)}  ❯  4.2.{gray:3   (5a3ec84)}
+    ○ docker/build-push-action                  –      4afd733            ❯  v6.18.0 {gray:(55c2c14)}
+
+  {gray:○ workflows/ci.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ○ actions/checkout                          build  4.2.2   {gray:(11bd719)}  ❯  {redBright:5.0.0}   {gray:(08c6903)}
+    ● actions/setup-node                        build  4.0.0              ❯  4.{gray:4.0}
+    ● aquasecurity/trivy-action                 lint   0.28.0             ❯  0.{yellowBright:32.0}
+    ○ {gray:some-org/private-action                   lint   1.2.0}              ❯  {redBright:2.0.0} {dim:(disabled)}
+    ○ runner/ubuntu                             test   ubuntu-22.04       ❯  ubuntu-24.04
+
+Enter to start updating. Ctrl-c to cancel.
+
+=== a selects every row ===
+cursor: hidden, row 2, column 107
+times the cursor was shown: 0
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+{cyan:?} Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:…}
+{cyan:❯} {gray:●} {gray bgBlack:actions/setup/action.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ● actions/cache                             –      4.2.0   {gray:(1bd1e32)}  ❯  4.2.{gray:3   (5a3ec84)}
+    ● docker/build-push-action                  –      4afd733            ❯  v6.18.0 {gray:(55c2c14)}
+
+  {gray:○ workflows/ci.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ● actions/checkout                          build  4.2.2   {gray:(11bd719)}  ❯  {redBright:5.0.0}   {gray:(08c6903)}
+    ● actions/setup-node                        build  4.0.0              ❯  4.{gray:4.0}
+    ● aquasecurity/trivy-action                 lint   0.28.0             ❯  0.{yellowBright:32.0}
+    ○ {gray:some-org/private-action                   lint   1.2.0}              ❯  {redBright:2.0.0} {dim:(disabled)}
+    ● runner/ubuntu                             test   ubuntu-22.04       ❯  ubuntu-24.04
+
+Enter to start updating. Ctrl-c to cancel.
+
+=== a deselects every row ===
+cursor: hidden, row 2, column 107
+times the cursor was shown: 0
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+{cyan:?} Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:…}
+{cyan:❯} {gray:○} {gray bgBlack:actions/setup/action.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ○ actions/cache                             –      4.2.0   {gray:(1bd1e32)}  ❯  4.2.{gray:3   (5a3ec84)}
+    ○ docker/build-push-action                  –      4afd733            ❯  v6.18.0 {gray:(55c2c14)}
+
+  {gray:○ workflows/ci.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ○ actions/checkout                          build  4.2.2   {gray:(11bd719)}  ❯  {redBright:5.0.0}   {gray:(08c6903)}
+    ○ actions/setup-node                        build  4.0.0              ❯  4.{gray:4.0}
+    ○ aquasecurity/trivy-action                 lint   0.28.0             ❯  0.{yellowBright:32.0}
+    ○ {gray:some-org/private-action                   lint   1.2.0}              ❯  {redBright:2.0.0} {dim:(disabled)}
+    ○ runner/ubuntu                             test   ubuntu-22.04       ❯  ubuntu-24.04
+
+Enter to start updating. Ctrl-c to cancel.
+
+=== Down moves to a row ===
+cursor: hidden, row 2, column 107
+times the cursor was shown: 0
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+{cyan:?} Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:…}
+  {gray:○ actions/setup/action.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+{cyan:❯}   ○ {bgBlack:actions/cache                             –      4.2.0   }{gray bgBlack:(1bd1e32)}{bgBlack:  ❯  4.2.}{gray bgBlack:3   (5a3ec84)}
+    ○ docker/build-push-action                  –      4afd733            ❯  v6.18.0 {gray:(55c2c14)}
+
+  {gray:○ workflows/ci.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ○ actions/checkout                          build  4.2.2   {gray:(11bd719)}  ❯  {redBright:5.0.0}   {gray:(08c6903)}
+    ○ actions/setup-node                        build  4.0.0              ❯  4.{gray:4.0}
+    ○ aquasecurity/trivy-action                 lint   0.28.0             ❯  0.{yellowBright:32.0}
+    ○ {gray:some-org/private-action                   lint   1.2.0}              ❯  {redBright:2.0.0} {dim:(disabled)}
+    ○ runner/ubuntu                             test   ubuntu-22.04       ❯  ubuntu-24.04
+
+Enter to start updating. Ctrl-c to cancel.
+
+=== Space selects the row ===
+cursor: hidden, row 2, column 107
+times the cursor was shown: 0
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+{cyan:?} Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:…}
+  {gray:○ actions/setup/action.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+{cyan:❯}   ● {bgBlack:actions/cache                             –      4.2.0   }{gray bgBlack:(1bd1e32)}{bgBlack:  ❯  4.2.}{gray bgBlack:3   (5a3ec84)}
+    ○ docker/build-push-action                  –      4afd733            ❯  v6.18.0 {gray:(55c2c14)}
+
+  {gray:○ workflows/ci.yml}
+    {gray:○ Action                                    Job    Current            ❯  Target}
+    ○ actions/checkout                          build  4.2.2   {gray:(11bd719)}  ❯  {redBright:5.0.0}   {gray:(08c6903)}
+    ○ actions/setup-node                        build  4.0.0              ❯  4.{gray:4.0}
+    ○ aquasecurity/trivy-action                 lint   0.28.0             ❯  0.{yellowBright:32.0}
+    ○ {gray:some-org/private-action                   lint   1.2.0}              ❯  {redBright:2.0.0} {dim:(disabled)}
+    ○ runner/ubuntu                             test   ubuntu-22.04       ❯  ubuntu-24.04
+
+Enter to start updating. Ctrl-c to cancel.
+
+=== Enter submits the selection ===
+cursor: visible, row 5, column 1
+times the cursor was shown: 1
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+✔ Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:·} 1 action select
+ed

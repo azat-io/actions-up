@@ -27,6 +27,7 @@ export default defineConfig({
   ],
   ignorePaths: [
     '.github',
+    '__screens__',
     'changelog.md',
     'license',
     'pnpm-lock.yaml',

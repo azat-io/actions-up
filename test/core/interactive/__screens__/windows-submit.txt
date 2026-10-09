@@ -1,0 +1,20 @@
+=== initial ===
+cursor: hidden, row 2, column 108
+times the cursor was shown: 0
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+{cyan:?} Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:...}
+{cyan:❯} {gray:●} {gray bgBlack:workflows/ci.yml}
+    {gray:○ Action                                    Job    Current           ❯  Target}
+    ● actions/cache                             build  4.2.0 {gray:(1bd1e32)}   ❯  4.2.{gray:3 (5a3ec84)}
+
+Enter to start updating. Ctrl-c to cancel.
+
+=== Enter submits the selection ===
+cursor: visible, row 4, column 1
+times the cursor was shown: 1
+bells: 0
+--- screen ---
+Line 1 printed before the prompt
+√ Choose which actions to update (Press {cyan:<space>} to select, {cyan:<a>} to toggle all, {cyan:<i>} to invert selection) {dim:·} 1 action selected
