@@ -325,6 +325,11 @@ export async function promptUpdateSelection(
    */
   let groups = new Map<string, GroupEntry[]>()
 
+  /**
+   * Files in the order the list shows their groups.
+   */
+  let sortedFiles: string[] = []
+
   for (let [index, update] of outdated.entries()) {
     let originalFile = update.action.file ?? 'unknown file'
     /**
@@ -339,11 +344,18 @@ export async function promptUpdateSelection(
       file = originalFile
     }
 
-    let group = groups.get(file) ?? []
+    let group = groups.get(file)
+
+    if (!group) {
+      group = []
+      groups.set(file, group)
+      sortedFiles.push(file)
+    }
 
     group.push({ update, index })
-    groups.set(file, group)
   }
+
+  sortedFiles.sort()
 
   /**
    * Resolve display value for Current and an effective version for diffing. If
@@ -439,8 +451,6 @@ export async function promptUpdateSelection(
   let globalVersionWidth = Math.min(maxVersionLength, MAX_VERSION_WIDTH)
   let globalTargetWidth = globalVersionWidth + 1 + 9
   let globalAgeWidth = showAge && hasAnyAge ? 6 : 0
-
-  let sortedFiles = groups.keys().toArray().toSorted()
 
   for (let [fileIndex, file] of sortedFiles.entries()) {
     let fileGroup = groups.get(file)
