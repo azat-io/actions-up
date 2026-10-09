@@ -335,27 +335,12 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     })
 
     /**
-     * Apply ignore comments (file/block/next-line/inline).
+     * Apply ignore comments (file/block/next-line/inline). The checks run in
+     * parallel, but the kept entries stay in scan order, so every run lists
+     * them the same way.
      */
-    let filtered: typeof updates = []
-    await Promise.all(
-      updates.map(async update => {
-        let ignored = await shouldIgnore(update.action.file, update.action.line)
-        if (!ignored) {
-          filtered.push(update)
-        }
-      }),
-    )
-
-    let filteredRunners: ActionUpdate[] = []
-    await Promise.all(
-      runnerUpdates.map(async update => {
-        let ignored = await shouldIgnore(update.action.file, update.action.line)
-        if (!ignored) {
-          filteredRunners.push(update)
-        }
-      }),
-    )
+    let filtered = await dropIgnoredUpdates(updates)
+    let filteredRunners = await dropIgnoredUpdates(runnerUpdates)
 
     /**
      * Skipped entries that should trigger a warning (e.g., branches).
@@ -730,6 +715,25 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
     process.exit(1)
   }
+}
+
+/**
+ * Drops the entries whose line carries an ignore comment. The comments are read
+ * in parallel, and the kept entries stay in the given order.
+ *
+ * @param updates - Entries to check.
+ * @returns Entries without an ignore comment, in the given order.
+ */
+async function dropIgnoredUpdates(
+  updates: ActionUpdate[],
+): Promise<ActionUpdate[]> {
+  let checked = await Promise.all(
+    updates.map(async update => ({
+      ignored: await shouldIgnore(update.action.file, update.action.line),
+      update,
+    })),
+  )
+  return checked.filter(({ ignored }) => !ignored).map(({ update }) => update)
 }
 
 /**

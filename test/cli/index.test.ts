@@ -866,6 +866,58 @@ describe('run', () => {
         expect.objectContaining({ action }),
       ])
     })
+
+    it('keeps the updates in scan order when their ignore comments are read out of order', async () => {
+      let slow = makeAction()
+      let fast = makeAction({ name: 'actions/cache', line: 20 })
+      arrangeRun({
+        updates: [
+          makeUpdate(slow),
+          makeUpdate(fast, { latestVersion: 'v4.2.0' }),
+        ],
+      })
+      vi.mocked(shouldIgnore).mockImplementation(async (_file, line) => {
+        if (line === slow.line) {
+          await Promise.resolve()
+          await Promise.resolve()
+        }
+        return false
+      })
+
+      await runCli('--dry-run')
+
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        DRY_RUN_HEADER,
+        `${WORKFLOW_FILE}:\nactions/checkout: v3 → v4.2.2 (b4ffde6)`,
+        `${WORKFLOW_FILE}:\nactions/cache: v3 → v4.2.0 (b4ffde6)`,
+        '2 entries would be updated',
+      ])
+    })
+
+    it('keeps the runners in scan order when their ignore comments are read out of order', async () => {
+      let slow = makeRunner()
+      let fast = makeRunner({
+        version: 'windows-2022',
+        name: 'runner/windows',
+        line: 30,
+      })
+      arrangeScan(slow, fast)
+      vi.mocked(shouldIgnore).mockImplementation(async (_file, line) => {
+        if (line === slow.line) {
+          await Promise.resolve()
+          await Promise.resolve()
+        }
+        return false
+      })
+
+      await runCli('--yes')
+
+      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+        expect.objectContaining({ action: slow }),
+        expect.objectContaining({ action: fast }),
+      ])
+    })
   })
 
   describe('runner labels', () => {
