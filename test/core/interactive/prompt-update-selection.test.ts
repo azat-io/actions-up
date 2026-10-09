@@ -1,14 +1,14 @@
-import type { EventEmitter } from 'node:events'
 import type { MockInstance } from 'vitest'
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { PassThrough } from 'node:stream'
-import enquirer from 'enquirer'
 
+import type { MultiselectEntry } from '../../../types/multiselect-entry'
 import type { GitHubAction } from '../../../types/github-action'
 import type { ActionUpdate } from '../../../types/action-update'
 
 import { promptUpdateSelection } from '../../../core/interactive/prompt-update-selection'
+import { runMultiselect } from '../../../core/interactive/multiselect/run-multiselect'
+import { createFakeTerminal } from '../../helpers/create-fake-terminal'
 import { stripAnsi } from '../../../core/interactive/strip-ansi'
 import { colors } from '../../../core/interactive/colors'
 
@@ -21,6 +21,15 @@ import { colors } from '../../../core/interactive/colors'
 vi.mock(import('../../../core/interactive/colors'), async importOriginal => {
   let actual = await importOriginal()
   return { ...actual, colors: actual.createColors(true) }
+})
+
+/**
+ * The prompt answers through a stand-in in most tests, which checks the lines
+ * the selection lists and chooses some of them. The tests in a terminal reset
+ * the spy to run the real prompt.
+ */
+vi.mock(import('../../../core/interactive/multiselect/run-multiselect'), {
+  spy: true,
 })
 
 /**
@@ -49,97 +58,21 @@ const NOW = new Date('2026-01-15T10:00:00Z')
 const HOUR = 60 * 60 * 1000
 
 /**
- * Enquirer's real `prompt`, kept before the tests replace it with the stand-in.
- * Besides answering, it re-emits the events of the prompts it runs.
- */
-let realPrompt = enquirer.prompt as Pick<EventEmitter, 'once'> &
-  typeof enquirer.prompt
-
-/**
- * Options the selection passes to `enquirer.prompt`.
- */
-interface SelectionPromptOptions {
-  /**
-   * Draws the selection mark of a group label or a row.
-   */
-  indicator(state: unknown, choice: MarkedChoice): string
-
-  /**
-   * Group labels and the blank lines between them.
-   */
-  choices: (GroupLabelChoice | SeparatorChoice)[]
-
-  /**
-   * Moves the focus down on `j`.
-   */
-  j(this: MovementContext): Promise<string[]>
-
-  /**
-   * Moves the focus up on `k`.
-   */
-  k(this: MovementContext): Promise<string[]>
-
-  /**
-   * Summary printed next to the question.
-   */
-  format(this: FormatContext): string
-
-  /**
-   * Theme overrides.
-   */
-  styles: Record<string, unknown>
-
-  /**
-   * Names of the rows selected when the prompt opens.
-   */
-  initial: string[]
-
-  /**
-   * Glyph of the focused row.
-   */
-  pointer: string
-
-  /**
-   * Question shown above the list.
-   */
-  message: string
-
-  /**
-   * Text under the list.
-   */
-  footer: string
-
-  /**
-   * Key of the answer.
-   */
-  name: string
-
-  /**
-   * Prompt kind.
-   */
-  type: string
-}
-
-/**
- * In-memory stand-in for enquirer's multiselect prompt.
+ * Stand-in for the multiselect prompt.
  */
 interface FakeMultiselect {
   /**
-   * Answer a prompt call once the user has pressed Enter.
+   * Answer the prompt: the values of the lines the user chose, or of the rows
+   * selected at the start when the user presses Enter right away.
    */
-  answer(options: SelectionPromptOptions): Promise<Record<string, string[]>>
+  answer(options: SelectionOptions): Promise<number[] | null>
 
   /**
    * Choose the lines that are selected when the user presses Enter: group
    * labels by their file and rows by their action. Without a choice the user
-   * presses Enter right away, on the lines the prompt pre-selected.
+   * presses Enter right away, on the rows the prompt selected at the start.
    */
   select(...texts: string[]): void
-
-  /**
-   * Options of the shown prompt; throws when the prompt was not shown.
-   */
-  shown(): SelectionPromptOptions
 
   /**
    * Make the prompt reject instead of answering.
@@ -147,145 +80,15 @@ interface FakeMultiselect {
   failWith(error: Error): void
 
   /**
-   * Summary enquirer prints next to the question after Enter; throws when the
-   * prompt was not submitted.
+   * Options of the shown prompt; throws when the prompt was not shown.
+   */
+  shown(): SelectionOptions
+
+  /**
+   * Summary the prompt prints after the question once the user presses Enter;
+   * throws when the prompt was not submitted.
    */
   summary(): string
-}
-
-/**
- * Selectable label of a file group, holding the lines of the group.
- */
-interface GroupLabelChoice {
-  /**
-   * Column header followed by the rows of the group.
-   */
-  choices: (SeparatorChoice | RowChoice)[]
-
-  /**
-   * Marks the choice as a group label.
-   */
-  isGroupLabel: true
-
-  /**
-   * Whether the label itself is selected.
-   */
-  enabled: boolean
-
-  /**
-   * Visible text: the file of the group.
-   */
-  message: string
-
-  /**
-   * Name enquirer answers with when the label is selected.
-   */
-  name: string
-}
-
-/**
- * Selectable row of one update.
- */
-interface RowChoice {
-  /**
-   * Whether the row cannot be selected.
-   */
-  disabled: boolean
-
-  /**
-   * Whether the row is selected.
-   */
-  enabled: boolean
-
-  /**
-   * Visible text.
-   */
-  message: string
-
-  /**
-   * Indentation enquirer puts before the row.
-   */
-  indent: string
-
-  /**
-   * Name enquirer answers with when the row is selected.
-   */
-  name: string
-}
-
-/**
- * Non-selectable line: a column header or the blank line between groups.
- */
-interface SeparatorChoice {
-  /**
-   * Enquirer role that makes the line non-selectable.
-   */
-  role: 'separator'
-
-  /**
-   * Selection flag enquirer keeps on every line, separators included.
-   */
-  enabled?: boolean
-
-  /**
-   * Indentation enquirer puts before the line.
-   */
-  indent?: string
-
-  /**
-   * Visible text.
-   */
-  message: string
-}
-
-/**
- * Choice enquirer draws a selection mark for.
- */
-interface MarkedChoice {
-  /**
-   * Lines of a group label.
-   */
-  choices?: (SeparatorChoice | RowChoice)[]
-
-  /**
-   * Whether the choice is a group label.
-   */
-  isGroupLabel?: boolean
-
-  /**
-   * Whether the choice is selected.
-   */
-  enabled?: boolean
-}
-
-/**
- * Prompt state enquirer calls the format hook with.
- */
-interface FormatContext {
-  /**
-   * Whether the prompt was submitted or cancelled.
-   */
-  state: { cancelled: boolean; submitted: boolean }
-
-  /**
-   * Names of the selected choices once submitted.
-   */
-  value: string[] | string
-}
-
-/**
- * Prompt state enquirer calls the movement hooks with.
- */
-interface MovementContext {
-  /**
-   * Moves the focus down.
-   */
-  down?(): Promise<string[]>
-
-  /**
-   * Moves the focus up.
-   */
-  up?(): Promise<string[]>
 }
 
 /**
@@ -297,11 +100,9 @@ type UpdateOverrides = Partial<Omit<ActionUpdate, 'action'>> & {
 }
 
 /**
- * `enquirer.prompt` narrowed to the call the selection makes.
+ * What the selection shows in the multiselect prompt.
  */
-type SelectionPrompt = (
-  options: SelectionPromptOptions,
-) => Promise<Record<string, string[]>>
+type SelectionOptions = Parameters<typeof runMultiselect<number>>[0]
 
 /**
  * Column titles of the table.
@@ -313,18 +114,16 @@ let prompt = createFakeMultiselect()
 /**
  * Create the multiselect stand-in.
  *
- * Like enquirer 2.4.1, it keeps the selection on the choice objects: on start
- * every line is unselected, whatever `enabled` flags the choices were handed
- * with, and then the rows named in `initial` are selected; selecting a group
- * label selects it and every line of its group that is not disabled, the column
- * header included; a disabled row cannot be selected. On Enter it answers with
- * the names of the selected labels and rows, and renders the summary through
- * the `format` hook.
+ * Like the real prompt, it selects the rows marked as selected at the start,
+ * unless they are disabled; choosing a group label selects every row of its
+ * group that is not disabled; a disabled row cannot be chosen. On Enter it
+ * answers with the values of the selected rows, in the order of the list, and
+ * renders the summary through the `summarize` option.
  *
- * @returns Fake whose `answer` stands in for `enquirer.prompt`.
+ * @returns Fake whose `answer` stands in for `runMultiselect`.
  */
 function createFakeMultiselect(): FakeMultiselect {
-  let shownOptions: SelectionPromptOptions | null = null
+  let shownOptions: SelectionOptions | null = null
   let selectedTexts: string[] | null = null
   let summary: string | null = null
   let failure: Error | null = null
@@ -334,7 +133,7 @@ function createFakeMultiselect(): FakeMultiselect {
    *
    * @returns Options passed to the last prompt call.
    */
-  function shown(): SelectionPromptOptions {
+  function shown(): SelectionOptions {
     if (!shownOptions) {
       throw new Error('The selection prompt was not shown')
     }
@@ -344,28 +143,19 @@ function createFakeMultiselect(): FakeMultiselect {
   return {
     answer(options) {
       shownOptions = options
-      clearSelection(options.choices)
-      for (let name of options.initial) {
-        let row = findRowNamed(options.choices, name)
-        row.enabled = !row.disabled
-      }
       if (failure) {
         return Promise.reject(failure)
       }
-      if (selectedTexts) {
-        clearSelection(options.choices)
-        for (let text of selectedTexts) {
-          selectLine(findListed(options.choices, text))
-        }
-      }
-      let value = selectableLinesOf(options.choices)
-        .filter(line => line.enabled)
-        .map(line => line.name)
-      summary = options.format.call({
-        state: { cancelled: false, submitted: true },
-        value,
-      })
-      return Promise.resolve({ [options.name]: value })
+      let values =
+        selectedTexts ?
+          selectListed(options.entries, selectedTexts)
+        : options.entries.flatMap(entry =>
+            entry.kind === 'option' && entry.selected && !entry.disabled ?
+              [entry.value]
+            : [],
+          )
+      summary = options.summarize(values)
+      return Promise.resolve(values)
     },
     summary() {
       if (summary === null) {
@@ -384,28 +174,35 @@ function createFakeMultiselect(): FakeMultiselect {
 }
 
 /**
- * Text of one cell of an update's row, read under its column title the way a
- * person reads the table.
+ * Values the user selects by choosing listed lines, in the order of the list.
  *
- * @param action - Action shown in the row.
- * @param title - Title of the column.
- * @returns Visible cell text without padding.
+ * @param entries - Lines the prompt was shown with.
+ * @param texts - Files of group labels and actions of rows.
+ * @returns Values of the selected rows.
  */
-function cellOf(action: string, title: ColumnTitle): string {
-  let row = rowOf(action)
-  let group = prompt
-    .shown()
-    .choices.filter(isGroupLabel)
-    .find(label => label.choices.includes(row))
-  let header = headerOf(group!)
-  let titles = header.split(/ {2,}/u)
-  if (!titles.includes(title)) {
-    throw new Error(`The table has no ${title} column`)
+function selectListed(
+  entries: MultiselectEntry<number>[],
+  texts: string[],
+): number[] {
+  let chosen = new Set<number>()
+  for (let text of texts) {
+    let position = findListed(entries, text)
+    let entry = entries[position]!
+    if (entry.kind === 'option' && entry.disabled) {
+      throw new Error(`A disabled row cannot be selected: ${entry.message}`)
+    }
+    let positions =
+      entry.kind === 'group' ? linesOfGroup(entries, position) : [position]
+    for (let line of positions) {
+      let lineEntry = entries[line]!
+      if (lineEntry.kind === 'option' && !lineEntry.disabled) {
+        chosen.add(line)
+      }
+    }
   }
-  let text = stripAnsi(row.message)
-  let nextTitle = titles[titles.indexOf(title) + 1]
-  let end = nextTitle === undefined ? text.length : header.indexOf(nextTitle)
-  return text.slice(header.indexOf(title), end).trim()
+  return entries.flatMap((entry, position) =>
+    entry.kind === 'option' && chosen.has(position) ? [entry.value] : [],
+  )
 }
 
 /**
@@ -442,118 +239,93 @@ function makeUpdate({
 }
 
 /**
- * Group label or row whose first cell shows the given text.
+ * Text of one cell of an update's row, read under its column title the way a
+ * person reads the table.
  *
- * @param choices - Choices the prompt was shown with.
- * @param text - File of a group label or action of a row.
- * @returns Matching group label or row.
+ * @param action - Action shown in the row.
+ * @param title - Title of the column.
+ * @returns Visible cell text without padding.
  */
-function findListed(
-  choices: SelectionPromptOptions['choices'],
-  text: string,
-): GroupLabelChoice | RowChoice {
-  let labels = choices.filter(isGroupLabel)
-  let rows = labels.flatMap(label => label.choices.filter(isRow))
-  let listed = [...labels, ...rows].find(
-    choice => firstCellOf(choice.message) === text,
+function cellOf(action: string, title: ColumnTitle): string {
+  let header = headerOf(action)
+  let titles = header.split(/ {2,}/u)
+  if (!titles.includes(title)) {
+    throw new Error(`The table has no ${title} column`)
+  }
+  let text = stripAnsi(rowOf(action).message)
+  let nextTitle = titles[titles.indexOf(title) + 1]
+  let end = nextTitle === undefined ? text.length : header.indexOf(nextTitle)
+  return text.slice(header.indexOf(title), end).trim()
+}
+
+/**
+ * Positions of the lines of a group under its label: the column header and the
+ * rows, up to the blank line or the next label.
+ *
+ * @param entries - Lines the prompt was shown with.
+ * @param label - Position of the group label.
+ * @returns Positions of the lines.
+ */
+function linesOfGroup(
+  entries: MultiselectEntry<number>[],
+  label: number,
+): number[] {
+  let positions: number[] = []
+  for (let line = label + 1; line < entries.length; line++) {
+    let entry = entries[line]!
+    if (entry.kind === 'group' || entry.message === ' ') {
+      break
+    }
+    positions.push(line)
+  }
+  return positions
+}
+
+/**
+ * Position of the group label or the row whose first cell shows the given text.
+ *
+ * @param entries - Lines the prompt was shown with.
+ * @param text - File of a group label or action of a row.
+ * @returns Position of the line.
+ */
+function findListed(entries: MultiselectEntry<number>[], text: string): number {
+  let position = entries.findIndex(
+    entry => entry.kind !== 'separator' && firstCellOf(entry.message) === text,
   )
-  if (!listed) {
+  if (position === -1) {
     throw new Error(`Nothing is listed as ${text}`)
   }
-  return listed
+  return position
 }
 
 /**
- * Select a line the way enquirer does when the user presses space on it.
+ * Column header of the group that lists an action, without its leading mark.
  *
- * @param choice - Group label or row to select.
+ * @param action - Action shown in a row of the group.
+ * @returns Visible header text.
  */
-function selectLine(choice: GroupLabelChoice | RowChoice): void {
-  if (isGroupLabel(choice)) {
-    choice.enabled = true
-    for (let line of choice.choices) {
-      line.enabled = !isRow(line) || !line.disabled
-    }
-    return
-  }
-  if (choice.disabled) {
-    throw new Error(`A disabled row cannot be selected: ${choice.message}`)
-  }
-  choice.enabled = true
-}
-
-/**
- * Row with the given name, the way enquirer finds a choice named in `initial`.
- *
- * @param choices - Choices the prompt was shown with.
- * @param name - Index of the update, the name enquirer answers with.
- * @returns Row with that name.
- */
-function findRowNamed(
-  choices: SelectionPromptOptions['choices'],
-  name: string,
-): RowChoice {
-  let row = selectableLinesOf(choices).find(line => line.name === name)
-  if (!row || isGroupLabel(row)) {
-    throw new Error(`No row is named ${name}`)
-  }
-  return row
-}
-
-/**
- * Every line of the list, separators included, the way enquirer flattens it.
- *
- * @param choices - Choices the prompt was shown with.
- * @returns Group labels with their headers and rows, and blank lines.
- */
-function everyLineOf(
-  choices: SelectionPromptOptions['choices'],
-): (GroupLabelChoice | SeparatorChoice | RowChoice)[] {
-  return choices.flatMap(choice =>
-    isGroupLabel(choice) ? [choice, ...choice.choices] : [choice],
+function headerOf(action: string): string {
+  let { entries } = prompt.shown()
+  let row = findListed(entries, action)
+  let label = entries.findLastIndex(
+    (entry, position) => position < row && entry.kind === 'group',
   )
-}
-
-/**
- * Group labels and rows in listed order: the lines enquirer can answer with.
- *
- * @param choices - Choices the prompt was shown with.
- * @returns Each group label followed by the rows of its group.
- */
-function selectableLinesOf(
-  choices: SelectionPromptOptions['choices'],
-): (GroupLabelChoice | RowChoice)[] {
-  return choices
-    .filter(isGroupLabel)
-    .flatMap(label => [label, ...label.choices.filter(isRow)])
-}
-
-/**
- * Group label of a file in the shown prompt.
- *
- * @param file - File shown in the label.
- * @returns Label whose text is the file, holding the lines of its group.
- */
-function groupOf(file: string): GroupLabelChoice {
-  let listed = findListed(prompt.shown().choices, file)
-  if (!isGroupLabel(listed)) {
-    throw new Error(`${file} is a row, not a group label`)
-  }
-  return listed
+  return stripAnsi(entries[label + 1]!.message).replace(/^ ○ /u, '')
 }
 
 /**
  * Row of the update of an action in the shown prompt.
  *
  * @param action - Action shown in the row.
- * @returns Row whose first cell is the action.
+ * @returns Line whose first cell is the action.
  */
-function rowOf(action: string): RowChoice {
-  let listed = findListed(prompt.shown().choices, action)
-  if (isGroupLabel(listed)) {
+function rowOf(action: string): MultiselectEntry<number> {
+  let { entries } = prompt.shown()
+  let row = entries[findListed(entries, action)]!
+  if (row.kind !== 'option') {
     throw new Error(`${action} is a group label, not a row`)
   }
-  return listed
+  return row
 }
 
 /**
@@ -575,37 +347,16 @@ function makeUpdateWithoutTarget(
 }
 
 /**
- * Column header of a group without its leading mark.
+ * Lines of the group of a file in the shown prompt.
  *
- * @param group - Group label.
- * @returns Visible header text.
+ * @param file - File shown in the group label.
+ * @returns Column header and rows of the group.
  */
-function headerOf(group: GroupLabelChoice): string {
-  let header = group.choices.find(choice => !isRow(choice))
-  return stripAnsi(header?.message ?? '').replace(/^ ○ /u, '')
-}
-
-/**
- * Unselect every line, separators included, the way enquirer does on start.
- *
- * @param choices - Choices the prompt was shown with.
- */
-function clearSelection(choices: SelectionPromptOptions['choices']): void {
-  for (let line of everyLineOf(choices)) {
-    line.enabled = false
-  }
-}
-
-/**
- * Whether a choice is the label of a file group.
- *
- * @param choice - Choice to check.
- * @returns True for a group label.
- */
-function isGroupLabel(
-  choice: GroupLabelChoice | SeparatorChoice | RowChoice,
-): choice is GroupLabelChoice {
-  return 'isGroupLabel' in choice
+function groupLines(file: string): MultiselectEntry<number>[] {
+  let { entries } = prompt.shown()
+  return linesOfGroup(entries, findListed(entries, file)).map(
+    line => entries[line]!,
+  )
 }
 
 /**
@@ -616,8 +367,19 @@ function isGroupLabel(
 function groupLabels(): string[] {
   return prompt
     .shown()
-    .choices.filter(isGroupLabel)
-    .map(choice => stripAnsi(choice.message))
+    .entries.filter(entry => entry.kind === 'group')
+    .map(entry => stripAnsi(entry.message))
+}
+
+/**
+ * Column titles of the group of a file, left to right.
+ *
+ * @param file - File shown in the group label.
+ * @returns Titles in the column header.
+ */
+function columnTitlesOf(file: string): string[] {
+  let [header] = groupLines(file)
+  return stripAnsi(header!.message).replace(/^ ○ /u, '').split(/ {2,}/u)
 }
 
 /**
@@ -626,19 +388,7 @@ function groupLabels(): string[] {
  * @returns Group labels, column headers, rows and blank lines.
  */
 function listedLines(): string[] {
-  return everyLineOf(prompt.shown().choices).map(line =>
-    stripAnsi(line.message),
-  )
-}
-
-/**
- * Whether a line of a group is the row of an update.
- *
- * @param choice - Line of a group.
- * @returns True for a row, false for the column header.
- */
-function isRow(choice: SeparatorChoice | RowChoice): choice is RowChoice {
-  return !('role' in choice)
+  return prompt.shown().entries.map(entry => stripAnsi(entry.message))
 }
 
 /**
@@ -650,16 +400,6 @@ function isRow(choice: SeparatorChoice | RowChoice): choice is RowChoice {
  */
 function firstCellOf(message: string): string {
   return stripAnsi(message).split(/ {2,}/u, 1)[0] ?? ''
-}
-
-/**
- * Column titles of the group of a file, left to right.
- *
- * @param file - File shown in the group label.
- * @returns Titles in the column header.
- */
-function columnTitlesOf(file: string): string[] {
-  return headerOf(groupOf(file)).split(/ {2,}/u)
 }
 
 /**
@@ -689,9 +429,8 @@ describe('promptUpdateSelection', () => {
 
   beforeEach(() => {
     prompt = createFakeMultiselect()
-    vi.spyOn(enquirer, 'prompt')
-    vi.mocked<SelectionPrompt>(enquirer.prompt).mockImplementation(options =>
-      prompt.answer(options),
+    vi.mocked(runMultiselect).mockImplementation(options =>
+      prompt.answer(options as SelectionOptions),
     )
     vi.spyOn(process, 'cwd').mockReturnValue('/repo')
     info = vi.spyOn(console, 'info').mockImplementation(() => {})
@@ -712,7 +451,7 @@ describe('promptUpdateSelection', () => {
 
     expect(result).toBeNull()
     expect(info).not.toHaveBeenCalled()
-    expect(enquirer.prompt).not.toHaveBeenCalled()
+    expect(runMultiselect).not.toHaveBeenCalled()
   })
 
   it('reports that every action is up to date, without showing the prompt, when nothing is outdated', async () => {
@@ -722,7 +461,7 @@ describe('promptUpdateSelection', () => {
     expect(info).toHaveBeenCalledExactlyOnceWith(
       colors.green('✓ All actions are up to date!'),
     )
-    expect(enquirer.prompt).not.toHaveBeenCalled()
+    expect(runMultiselect).not.toHaveBeenCalled()
   })
 
   it('shows a multiselect prompt that explains its keys', async () => {
@@ -730,10 +469,7 @@ describe('promptUpdateSelection', () => {
 
     expect(prompt.shown()).toMatchObject({
       message: `Choose which actions to update (Press ${colors.cyan('<space>')} to select, ${colors.cyan('<a>')} to toggle all, ${colors.cyan('<i>')} to invert selection)`,
-      styles: { success: colors.reset, dark: colors.reset, em: colors.bgBlack },
-      footer: '\nEnter to start updating. Ctrl-c to cancel.',
-      type: 'multiselect',
-      pointer: '❯',
+      footer: 'Enter to start updating. Ctrl-c to cancel.',
     })
   })
 
@@ -873,136 +609,21 @@ describe('promptUpdateSelection', () => {
         makeUpdateWithoutTarget({ action: { name: 'actions/setup-node' } }),
       ])
 
-      expect(groupOf('workflows/ci.yml').choices).toMatchObject([
-        {},
+      expect(groupLines('workflows/ci.yml')).toMatchObject([
+        { kind: 'separator' },
         { disabled: false },
         { disabled: true },
       ])
     })
   })
 
-  describe('prompt hooks', () => {
-    it.each([
-      {
-        description: 'a group label after the user selects the group',
-        expected: ` ${colors.gray('●')}`,
-        selection: ['workflows/ci.yml'],
-        text: 'workflows/ci.yml',
-      },
-      {
-        description: 'a group label after the user selects each of its rows',
-        selection: ['actions/cache', 'actions/checkout'],
-        expected: ` ${colors.gray('●')}`,
-        text: 'workflows/ci.yml',
-      },
-      {
-        description: 'a group label with a row the user leaves unselected',
-        expected: ` ${colors.gray('○')}`,
-        selection: ['actions/cache'],
-        text: 'workflows/ci.yml',
-      },
-      {
-        description: 'a row the user selects',
-        selection: ['actions/cache'],
-        text: 'actions/cache',
-        expected: '   ●',
-      },
-      {
-        description: 'a row the user leaves unselected',
-        selection: ['actions/cache'],
-        text: 'actions/checkout',
-        expected: '   ○',
-      },
-    ])(
-      'draws the mark of $description',
-      async ({ selection, expected, text }) => {
-        prompt.select(...selection)
-        await promptUpdateSelection([
-          makeUpdate(),
-          makeUpdate({ action: { name: 'actions/checkout' } }),
-        ])
-
-        let mark = prompt
-          .shown()
-          .indicator({}, findListed(prompt.shown().choices, text))
-
-        expect(mark).toBe(expected)
-      },
-    )
-
-    it.each([
-      { direction: 'down', key: 'j' },
-      { direction: 'up', key: 'k' },
-    ] as const)(
-      'moves the focus $direction on $key',
-      async ({ direction, key }) => {
-        await promptUpdateSelection([makeUpdate()])
-        let promptState = {
-          down: () => Promise.resolve(['focus moved down']),
-          up: () => Promise.resolve(['focus moved up']),
-        }
-
-        let moved = prompt.shown()[key].call(promptState)
-
-        await expect(moved).resolves.toStrictEqual([`focus moved ${direction}`])
-      },
-    )
-
-    it.each([
-      {
-        state: { cancelled: false, submitted: false },
-        moment: 'while the prompt is still open',
-      },
-      {
-        state: { cancelled: true, submitted: true },
-        moment: 'after the prompt is cancelled',
-      },
-    ])('prints no summary $moment', async ({ state }) => {
-      await promptUpdateSelection([makeUpdate()])
-      let value = [rowOf('actions/cache').name]
-
-      let summary = prompt.shown().format.call({ state, value })
-
-      expect(summary).toBe('')
-    })
-  })
-
   describe('in a terminal', () => {
-    /**
-     * Run the next selection on enquirer's real prompt in a fake terminal and
-     * type the given keys once the prompt is shown. Pre-selection and
-     * cancellation depend on how enquirer itself treats the options, which the
-     * stand-in only imitates.
-     *
-     * @param keys - Raw key sequences, such as `\r` for Enter.
-     */
-    function typeIntoPrompt(...keys: string[]): void {
-      let stdin = Object.assign(new PassThrough(), {
-        setRawMode: () => {},
-        isRaw: false,
-        isTTY: true,
-      })
-      let stdout = new PassThrough()
-      stdout.resume()
-
-      realPrompt.once('prompt', (shownPrompt: EventEmitter) => {
-        shownPrompt.once('run', () => {
-          for (let key of keys) {
-            stdin.write(key)
-          }
-        })
-      })
-      vi.mocked<SelectionPrompt>(enquirer.prompt).mockImplementationOnce(
-        options =>
-          realPrompt<Record<string, string[]>>({
-            ...options,
-            stdout,
-            stdin,
-          } as never),
-      )
-    }
+    beforeEach(() => {
+      vi.mocked(runMultiselect).mockReset()
+    })
 
     it('submits the updates that have a target and are not breaking when the user presses Enter right away', async () => {
+      let terminal = createFakeTerminal({ columns: 120, rows: 40 })
       let cache = makeUpdate()
       let checkout = makeUpdate({
         action: { name: 'actions/checkout' },
@@ -1012,11 +633,12 @@ describe('promptUpdateSelection', () => {
       let setupNode = makeUpdateWithoutTarget({
         action: { name: 'actions/setup-node' },
       })
-      typeIntoPrompt('\r')
 
-      let result = await promptUpdateSelection([checkout, cache, setupNode])
+      let selection = promptUpdateSelection([checkout, cache, setupNode])
+      await terminal.settle()
+      await terminal.press('\r')
 
-      expect(result).toStrictEqual([cache])
+      await expect(selection).resolves.toStrictEqual([cache])
     })
 
     it.each([
@@ -1025,12 +647,14 @@ describe('promptUpdateSelection', () => {
     ])(
       'closes the prompt and returns null when the user cancels with $name',
       async ({ key }) => {
-        typeIntoPrompt(key)
+        let terminal = createFakeTerminal({ columns: 120, rows: 40 })
 
-        let result = await promptUpdateSelection([makeUpdate()])
+        let selection = promptUpdateSelection([makeUpdate()])
+        await terminal.settle()
+        await terminal.press(key)
 
-        expect(result).toBeNull()
-        expect(info).toHaveBeenCalledExactlyOnceWith(
+        await expect(selection).resolves.toBeNull()
+        expect(console.info).toHaveBeenCalledWith(
           `\r\u{1B}[K${colors.yellow('Selection cancelled')}`,
         )
       },
@@ -1065,19 +689,14 @@ describe('promptUpdateSelection', () => {
         makeUpdate({ action: { file: LINT_WORKFLOW } }),
       ])
 
-      expect(prompt.shown().choices).toMatchObject([
-        { choices: [{ role: 'separator' }, {}] },
-        { role: 'separator', message: ' ' },
-        { choices: [{ role: 'separator' }, {}] },
-      ])
-    })
-
-    it('does not indent the lines of a group under its label', async () => {
-      await promptUpdateSelection([makeUpdate()])
-
-      expect(groupOf('workflows/ci.yml').choices).toMatchObject([
-        { indent: '' },
-        { indent: '' },
+      expect(prompt.shown().entries).toMatchObject([
+        { kind: 'group' },
+        { kind: 'separator' },
+        { kind: 'option' },
+        { kind: 'separator', message: ' ' },
+        { kind: 'group' },
+        { kind: 'separator' },
+        { kind: 'option' },
       ])
     })
 
@@ -1451,90 +1070,8 @@ describe('promptUpdateSelection', () => {
       expect(warn).toHaveBeenCalledExactlyOnceWith(
         'Unexpected missing group for file: workflows/ci.yml',
       )
-      expect(prompt.shown().choices).toStrictEqual([])
+      expect(prompt.shown().entries).toStrictEqual([])
     })
-
-    it('treats a prompt rejection that mentions cancellation as a cancelled selection', async () => {
-      prompt.failWith(new Error('Prompt cancelled by user'))
-
-      let result = await promptUpdateSelection([makeUpdate()])
-
-      expect(result).toBeNull()
-      expect(info).toHaveBeenCalledExactlyOnceWith(
-        `\r\u{1B}[K${colors.yellow('Selection cancelled')}`,
-      )
-    })
-
-    it('counts the updates with a target of a group label answered without its rows', async () => {
-      await promptUpdateSelection([
-        makeUpdate(),
-        makeUpdate({ action: { name: 'actions/checkout' } }),
-        makeUpdateWithoutTarget({ action: { name: 'actions/setup-node' } }),
-      ])
-
-      let summary = prompt.shown().format.call({
-        state: { cancelled: false, submitted: true },
-        value: [groupOf('workflows/ci.yml').name],
-      })
-
-      expect(summary).toBe('2 actions selected')
-    })
-
-    it('counts no action for an answered row that has no target', async () => {
-      await promptUpdateSelection([
-        makeUpdate(),
-        makeUpdateWithoutTarget({ action: { name: 'actions/setup-node' } }),
-      ])
-
-      let summary = prompt.shown().format.call({
-        state: { cancelled: false, submitted: true },
-        value: [rowOf('actions/setup-node').name],
-      })
-
-      expect(summary).toBe('')
-    })
-
-    it('counts no action for answer values that name no listed line', async () => {
-      await promptUpdateSelection([makeUpdate()])
-      let removedGroup = `${groupOf('workflows/ci.yml').name}.removed`
-
-      let summary = prompt.shown().format.call({
-        state: { cancelled: false, submitted: true },
-        value: [removedGroup, 'not-a-row'],
-      })
-
-      expect(summary).toBe('')
-    })
-
-    it('prints no summary when the submitted value is not a list', async () => {
-      await promptUpdateSelection([makeUpdate()])
-
-      let summary = prompt.shown().format.call({
-        state: { cancelled: false, submitted: true },
-        value: rowOf('actions/cache').name,
-      })
-
-      expect(summary).toBe('')
-    })
-
-    it('draws a filled mark for a group label without rows', async () => {
-      await promptUpdateSelection([makeUpdate()])
-
-      let mark = prompt.shown().indicator({}, { isGroupLabel: true })
-
-      expect(mark).toBe(` ${colors.gray('●')}`)
-    })
-
-    it.each(['j', 'k'] as const)(
-      'resolves an empty list on %s when the prompt cannot move the focus',
-      async key => {
-        await promptUpdateSelection([makeUpdate()])
-
-        let moved = prompt.shown()[key].call({})
-
-        await expect(moved).resolves.toStrictEqual([])
-      },
-    )
   })
 
   describe('current behavior pending owner decision', () => {

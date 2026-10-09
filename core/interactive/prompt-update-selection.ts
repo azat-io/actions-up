@@ -1,10 +1,10 @@
-import enquirer from 'enquirer'
-import 'node:worker_threads'
 import path from 'node:path'
 
+import type { MultiselectEntry } from '../../types/multiselect-entry'
 import type { ActionUpdate } from '../../types/action-update'
 
 import { parseVersionComment } from '../versions/parse-version-comment'
+import { runMultiselect } from './multiselect/run-multiselect'
 import { formatVersion } from './format-version'
 import { GITHUB_DIRECTORY } from '../constants'
 import { isSha } from '../versions/is-sha'
@@ -31,140 +31,6 @@ const MIN_CURRENT_WIDTH = 16
  * Maximum width for version padding before SHA hash.
  */
 const MAX_VERSION_WIDTH = 7
-
-/**
- * Minimal prompt options shape we use to avoid Enquirer union pitfalls.
- */
-interface PromptOptionsLike {
-  /**
-   * Renders submitted output shown inline after confirmation.
-   */
-  format?(this: {
-    state?: { cancelled?: boolean; submitted?: boolean }
-    value?: string[] | string
-  }): Promise<string> | string
-
-  /**
-   * Renders selection marker for a choice.
-   */
-  indicator(
-    state: unknown,
-    choice: (ChoiceSeparator | ChoiceItem) & { enabled?: boolean },
-  ): string
-
-  /**
-   * Choices list: our items and separators.
-   */
-  choices: (ChoiceSeparator | ChoiceItem | string)[]
-
-  /**
-   * Handles Ctrl-C and Esc. It replaces enquirer's own `cancel` as the key
-   * action, so it has to close and reject the prompt itself.
-   */
-  cancel(this: EnquirerPromptLike): Promise<void>
-
-  /**
-   * Alias to `down()` bound by enquirer.
-   */
-  j(): Promise<string[]> | undefined
-
-  /**
-   * Alias to `up()` bound by enquirer.
-   */
-  k(): Promise<string[]> | undefined
-
-  /**
-   * Style hooks from enquirer (we pass-through).
-   */
-  styles?: Record<string, unknown>
-
-  /**
-   * Moves focus down (provided by enquirer at runtime).
-   */
-  down?(): Promise<string[]>
-
-  /**
-   * Moves focus up (provided by enquirer at runtime).
-   */
-  up?(): Promise<string[]>
-
-  /**
-   * Prompt type. We only use multiselect.
-   */
-  type: 'multiselect'
-
-  /**
-   * Names of the choices selected when the prompt opens. Enquirer clears the
-   * `enabled` flag of every choice on start, so this is the way to pre-select.
-   */
-  initial: string[]
-
-  /**
-   * Pointer glyph for focused row.
-   */
-  pointer?: string
-
-  /**
-   * The question text shown above the list.
-   */
-  message: string
-
-  /**
-   * Footer text under the list.
-   */
-  footer?: string
-
-  /**
-   * The name of the answer field returned by enquirer (holds selected).
-   */
-  name: string
-}
-
-/**
- * Selectable item displayed in the multiselect list.
- */
-interface ChoiceItem {
-  /**
-   * Optional nested choices (used for group labels to hold their rows).
-   * Enquirer supports passing nested structures for group toggling.
-   */
-  choices?: (ChoiceSeparator | ChoiceItem)[]
-
-  /**
-   * Whether this item is a focusable group label (file row).
-   */
-  isGroupLabel?: boolean
-
-  /**
-   * Whether this item is disabled and cannot be toggled.
-   */
-  disabled?: boolean
-
-  /**
-   * Whether this item is currently selected/enabled.
-   */
-  enabled?: boolean
-
-  /**
-   * Visible text rendered for this choice.
-   */
-  message: string
-
-  /**
-   * Optional hint rendered by enquirer when disabled.
-   */
-  hint?: string
-
-  /**
-   * Internal value returned by the prompt when selected.
-   */
-  value: string
-
-  /**
-   * Stable name used by enquirer to track the choice.
-   */
-  name: string
-}
 
 /**
  * Intermediate representation for a row in the table before formatting.
@@ -233,43 +99,6 @@ interface FormatTableRowOptions {
   row: TableRow
 }
 
-/**
- * The enquirer prompt instance that runs the option callbacks.
- */
-interface EnquirerPromptLike {
-  /**
-   * Reports an event to the pending `enquirer.prompt()` call; `cancel` rejects
-   * it with the given reason.
-   */
-  emit(event: 'cancel', reason: string): boolean
-
-  /**
-   * Enquirer's own cancel action: renders the final state, closes the prompt
-   * and rejects it.
-   */
-  cancel(): Promise<void>
-}
-
-/**
- * Non-selectable visual row (e.g., table header or blank line).
- */
-interface ChoiceSeparator {
-  /**
-   * Enquirer role that marks this element as non-selectable.
-   */
-  role: 'separator'
-
-  /**
-   * Visible text for the separator line.
-   */
-  message: string
-
-  /**
-   * Optional name to satisfy enquirer's `Choice` typing.
-   */
-  name?: string
-}
-
 interface GroupEntry {
   /**
    * Outdated update belonging to the group.
@@ -280,16 +109,6 @@ interface GroupEntry {
    * Index in the filtered outdated updates list.
    */
   index: number
-}
-
-/**
- * Result shape returned by enquirer for the multiselect prompt.
- */
-interface PromptResult {
-  /**
-   * Selected values (indexes or label keys) as strings.
-   */
-  selected: string[]
 }
 
 interface PromptUpdateSelectionOptions {
@@ -386,13 +205,12 @@ export async function promptUpdateSelection(
     return { versionForPadding, effectiveForDiff, shortSha, display }
   })
 
-  let choices: (ChoiceSeparator | ChoiceItem)[] = []
-
   /**
-   * Names of the rows selected when the prompt opens: every update that can be
-   * applied and is not breaking.
+   * Lines of the list: a label per file, followed by the column header and the
+   * rows of its updates, and a blank line between files. The rows of updates
+   * that can be applied and are not breaking are selected at the start.
    */
-  let preselected: string[] = []
+  let entries: MultiselectEntry<number>[] = []
 
   let maxActionLength = stripAnsi('Action').length
   let maxCurrentLength = stripAnsi('Current').length
@@ -518,9 +336,8 @@ export async function promptUpdateSelection(
     let maxCurrentWidth = Math.max(globalCurrentWidth, MIN_CURRENT_WIDTH)
     let maxJobWidth = Math.max(globalJobWidth, MIN_JOB_WIDTH)
 
-    let groupChildren: (ChoiceSeparator | ChoiceItem)[] = []
+    entries.push({ message: colors.gray(file), kind: 'group' })
     for (let [i, row] of tableRows.entries()) {
-      let isHeader = i === 0
       let formattedRow = formatTableRow({
         targetWidth: globalTargetWidth,
         currentWidth: maxCurrentWidth,
@@ -529,143 +346,51 @@ export async function promptUpdateSelection(
         jobWidth: maxJobWidth,
         row,
       })
-      if (isHeader) {
-        groupChildren.push({
+      if (i === 0) {
+        entries.push({
           message: colors.gray(` ○ ${formattedRow}`),
-          role: 'separator',
-          // Remove auto-child indent to tighten left padding
-          // @ts-expect-error enquirer supports indent on choice-like objects
-          indent: '',
-          name: '',
+          kind: 'separator',
         })
-      } else {
-        let { update, index } = groupOrder[i - 1]!
-        let hasTarget = hasResolvedTarget(update)
-        if (hasTarget && !update.isBreaking) {
-          preselected.push(String(index))
-        }
-        groupChildren.push({
-          message: formattedRow,
-          value: String(index),
-          disabled: !hasTarget,
-          name: String(index),
-          // Remove auto-child indent to tighten left padding
-          // @ts-expect-error enquirer supports indent on choice items
-          indent: '',
-        })
+        continue
       }
+      let { update, index } = groupOrder[i - 1]!
+      let hasTarget = hasResolvedTarget(update)
+      entries.push({
+        selected: hasTarget && !update.isBreaking,
+        message: formattedRow,
+        disabled: !hasTarget,
+        kind: 'option',
+        value: index,
+      })
     }
-
-    /**
-     * Push focusable group label with nested children.
-     */
-    choices.push({
-      message: colors.gray(file),
-      value: `label|${file}`,
-      choices: groupChildren,
-      name: `label|${file}`,
-      isGroupLabel: true,
-    })
 
     /**
      * Add a blank separator line between groups for readability.
      */
     if (fileIndex < sortedFiles.length - 1) {
-      choices.push({ role: 'separator', message: ' ', name: '' })
+      entries.push({ kind: 'separator', message: ' ' })
     }
   }
 
-  /**
-   * Records a Ctrl-C or Esc. The prompt then rejects with an empty string,
-   * which is not an `Error`. An object, because the flag is set in a callback.
-   */
-  let cancellation = { requested: false }
-
   try {
-    let promptOptions: PromptOptionsLike = {
-      indicator(
-        _state: unknown,
-        choice: {
-          choices?: (ChoiceSeparator | ChoiceItem)[]
-          isGroupLabel?: boolean
-        } & {
-          enabled?: boolean
-        },
-      ) {
-        let isLabel = Boolean(choice.isGroupLabel)
-
-        if (isLabel) {
-          let allChildren = choice.choices ?? []
-          let rows = allChildren.filter(
-            (child): child is ChoiceItem => !('role' in child),
-          )
-          let total = rows.length
-          let selectedCount = rows.filter(row => row.enabled).length
-          let mark = selectedCount === total ? '●' : '○'
-
-          return ` ${colors.gray(mark)}`
-        }
-
-        return `   ${choice.enabled ? '●' : '○'}`
-      },
-      format() {
-        if (this.state?.submitted !== true || this.state.cancelled === true) {
-          return ''
-        }
-
-        let selectedValues = Array.isArray(this.value) ? this.value : []
-        let selectedIndexes = getSelectedIndexes(selectedValues, groups)
-        let selectedCount = getSelectedUpdates(outdated, selectedIndexes).length
-
-        if (selectedCount === 0) {
-          return ''
-        }
-
-        return formatSelectionSummary(selectedCount)
-      },
-      async cancel() {
-        cancellation.requested = true
-        let { cancel: cancelPrompt } = Object.getPrototypeOf(
-          this,
-        ) as EnquirerPromptLike
-        try {
-          await cancelPrompt.call(this)
-        } catch {
-          /**
-           * On Ctrl-C readline closes itself before enquirer reacts, so
-           * enquirer's cleanup throws before it rejects the prompt.
-           */
-          this.emit('cancel', '')
-        }
-      },
+    let selected = await runMultiselect({
       message:
         'Choose which actions to update ' +
         `(Press ${colors.cyan('<space>')} to select, ` +
         `${colors.cyan('<a>')} to toggle all, ` +
         `${colors.cyan('<i>')} to invert selection)`,
-      styles: {
-        success: colors.reset,
-        em: colors.bgBlack,
-        dark: colors.reset,
-      },
-      j() {
-        return this.down?.() ?? Promise.resolve([])
-      },
-      k() {
-        return this.up?.() ?? Promise.resolve([])
-      },
-      footer: '\nEnter to start updating. Ctrl-c to cancel.',
-      initial: preselected,
-      type: 'multiselect',
-      name: 'selected',
-      pointer: '❯',
-      choices,
+      summarize: indexes =>
+        indexes.length > 0 ? formatSelectionSummary(indexes.length) : '',
+      footer: 'Enter to start updating. Ctrl-c to cancel.',
+      entries,
+    })
+
+    if (!selected) {
+      logSelectionCancelled()
+      return null
     }
 
-    let { selected } = await enquirer.prompt<PromptResult>(promptOptions)
-
-    let selectedIndexes = getSelectedIndexes(selected, groups)
-    let result = getSelectedUpdates(outdated, selectedIndexes)
+    let result = outdated.filter((_, index) => selected.includes(index))
 
     if (result.length === 0) {
       console.info(colors.yellow('\nNo actions selected'))
@@ -674,49 +399,9 @@ export async function promptUpdateSelection(
 
     return result
   } catch (error) {
-    if (
-      cancellation.requested ||
-      (error instanceof Error &&
-        (error.message.includes('cancelled') ||
-          error.message.includes('ESC') ||
-          error.name === 'ExitPromptError'))
-    ) {
-      logSelectionCancelled()
-      return null
-    }
-
     console.error(colors.red('Unexpected error during selection:'), error)
     throw error
   }
-}
-
-function getSelectedIndexes(
-  selectedValues: string[],
-  groups: Map<string, GroupEntry[]>,
-): Set<number> {
-  let selectedIndexes = new Set<number>()
-
-  for (let valueString of selectedValues) {
-    if (valueString.startsWith('label|')) {
-      let fileKey = valueString.slice('label|'.length)
-      let groupItems = groups.get(fileKey) ?? []
-
-      for (let { update, index } of groupItems) {
-        if (hasResolvedTarget(update)) {
-          selectedIndexes.add(index)
-        }
-      }
-
-      continue
-    }
-
-    let index = Number.parseInt(valueString, 10)
-    if (Number.isFinite(index)) {
-      selectedIndexes.add(index)
-    }
-  }
-
-  return selectedIndexes
 }
 
 /**
@@ -772,21 +457,6 @@ function formatTableRow(options: FormatTableRowOptions): string {
 
   let line = parts.join('  ')
   return line.replace(/\s+$/u, '')
-}
-
-function getSelectedUpdates(
-  outdated: ActionUpdate[],
-  selectedIndexes: Set<number>,
-): ActionUpdate[] {
-  let result: ActionUpdate[] = []
-
-  for (let [index, outdatedUpdate] of outdated.entries()) {
-    if (selectedIndexes.has(index) && hasResolvedTarget(outdatedUpdate)) {
-      result.push(outdatedUpdate)
-    }
-  }
-
-  return result
 }
 
 /**
