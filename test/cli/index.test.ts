@@ -1,5 +1,4 @@
 import type { MockInstance, Mock } from 'vitest'
-import type { Spinner } from 'nanospinner'
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -8,6 +7,7 @@ import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
 import type { GitHubClient } from '../../types/github-client'
 import type { ScanResult } from '../../types/scan-result'
+import type { Spinner } from '../../cli/create-spinner'
 import type { TagInfo } from '../../types/tag-info'
 
 import { promptUpdateSelection } from '../../core/interactive/prompt-update-selection'
@@ -83,25 +83,16 @@ const RATE_LIMIT_NOTICE = noticeAbout('Tag validation was rate limited')
 
 let { createSpinnerMock, spinnerMock } = vi.hoisted(() => {
   let spinner: Spinner = {
-    isSpinning: vi.fn(() => false),
-    success: vi.fn(() => spinner),
-    render: vi.fn(() => spinner),
-    update: vi.fn(() => spinner),
-    write: vi.fn(() => spinner),
-    reset: vi.fn(() => spinner),
-    clear: vi.fn(() => spinner),
-    error: vi.fn(() => spinner),
+    success: vi.fn<Spinner['success']>(),
+    error: vi.fn<Spinner['error']>(),
     start: vi.fn(() => spinner),
-    info: vi.fn(() => spinner),
-    loop: vi.fn(() => spinner),
-    spin: vi.fn(() => spinner),
-    stop: vi.fn(() => spinner),
-    warn: vi.fn(() => spinner),
   }
   return { createSpinnerMock: vi.fn(() => spinner), spinnerMock: spinner }
 })
 
-vi.mock(import('nanospinner'), () => ({ createSpinner: createSpinnerMock }))
+vi.mock(import('../../cli/create-spinner'), () => ({
+  createSpinner: createSpinnerMock,
+}))
 
 /**
  * A fixed catalog, so runner expectations do not change whenever the bundled
@@ -442,7 +433,7 @@ describe('run', () => {
   function spinnerResults(): string[] {
     return vi
       .mocked(spinnerMock.success)
-      .mock.calls.map(([text]) => stripAnsi(text as string))
+      .mock.calls.map(([text]) => stripAnsi(text))
   }
 
   /**

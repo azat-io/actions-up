@@ -1,4 +1,3 @@
-import { createSpinner } from 'nanospinner'
 import { resolve } from 'node:path'
 import 'node:worker_threads'
 
@@ -38,6 +37,7 @@ import { buildJsonReport } from './build-json-report'
 import { colors } from '../core/interactive/colors'
 import { parseArguments } from './parse-arguments'
 import { scanGitHubActions } from '../core/index'
+import { createSpinner } from './create-spinner'
 import { isSha } from '../core/versions/is-sha'
 import { version } from '../package.json'
 
