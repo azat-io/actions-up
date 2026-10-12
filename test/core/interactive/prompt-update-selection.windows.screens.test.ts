@@ -7,10 +7,11 @@ import { promptUpdateSelection } from '../../../core/interactive/prompt-update-s
 import { createFakeTerminal } from '../../helpers/create-fake-terminal'
 
 /**
- * Enquirer picks its symbols and the width it may fill when it loads, so the
- * platform has to be Windows before that. Colors are forced as in the other
- * screen tests, and TERM_PROGRAM is cleared because enquirer keeps the usual
- * symbols for Hyper on Windows.
+ * On Windows the prompt draws the symbols of Windows and leaves the last column
+ * of the terminal unused. The platform is set before anything loads, since the
+ * colors module decides about colors when it loads; they are forced as in the
+ * other screen tests. TERM_PROGRAM is cleared because Hyper on Windows keeps
+ * the usual symbols.
  */
 let realPlatform = vi.hoisted(() => {
   let descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!

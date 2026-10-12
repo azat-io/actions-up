@@ -17,10 +17,10 @@ import { promptUpdateSelection } from '../../../core/interactive/prompt-update-s
 import { createFakeTerminal } from '../../helpers/create-fake-terminal'
 
 /**
- * The colors module and enquirer decide whether to color when they load.
- * FORCE_COLOR turns colors on for both, as a terminal does, whatever the
- * environment of the test run says. It works because every test file loads its
- * modules afresh, as vitest isolates test files by default.
+ * The colors module decides whether to color when it loads. FORCE_COLOR turns
+ * colors on, as a terminal does, whatever the environment of the test run says.
+ * It works because every test file loads its modules afresh, as vitest isolates
+ * test files by default.
  */
 vi.hoisted(() => {
   vi.stubEnv('FORCE_COLOR', '1')

@@ -29,12 +29,15 @@ interface ColorContext {
 type ColorName =
   | 'yellowBright'
   | 'redBright'
+  | 'magenta'
   | 'bgBlack'
   | 'yellow'
   | 'green'
   | 'reset'
+  | 'bold'
   | 'cyan'
   | 'gray'
+  | 'dim'
   | 'red'
 
 /**
@@ -52,7 +55,8 @@ type Color = (input: ColorInput) => string
  *
  * Each one works as in picocolors 1.1.1, so the output stays the same byte for
  * byte: it wraps the text in the opening and the ending code of its color, and
- * opens the color again after every nested color that ends it.
+ * opens the color again after every nested color that ends it. Bold and dim end
+ * with the same code, so after a nested one they end it again before opening.
  *
  * @param enabled - Whether to add color codes.
  * @returns Color functions by name.
@@ -65,11 +69,14 @@ export function createColors(
    *
    * @param open - SGR code that starts the color.
    * @param close - SGR code that ends it.
+   * @param reopen - What replaces the ending code of a nested color, the
+   *   opening code by default.
    * @returns The color function.
    */
-  function color(open: number, close: number): Color {
+  function color(open: number, close: number, reopen?: string): Color {
     let openCode = `\u{1B}[${open}m`
     let closeCode = `\u{1B}[${close}m`
+    let replacement = reopen ?? openCode
 
     return input => {
       let text = String(input)
@@ -85,14 +92,17 @@ export function createColors(
       if (index === -1) {
         return `${openCode}${text}${closeCode}`
       }
-      let nested = text.slice(index).replaceAll(closeCode, openCode)
+      let nested = text.slice(index).replaceAll(closeCode, replacement)
       return `${openCode}${text.slice(0, index)}${nested}${closeCode}`
     }
   }
 
   return {
+    bold: color(1, 22, '\u{1B}[22m\u{1B}[1m'),
+    dim: color(2, 22, '\u{1B}[22m\u{1B}[2m'),
     yellowBright: color(93, 39),
     redBright: color(91, 39),
+    magenta: color(35, 39),
     bgBlack: color(40, 49),
     yellow: color(33, 39),
     green: color(32, 39),

@@ -122,6 +122,9 @@ describe('createColors', () => {
     { expected: '\u{1B}[93mx\u{1B}[39m', name: 'yellowBright' },
     { expected: '\u{1B}[91mx\u{1B}[39m', name: 'redBright' },
     { expected: '\u{1B}[40mx\u{1B}[49m', name: 'bgBlack' },
+    { expected: '\u{1B}[35mx\u{1B}[39m', name: 'magenta' },
+    { expected: '\u{1B}[1mx\u{1B}[22m', name: 'bold' },
+    { expected: '\u{1B}[2mx\u{1B}[22m', name: 'dim' },
     { expected: '\u{1B}[33mx\u{1B}[39m', name: 'yellow' },
     { expected: '\u{1B}[32mx\u{1B}[39m', name: 'green' },
     { expected: '\u{1B}[0mx\u{1B}[0m', name: 'reset' },
@@ -137,6 +140,17 @@ describe('createColors', () => {
 
     expect(gray(`a ${redBright('b')} c ${redBright('d')}`)).toBe(
       '\u{1B}[90ma \u{1B}[91mb\u{1B}[90m c \u{1B}[91md\u{1B}[90m\u{1B}[39m',
+    )
+  })
+
+  it('turns bold and dim back on after a nested style that ends both', () => {
+    let { bold, dim } = createColors(true)
+
+    expect(bold(`a ${dim('b')} c`)).toBe(
+      '\u{1B}[1ma \u{1B}[2mb\u{1B}[22m\u{1B}[1m c\u{1B}[22m',
+    )
+    expect(dim(`a ${bold('b')}`)).toBe(
+      '\u{1B}[2ma \u{1B}[1mb\u{1B}[22m\u{1B}[2m\u{1B}[22m',
     )
   })
 
