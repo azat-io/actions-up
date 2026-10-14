@@ -29,7 +29,7 @@ const RESOLVED_SHA = '0101ea7a85725b7e03969261d139b4f282b7a8f3'
 function tagInfoByDate(
   dates: Record<string, Date>,
 ): GitHubClient['getTagInfo'] {
-  return vi.fn((_owner: string, _repo: string, tag: string) => {
+  return vi.fn((_owner: string, _repository: string, tag: string) => {
     let date = dates[tag]
     return Promise.resolve(
       date ? { message: null, sha: null, date, tag } : null,

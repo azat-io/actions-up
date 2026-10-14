@@ -266,9 +266,9 @@ export async function scanGitHubActions(
    * nested uses.
    */
   try {
-    let repoSlug = await getCurrentRepoSlug(normalizedRoot)
+    let repositorySlug = await getCurrentRepositorySlug(normalizedRoot)
 
-    if (repoSlug) {
+    if (repositorySlug) {
       /**
        * Test-only branch to exercise outer catch during coverage runs.
        */
@@ -296,7 +296,7 @@ export async function scanGitHubActions(
             continue
           }
           let candidateSlug = `${segs[0]}/${segs[1]}`
-          if (candidateSlug !== repoSlug) {
+          if (candidateSlug !== repositorySlug) {
             continue
           }
 
@@ -388,7 +388,7 @@ export async function scanGitHubActions(
  * @param root - Absolute repository root directory.
  * @returns Repository slug in form "owner/repo" or null when not detected.
  */
-async function getCurrentRepoSlug(root: string): Promise<string | null> {
+async function getCurrentRepositorySlug(root: string): Promise<string | null> {
   let environmentSlug = process.env['GITHUB_REPOSITORY']
   if (environmentSlug && /^[^\s/]+\/[^\s/]+$/u.test(environmentSlug)) {
     return environmentSlug

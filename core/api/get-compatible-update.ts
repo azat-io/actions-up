@@ -144,8 +144,8 @@ export async function getCompatibleUpdate(
   if (segments.length < 2) {
     return { reason: 'no-candidate', update: null }
   }
-  let [owner, repo] = segments
-  if (!owner || !repo) {
+  let [owner, repository] = segments
+  if (!owner || !repository) {
     return { reason: 'no-candidate', update: null }
   }
 
@@ -162,8 +162,8 @@ export async function getCompatibleUpdate(
     try {
       tags =
         familyPrefix === '' ?
-          await client.getAllTags(owner, repo, 100)
-        : await client.getMatchingTagReferences(owner, repo, familyPrefix)
+          await client.getAllTags(owner, repository, 100)
+        : await client.getMatchingTagReferences(owner, repository, familyPrefix)
     } catch {
       return { reason: 'no-candidate', update: null }
     }
@@ -181,10 +181,10 @@ export async function getCompatibleUpdate(
   let selected =
     minAgeMs > 0 ?
       await selectAgedCandidate(client, {
+        repo: repository,
         candidates,
         minAgeMs,
         owner,
-        repo,
         now,
       })
     : { meta: { date: null, sha: null }, candidate: candidates[0]! }
@@ -203,7 +203,7 @@ export async function getCompatibleUpdate(
       sha = shaCache.get(shaCacheKey) ?? null
     } else {
       try {
-        sha = await client.getTagSha(owner, repo, version)
+        sha = await client.getTagSha(owner, repository, version)
       } catch {
         sha = null
       }

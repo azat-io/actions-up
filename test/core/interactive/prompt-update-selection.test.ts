@@ -347,14 +347,13 @@ function makeUpdateWithoutTarget(
 }
 
 /**
- * Lines of the group of a file in the shown prompt.
+ * Lines of the `workflows/ci.yml` group in the shown prompt.
  *
- * @param file - File shown in the group label.
  * @returns Column header and rows of the group.
  */
-function groupLines(file: string): MultiselectEntry<number>[] {
+function ciGroupLines(): MultiselectEntry<number>[] {
   let { entries } = prompt.shown()
-  return linesOfGroup(entries, findListed(entries, file)).map(
+  return linesOfGroup(entries, findListed(entries, 'workflows/ci.yml')).map(
     line => entries[line]!,
   )
 }
@@ -372,13 +371,12 @@ function groupLabels(): string[] {
 }
 
 /**
- * Column titles of the group of a file, left to right.
+ * Column titles of the `workflows/ci.yml` group, left to right.
  *
- * @param file - File shown in the group label.
  * @returns Titles in the column header.
  */
-function columnTitlesOf(file: string): string[] {
-  let [header] = groupLines(file)
+function ciColumnTitles(): string[] {
+  let [header] = ciGroupLines()
   return stripAnsi(header!.message).replace(/^ ○ /u, '').split(/ {2,}/u)
 }
 
@@ -609,7 +607,7 @@ describe('promptUpdateSelection', () => {
         makeUpdateWithoutTarget({ action: { name: 'actions/setup-node' } }),
       ])
 
-      expect(groupLines('workflows/ci.yml')).toMatchObject([
+      expect(ciGroupLines()).toMatchObject([
         { kind: 'separator' },
         { disabled: false },
         { disabled: true },
@@ -1018,7 +1016,7 @@ describe('promptUpdateSelection', () => {
     it('hides the Age column unless it is requested', async () => {
       await promptUpdateSelection([makeUpdate({ publishedAt: daysAgo(3) })])
 
-      expect(columnTitlesOf('workflows/ci.yml')).toStrictEqual([
+      expect(ciColumnTitles()).toStrictEqual([
         'Action',
         'Job',
         'Current',
@@ -1030,7 +1028,7 @@ describe('promptUpdateSelection', () => {
     it('hides the Age column when no update has a release date', async () => {
       await promptUpdateSelection([makeUpdate()], { showAge: true })
 
-      expect(columnTitlesOf('workflows/ci.yml')).toStrictEqual([
+      expect(ciColumnTitles()).toStrictEqual([
         'Action',
         'Job',
         'Current',

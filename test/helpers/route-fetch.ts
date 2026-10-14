@@ -169,16 +169,6 @@ export interface ReleasePayload extends Omit<
 }
 
 /**
- * Error the stubbed `fetch` rejects with when no route answers a request.
- */
-class UnexpectedRequestError extends Error {
-  public constructor(urls: string[], options?: ErrorOptions) {
-    super(`No stubbed route answers ${urls.join(', ')}`, options)
-    this.name = 'UnexpectedRequestError'
-  }
-}
-
-/**
  * Replace `fetch` with a router that answers GitHub API paths from a table.
  *
  * Every call builds a fresh response, because a response body can be read only
@@ -207,7 +197,7 @@ export function routeFetch(routes: Record<string, RouteAnswer>): FetchLog {
     let answer = Object.hasOwn(routes, path) ? routes[path] : undefined
     if (!answer) {
       unexpected.push(url)
-      return Promise.reject(new UnexpectedRequestError([url]))
+      return Promise.reject(createUnexpectedRequestError([url]))
     }
     if ('networkFailure' in answer) {
       return Promise.reject(new TypeError('fetch failed'))
@@ -223,7 +213,7 @@ export function routeFetch(routes: Record<string, RouteAnswer>): FetchLog {
 
   onTestFinished(() => {
     if (unexpected.length > 0) {
-      throw new UnexpectedRequestError(unexpected)
+      throw createUnexpectedRequestError(unexpected)
     }
   })
 
@@ -467,6 +457,17 @@ function toUrl(input: RequestInfo | URL): string {
     return input.url
   }
   return input instanceof URL ? input.href : input
+}
+
+/**
+ * Create the error the stubbed `fetch` rejects with when no route answers a
+ * request.
+ *
+ * @param urls - URLs of the unanswered requests.
+ * @returns Error naming the unanswered requests.
+ */
+function createUnexpectedRequestError(urls: string[]): Error {
+  return new Error(`No stubbed route answers ${urls.join(', ')}`)
 }
 
 /* eslint-enable camelcase */

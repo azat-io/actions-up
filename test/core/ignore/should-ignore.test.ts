@@ -31,7 +31,7 @@ describe('shouldIgnore', () => {
   it('returns false when the file path is missing', async () => {
     let ignored = await shouldIgnore(undefined, 5)
 
-    expect(ignored).toBeFalsy()
+    expect(ignored).toBe(false)
   })
 
   it.each([
@@ -54,7 +54,7 @@ describe('shouldIgnore', () => {
 
       let ignored = await shouldIgnore(filePath, line)
 
-      expect(ignored).toBeTruthy()
+      expect(ignored).toBe(true)
     },
   )
 
@@ -70,7 +70,7 @@ describe('shouldIgnore', () => {
 
     let ignored = await shouldIgnore(filePath, undefined)
 
-    expect(ignored).toBeFalsy()
+    expect(ignored).toBe(false)
   })
 
   it.each([
@@ -109,7 +109,7 @@ describe('shouldIgnore', () => {
 
     let ignored = await shouldIgnore(filePath, 6)
 
-    expect(ignored).toBeFalsy()
+    expect(ignored).toBe(false)
   })
 
   it.each([

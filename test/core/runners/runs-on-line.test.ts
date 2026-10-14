@@ -14,7 +14,7 @@ describe('buildRunsOnPattern', () => {
     '    runs-on: ubuntu-22.04\r',
     '    runs-on: ubuntu-22.04 # pinned\r',
   ])('matches %j', line => {
-    expect(buildRunsOnPattern('ubuntu-22.04').test(line)).toBeTruthy()
+    expect(buildRunsOnPattern('ubuntu-22.04').test(line)).toBe(true)
   })
 
   it.each([
@@ -26,7 +26,7 @@ describe('buildRunsOnPattern', () => {
     ['a sequence', '    runs-on: [ubuntu-22.04]'],
     ['trailing content after the label', '    runs-on: ubuntu-22.04 nonsense'],
   ])('does not match %s', (_description, line) => {
-    expect(buildRunsOnPattern('ubuntu-22.04').test(line)).toBeFalsy()
+    expect(buildRunsOnPattern('ubuntu-22.04').test(line)).toBe(false)
   })
 
   it('captures the parts needed to rebuild the line', () => {
@@ -44,7 +44,7 @@ describe('buildRunsOnPattern', () => {
 
   it('treats the label literally', () => {
     let pattern = buildRunsOnPattern('ubuntu-22.04')
-    expect(pattern.test('    runs-on: ubuntu-22X04')).toBeFalsy()
+    expect(pattern.test('    runs-on: ubuntu-22X04')).toBe(false)
   })
 })
 

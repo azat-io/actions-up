@@ -14,7 +14,7 @@ import { GITHUB_DIRECTORY } from '../constants'
  * @param startDirectory - Absolute path to start searching from.
  * @returns The repository root directory, or null when none is found.
  */
-export async function findRepoRoot(
+export async function findRepositoryRoot(
   startDirectory: string,
 ): Promise<string | null> {
   let current = resolve(startDirectory)
@@ -30,7 +30,7 @@ export async function findRepoRoot(
   if (parent === current) {
     return null
   }
-  return await findRepoRoot(parent)
+  return await findRepositoryRoot(parent)
 }
 
 /**

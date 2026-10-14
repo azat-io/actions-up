@@ -16,9 +16,9 @@ describe('parseExcludePatterns', () => {
     let compiledPatterns = parseExcludePatterns(['my-org/.*'])
 
     expect(compiledPatterns).toHaveLength(1)
-    expect(compiledPatterns[0]!.test('my-org/repo')).toBeTruthy()
-    expect(compiledPatterns[0]!.test('My-Org/Repo')).toBeTruthy()
-    expect(compiledPatterns[0]!.test('your-org/repo')).toBeFalsy()
+    expect(compiledPatterns[0]!.test('my-org/repo')).toBe(true)
+    expect(compiledPatterns[0]!.test('My-Org/Repo')).toBe(true)
+    expect(compiledPatterns[0]!.test('your-org/repo')).toBe(false)
   })
 
   it('treats /pattern/ as a regular expression, not plain text', () => {
@@ -27,9 +27,9 @@ describe('parseExcludePatterns', () => {
     ])
 
     expect(compiledPatterns).toHaveLength(1)
-    expect(compiledPatterns[0]!.test('actions/internal-build')).toBeTruthy()
-    expect(compiledPatterns[0]!.test('Actions/Internal-Deploy')).toBeTruthy()
-    expect(compiledPatterns[0]!.test('actions/external-build')).toBeFalsy()
+    expect(compiledPatterns[0]!.test('actions/internal-build')).toBe(true)
+    expect(compiledPatterns[0]!.test('Actions/Internal-Deploy')).toBe(true)
+    expect(compiledPatterns[0]!.test('actions/external-build')).toBe(false)
   })
 
   it('applies the flags written on a literal instead of the default', () => {
@@ -37,31 +37,31 @@ describe('parseExcludePatterns', () => {
 
     expect(compiledPatterns).toHaveLength(1)
     expect(compiledPatterns[0]!.flags).toBe('g')
-    expect(compiledPatterns[0]!.test('foo')).toBeFalsy()
+    expect(compiledPatterns[0]!.test('foo')).toBe(false)
   })
 
   it('uses default case-insensitive flag when literal has no flags', () => {
     let compiledPatterns = parseExcludePatterns([String.raw`/my-org\/repo/`])
 
     expect(compiledPatterns).toHaveLength(1)
-    expect(compiledPatterns[0]!.test('my-org/repo')).toBeTruthy()
-    expect(compiledPatterns[0]!.test('My-Org/Repo')).toBeTruthy()
-    expect(compiledPatterns[0]!.test('your-org/repo')).toBeFalsy()
+    expect(compiledPatterns[0]!.test('my-org/repo')).toBe(true)
+    expect(compiledPatterns[0]!.test('My-Org/Repo')).toBe(true)
+    expect(compiledPatterns[0]!.test('your-org/repo')).toBe(false)
   })
 
   it('treats a leading slash without a closing one as part of a plain pattern', () => {
     let compiledPatterns = parseExcludePatterns(['/internal-'])
 
     expect(compiledPatterns).toHaveLength(1)
-    expect(compiledPatterns[0]!.test('my-org/internal-tools')).toBeTruthy()
-    expect(compiledPatterns[0]!.test('internal-tools/build')).toBeFalsy()
+    expect(compiledPatterns[0]!.test('my-org/internal-tools')).toBe(true)
+    expect(compiledPatterns[0]!.test('internal-tools/build')).toBe(false)
   })
 
   it('trims surrounding spaces', () => {
     let compiledPatterns = parseExcludePatterns(['  my-org/.*  '])
 
     expect(compiledPatterns).toHaveLength(1)
-    expect(compiledPatterns[0]!.test('my-org/x')).toBeTruthy()
+    expect(compiledPatterns[0]!.test('my-org/x')).toBe(true)
   })
 
   it('trims surrounding spaces before reading a literal', () => {

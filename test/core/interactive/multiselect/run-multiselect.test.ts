@@ -262,12 +262,12 @@ describe('runMultiselect', () => {
     let terminal = createFakeTerminal(SIZE)
     let selection = open()
 
-    expect(process.stdin.isRaw).toBeTruthy()
+    expect(process.stdin.isRaw).toBe(true)
 
     await terminal.press(KEY.ctrlC)
     await selection
 
-    expect(process.stdin.isRaw).toBeFalsy()
+    expect(process.stdin.isRaw).toBe(false)
   })
 
   it('leaves raw mode on when it was on before', async () => {
@@ -278,7 +278,7 @@ describe('runMultiselect', () => {
     await terminal.press(KEY.ctrlC)
     await selection
 
-    expect(process.stdin.isRaw).toBeTruthy()
+    expect(process.stdin.isRaw).toBe(true)
   })
 
   it('reads the keys of a keyboard that is not a terminal without raw mode', async () => {
@@ -309,7 +309,7 @@ describe('runMultiselect', () => {
 
     expect(countProcessListeners()).toStrictEqual(before)
     expect(process.stdin.listenerCount('keypress')).toBe(0)
-    expect(process.stdin.isPaused()).toBeTruthy()
+    expect(process.stdin.isPaused()).toBe(true)
   })
 
   describe('when the process ends while it is open', () => {

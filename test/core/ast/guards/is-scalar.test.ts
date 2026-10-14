@@ -32,7 +32,7 @@ describe('isScalar', () => {
     it('accepts a map entry parsed from YAML as a scalar', () => {
       let pair = parseDocument<YAMLMap.Parsed>('name: CI\n').contents?.items[0]
 
-      expect(isScalar(pair)).toBeTruthy()
+      expect(isScalar(pair)).toBe(true)
     })
   })
 })

@@ -54,19 +54,19 @@ function makeIssueFormText(): string {
 }
 
 /**
- * Text of a composite action whose only step uses one action, on line 6.
+ * Text of a composite action whose only step uses `actions/setup-node@v4`, on
+ * line 6.
  *
- * @param uses - Action reference of the step.
  * @returns Composite action YAML text.
  */
-function makeCompositeActionText(uses: string): string {
+function makeCompositeActionText(): string {
   return [
     'name: Setup',
     'description: Install the toolchain',
     'runs:',
     '  using: composite',
     '  steps:',
-    `    - uses: ${uses}`,
+    '    - uses: actions/setup-node@v4',
     '',
   ].join('\n')
 }
@@ -151,7 +151,7 @@ describe('scanRecursive', () => {
     'registers the composite action %s under the name %s',
     async (filePath, expectedName) => {
       installFileSystem({
-        [filePath]: makeCompositeActionText('actions/setup-node@v4'),
+        [filePath]: makeCompositeActionText(),
       })
 
       let result = await scanRecursive('/repo', '.')
@@ -164,10 +164,8 @@ describe('scanRecursive', () => {
 
   it('collects the actions of every workflow and composite action', async () => {
     installFileSystem({
-      '/repo/.github/actions/setup/action.yml': makeCompositeActionText(
-        'actions/setup-node@v4',
-      ),
       '/repo/.github/workflows/ci.yml': makeWorkflowText('actions/checkout@v4'),
+      '/repo/.github/actions/setup/action.yml': makeCompositeActionText(),
     })
 
     let result = await scanRecursive('/repo', '.')

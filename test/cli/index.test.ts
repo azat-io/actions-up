@@ -13,11 +13,11 @@ import type { TagInfo } from '../../types/tag-info'
 import { promptUpdateSelection } from '../../core/interactive/prompt-update-selection'
 import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { createGitHubClient } from '../../core/api/create-github-client'
+import { findRepositoryRoot } from '../../core/fs/find-repository-root'
 import { applyUpdates } from '../../core/ast/update/apply-updates'
 import { createMockClient } from '../helpers/create-mock-client'
 import { shouldIgnore } from '../../core/ignore/should-ignore'
 import { stripAnsi } from '../../core/interactive/strip-ansi'
-import { findRepoRoot } from '../../core/fs/find-repo-root'
 import { checkUpdates } from '../../core/api/check-updates'
 import { scanRecursive } from '../../core/scan-recursive'
 import { scanGitHubActions } from '../../core/index'
@@ -113,7 +113,7 @@ vi.mock(import('../../core/interactive/prompt-update-selection'))
 vi.mock(import('../../core/api/create-github-client'))
 vi.mock(import('../../core/ast/update/apply-updates'))
 vi.mock(import('../../core/ignore/should-ignore'))
-vi.mock(import('../../core/fs/find-repo-root'))
+vi.mock(import('../../core/fs/find-repository-root'))
 vi.mock(import('../../core/api/check-updates'))
 vi.mock(import('../../core/scan-recursive'))
 vi.mock(import('../../core/index'))
@@ -317,28 +317,28 @@ describe('run', () => {
    * listing, the commit of each tag and its publication date. Every other
    * repository and tag does not exist.
    *
-   * @param tagsByRepo - Tags per `owner/repo`.
+   * @param tagsByRepository - Tags per `owner/repo`.
    * @returns Tag listing request handler, to count the listings requested.
    */
-  function arrangeTags(tagsByRepo: Record<string, TagInfo[]>): {
+  function arrangeTags(tagsByRepository: Record<string, TagInfo[]>): {
     getAllTags: Mock<GitHubClient['getAllTags']>
   } {
-    function tagsOf(owner: string, repo: string): TagInfo[] {
-      return tagsByRepo[`${owner}/${repo}`] ?? []
+    function tagsOf(owner: string, repository: string): TagInfo[] {
+      return tagsByRepository[`${owner}/${repository}`] ?? []
     }
     function findTag(
       owner: string,
-      repo: string,
+      repository: string,
       name: string,
     ): TagInfo | null {
-      return tagsOf(owner, repo).find(({ tag }) => tag === name) ?? null
+      return tagsOf(owner, repository).find(({ tag }) => tag === name) ?? null
     }
     /**
      * The listing names each tag and its commit but carries no dates.
      */
-    let getAllTags = vi.fn<GitHubClient['getAllTags']>((owner, repo) =>
+    let getAllTags = vi.fn<GitHubClient['getAllTags']>((owner, repository) =>
       Promise.resolve(
-        tagsOf(owner, repo).map(({ sha, tag }) => ({
+        tagsOf(owner, repository).map(({ sha, tag }) => ({
           message: null,
           date: null,
           sha,
@@ -348,11 +348,12 @@ describe('run', () => {
     )
     vi.mocked(createGitHubClient).mockReturnValue(
       createMockClient({
-        getTagSha: vi.fn<GitHubClient['getTagSha']>((owner, repo, name) =>
-          Promise.resolve(findTag(owner, repo, name)?.sha ?? null),
+        getTagInfo: vi.fn<GitHubClient['getTagInfo']>(
+          (owner, repository, name) =>
+            Promise.resolve(findTag(owner, repository, name)),
         ),
-        getTagInfo: vi.fn<GitHubClient['getTagInfo']>((owner, repo, name) =>
-          Promise.resolve(findTag(owner, repo, name)),
+        getTagSha: vi.fn<GitHubClient['getTagSha']>((owner, repository, name) =>
+          Promise.resolve(findTag(owner, repository, name)?.sha ?? null),
         ),
         getAllTags,
       }),
@@ -473,7 +474,7 @@ describe('run', () => {
       .mockImplementation(() => undefined as never)
     cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/repo')
 
-    vi.mocked(findRepoRoot).mockResolvedValue('/repo')
+    vi.mocked(findRepositoryRoot).mockResolvedValue('/repo')
     vi.mocked(shouldIgnore).mockResolvedValue(false)
     vi.mocked(createGitHubClient).mockReturnValue(createMockClient())
     vi.mocked(scanGitHubActions).mockResolvedValue(makeScanResult([]))
@@ -561,7 +562,7 @@ describe('run', () => {
 
     it('scans the .github directory of the current directory when no repository root is found', async () => {
       cwdSpy.mockReturnValue('/tmp/checkout')
-      vi.mocked(findRepoRoot).mockResolvedValue(null)
+      vi.mocked(findRepositoryRoot).mockResolvedValue(null)
 
       await runCli()
 
@@ -580,7 +581,7 @@ describe('run', () => {
         '/repo/packages/app',
         '.',
       )
-      expect(findRepoRoot).not.toHaveBeenCalled()
+      expect(findRepositoryRoot).not.toHaveBeenCalled()
       expect(scanGitHubActions).not.toHaveBeenCalled()
     })
 

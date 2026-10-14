@@ -4,21 +4,6 @@ import { printRateLimitWarning } from '../../cli/print-rate-limit-warning'
 import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 
 /**
- * Reference of an update whose tag validation was rate limited.
- */
-interface AffectedOptions {
-  /**
-   * Version the reference is pinned to.
-   */
-  version?: string
-
-  /**
-   * Action name.
-   */
-  name?: string
-}
-
-/**
  * Affected entry in the shape the CLI hands to the printer.
  */
 type AffectedUpdate = Parameters<typeof printRateLimitWarning>[0][number]
@@ -26,14 +11,11 @@ type AffectedUpdate = Parameters<typeof printRateLimitWarning>[0][number]
 /**
  * Create an update that fell back to an exact version under the rate limit.
  *
- * @param options - Reference; `actions/checkout@v4` by default.
+ * @param name - Action name, pinned to `v4`.
  * @returns Fresh affected update.
  */
-function makeAffected({
-  name = 'actions/checkout',
-  version = 'v4',
-}: AffectedOptions = {}): AffectedUpdate {
-  return { action: { version, name }, currentVersion: version }
+function makeAffected(name = 'actions/checkout'): AffectedUpdate {
+  return { action: { version: 'v4', name }, currentVersion: 'v4' }
 }
 
 describe('printRateLimitWarning', () => {
@@ -46,10 +28,7 @@ describe('printRateLimitWarning', () => {
   })
 
   it('uses the plural noun for several rate-limited updates', () => {
-    printRateLimitWarning([
-      makeAffected(),
-      makeAffected({ name: 'actions/setup-node' }),
-    ])
+    printRateLimitWarning([makeAffected(), makeAffected('actions/setup-node')])
 
     expect(consoleInfoSpy.printedText()).toBe(
       '\n⚠️ Tag validation was rate limited for 2 updates; exact versions were written instead of floating tags\n' +

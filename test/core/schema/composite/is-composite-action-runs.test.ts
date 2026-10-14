@@ -33,7 +33,7 @@ describe('isCompositeActionRuns', () => {
       ['a node', { main: 'dist/index.js', using: 'node20' }],
       ['a docker', { image: 'Dockerfile', using: 'docker' }],
     ])('accepts the runs of %s action as composite runs', (_kind, value) => {
-      expect(isCompositeActionRuns(value)).toBeTruthy()
+      expect(isCompositeActionRuns(value)).toBe(true)
     })
   })
 })

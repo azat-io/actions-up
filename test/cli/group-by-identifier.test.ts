@@ -3,21 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { groupByIdentifier } from '../../cli/group-by-identifier'
 
 /**
- * Reference of an update as the CLI pipeline reports it.
- */
-interface UpdateOptions {
-  /**
-   * Version the reference is pinned to.
-   */
-  version?: string
-
-  /**
-   * Action name.
-   */
-  name?: string
-}
-
-/**
  * Entry in the shape the warning printers hand to the grouper.
  */
 type GroupedUpdate = Parameters<typeof groupByIdentifier>[0][number]
@@ -26,14 +11,11 @@ type GroupedUpdate = Parameters<typeof groupByIdentifier>[0][number]
  * Create an update for an action reference, with the current version taken from
  * the reference as the update check does.
  *
- * @param options - Reference; `actions/checkout@v4` by default.
+ * @param name - Action name, pinned to `v4`.
  * @returns Fresh update.
  */
-function makeUpdate({
-  name = 'actions/checkout',
-  version = 'v4',
-}: UpdateOptions = {}): GroupedUpdate {
-  return { action: { version, name }, currentVersion: version }
+function makeUpdate(name = 'actions/checkout'): GroupedUpdate {
+  return { action: { version: 'v4', name }, currentVersion: 'v4' }
 }
 
 describe('groupByIdentifier', () => {
@@ -53,9 +35,9 @@ describe('groupByIdentifier', () => {
 
   it('preserves order of first appearance', () => {
     let updates = [
-      makeUpdate({ name: 'actions/setup-node' }),
+      makeUpdate('actions/setup-node'),
       makeUpdate(),
-      makeUpdate({ name: 'actions/setup-node' }),
+      makeUpdate('actions/setup-node'),
     ]
 
     let result = groupByIdentifier(updates)

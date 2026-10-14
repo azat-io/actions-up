@@ -19,7 +19,7 @@ describe('compareSha', () => {
     ['a v-prefixed short SHA and a full SHA', `v${SHORT_SHA}`, FULL_SHA],
     ['a full SHA and a v-prefixed short SHA', FULL_SHA, `v${SHORT_SHA}`],
   ])('treats %s as the same commit', (_description, sha1, sha2) => {
-    expect(compareSha(sha1, sha2)).toBeTruthy()
+    expect(compareSha(sha1, sha2)).toBe(true)
   })
 
   it.each([
@@ -49,7 +49,7 @@ describe('compareSha', () => {
       '3b1f9d8',
     ],
   ])('tells apart %s', (_description, sha1, sha2) => {
-    expect(compareSha(sha1, sha2)).toBeFalsy()
+    expect(compareSha(sha1, sha2)).toBe(false)
   })
 
   it.each([
@@ -59,7 +59,7 @@ describe('compareSha', () => {
   ])(
     'returns false below the minimum SHA length for %s',
     (_description, sha1, sha2) => {
-      expect(compareSha(sha1, sha2)).toBeFalsy()
+      expect(compareSha(sha1, sha2)).toBe(false)
     },
   )
 })

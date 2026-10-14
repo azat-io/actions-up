@@ -30,7 +30,7 @@ describe('isYAMLSequence', () => {
     it('accepts a map parsed from YAML as a sequence', () => {
       let map = parseDocument('name: CI\n').contents
 
-      expect(isYAMLSequence(map)).toBeTruthy()
+      expect(isYAMLSequence(map)).toBe(true)
     })
   })
 })

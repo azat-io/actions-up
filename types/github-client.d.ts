@@ -14,7 +14,7 @@ export interface GitHubClient {
    */
   getRefType(
     owner: string,
-    repo: string,
+    repository: string,
     reference: string,
   ): Promise<'branch' | 'tag' | null>
 
@@ -23,7 +23,7 @@ export interface GitHubClient {
    */
   getMatchingTagReferences(
     owner: string,
-    repo: string,
+    repository: string,
     prefix: string,
   ): Promise<TagInfo[]>
 
@@ -32,29 +32,44 @@ export interface GitHubClient {
    */
   getAllReleases(
     owner: string,
-    repo: string,
+    repository: string,
     limit?: number,
   ): Promise<ReleaseInfo[]>
 
   /**
    * Fetch tag metadata (message/date) and the resolved commit SHA.
    */
-  getTagInfo(owner: string, repo: string, tag: string): Promise<TagInfo | null>
+  getTagInfo(
+    owner: string,
+    repository: string,
+    tag: string,
+  ): Promise<TagInfo | null>
 
   /**
    * Resolve commit SHA for a tag without fetching commit data.
    */
-  getTagSha(owner: string, repo: string, tag: string): Promise<string | null>
+  getTagSha(
+    owner: string,
+    repository: string,
+    tag: string,
+  ): Promise<string | null>
 
   /**
    * List repository tags (name + commit SHA).
    */
-  getAllTags(owner: string, repo: string, limit?: number): Promise<TagInfo[]>
+  getAllTags(
+    owner: string,
+    repository: string,
+    limit?: number,
+  ): Promise<TagInfo[]>
 
   /**
    * Fetch the latest release or null when no latest release exists.
    */
-  getLatestRelease(owner: string, repo: string): Promise<ReleaseInfo | null>
+  getLatestRelease(
+    owner: string,
+    repository: string,
+  ): Promise<ReleaseInfo | null>
 
   /**
    * Current rate limit snapshot.

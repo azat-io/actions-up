@@ -9,7 +9,7 @@ describe('isSha', () => {
     ['an uppercase SHA', 'A1B2C3D'],
     ['a SHA behind a v prefix', 'v59b9d7edfcad5b87fbe3f473a9a134a721ad03f8'],
   ])('accepts %s', (_description, value) => {
-    expect(isSha(value)).toBeTruthy()
+    expect(isSha(value)).toBe(true)
   })
 
   it.each([
@@ -24,6 +24,6 @@ describe('isSha', () => {
     ['null', null],
     ['undefined', undefined],
   ])('rejects %s', (_description, value) => {
-    expect(isSha(value)).toBeFalsy()
+    expect(isSha(value)).toBe(false)
   })
 })

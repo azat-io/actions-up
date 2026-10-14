@@ -4,7 +4,6 @@ import 'node:worker_threads'
 import type { CompatibleUpdate } from '../core/api/get-compatible-update'
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
-import type { ScanResult } from '../types/scan-result'
 import type { CLIOptions } from './parse-arguments'
 
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
@@ -13,6 +12,7 @@ import { parseVersionComment } from '../core/versions/parse-version-comment'
 import { getCompatibleUpdate } from '../core/api/get-compatible-update'
 import { matchesAnyPattern } from '../core/filters/matches-any-pattern'
 import { createGitHubClient } from '../core/api/create-github-client'
+import { findRepositoryRoot } from '../core/fs/find-repository-root'
 import { filterDowngradeUpdates } from './filter-downgrade-updates'
 import { resolveScanDirectories } from './resolve-scan-directories'
 import { getRunnerUpdate } from '../core/runners/get-runner-update'
@@ -28,7 +28,6 @@ import { normalizeUpdateMode } from './normalize-update-mode'
 import { printMinAgeWarning } from './print-min-age-warning'
 import { validateCliOptions } from './validate-cli-options'
 import { shouldIgnore } from '../core/ignore/should-ignore'
-import { findRepoRoot } from '../core/fs/find-repo-root'
 import { checkUpdates } from '../core/api/check-updates'
 import { mergeScanResults } from './merge-scan-results'
 import { printModeWarning } from './print-mode-warning'
@@ -74,11 +73,6 @@ interface WriteJsonReportOptions {
    * Overall JSON report status.
    */
   status: JsonReportStatus
-
-  /**
-   * Aggregate scan result for the current run.
-   */
-  scanResult: ScanResult
 }
 
 export function run(): void {
@@ -109,9 +103,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
   try {
     let cwd = process.cwd()
-    let repoRoot = options.recursive ? null : await findRepoRoot(cwd)
+    let repositoryRoot =
+      options.recursive ? null : await findRepositoryRoot(cwd)
     let directories = resolveScanDirectories({
-      dir: anchorDirectoryInputs({ dir: options.dir, root: repoRoot, cwd }),
+      dir: anchorDirectoryInputs({
+        root: repositoryRoot,
+        dir: options.dir,
+        cwd,
+      }),
       recursive: options.recursive,
       cwd,
     })
@@ -133,6 +132,19 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
 
     /**
+     * Scan for GitHub Actions in the repository.
+     */
+    let scanResults =
+      options.recursive ?
+        await Promise.all(
+          directories.map(({ root, dir }) => scanRecursive(root, dir)),
+        )
+      : await Promise.all(
+          directories.map(({ root, dir }) => scanGitHubActions(root, dir)),
+        )
+    let scanResult = mergeScanResults(scanResults)
+
+    /**
      * Write the current CLI state as a machine-readable JSON report.
      *
      * @param reportOptions - Report status and update collections to serialize.
@@ -143,7 +155,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       blockedByAge = [],
       outdated = [],
       skipped = [],
-      scanResult,
       status,
     }: WriteJsonReportOptions): void {
       process.stdout.write(
@@ -171,19 +182,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         )}\n`,
       )
     }
-
-    /**
-     * Scan for GitHub Actions in the repository.
-     */
-    let scanResults =
-      options.recursive ?
-        await Promise.all(
-          directories.map(({ root, dir }) => scanRecursive(root, dir)),
-        )
-      : await Promise.all(
-          directories.map(({ root, dir }) => scanGitHubActions(root, dir)),
-        )
-    let scanResult = mergeScanResults(scanResults)
 
     /**
      * Runner labels ride along in the scan result but resolve from a local
@@ -231,7 +229,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         writeJsonReport({
           status: 'no-actions-found',
           actionsToCheckCount: 0,
-          scanResult,
         })
         return
       }
@@ -290,7 +287,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         writeJsonReport({
           status: 'nothing-to-check',
           actionsToCheckCount: 0,
-          scanResult,
         })
         return
       }
@@ -588,7 +584,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           status: 'up-to-date',
           blockedByMode,
           blockedByAge,
-          scanResult,
           skipped,
         })
         return
@@ -620,7 +615,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         status: 'updates-available',
         blockedByMode,
         blockedByAge,
-        scanResult,
         outdated,
         skipped,
       })

@@ -59,8 +59,8 @@ export async function selectExistingTagReference(
   let { latestVersion, actionName, candidates, latestSha } = parameters
 
   let segments = actionName.split('/')
-  let [owner, repo] = segments
-  if (!owner || !repo) {
+  let [owner, repository] = segments
+  if (!owner || !repository) {
     return { reference: latestVersion, rateLimited: false }
   }
 
@@ -82,7 +82,7 @@ export async function selectExistingTagReference(
   let probes = await Promise.all(
     candidates.map(async candidate => {
       try {
-        let sha = await client.getTagSha(owner, repo, candidate)
+        let sha = await client.getTagSha(owner, repository, candidate)
         return { rateLimited: false, sha }
       } catch (error) {
         return { rateLimited: isRateLimitError(error), sha: null }

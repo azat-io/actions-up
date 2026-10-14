@@ -103,7 +103,7 @@ function makeSharedSetupReference(
  *
  * @param files - Further entries of the repository, such as `.git/config`.
  */
-function arrangeRepoWithSharedSetup(files: FakeTree): void {
+function arrangeRepositoryWithSharedSetup(files: FakeTree): void {
   installFileSystem({
     '/repo/tools/setup/action.yml': makeCompositeActionText(
       'actions/setup-node@v4',
@@ -909,7 +909,7 @@ describe('scanGitHubActions', () => {
     'follows a same-repo composite action when the repository comes from $source',
     async ({ githubRepository, files }) => {
       vi.stubEnv('GITHUB_REPOSITORY', githubRepository)
-      arrangeRepoWithSharedSetup(files)
+      arrangeRepositoryWithSharedSetup(files)
 
       let result = await scanGitHubActions('/repo')
 
@@ -1002,7 +1002,7 @@ describe('scanGitHubActions', () => {
     'does not follow a same-repo composite action when $reason',
     async ({ githubRepository, files }) => {
       vi.stubEnv('GITHUB_REPOSITORY', githubRepository)
-      arrangeRepoWithSharedSetup(files)
+      arrangeRepositoryWithSharedSetup(files)
 
       let result = await scanGitHubActions('/repo')
 
@@ -1226,7 +1226,7 @@ describe('scanGitHubActions', () => {
     it('keeps the actions scanned so far when ACTIONS_UP_TEST_THROW makes following same-repo composite actions fail', async () => {
       vi.stubEnv('GITHUB_REPOSITORY', 'acme/demo')
       vi.stubEnv('ACTIONS_UP_TEST_THROW', '1')
-      arrangeRepoWithSharedSetup({})
+      arrangeRepositoryWithSharedSetup({})
 
       let result = await scanGitHubActions('/repo')
 

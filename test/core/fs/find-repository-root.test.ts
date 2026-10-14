@@ -5,7 +5,7 @@ import { stat } from 'node:fs/promises'
 import type { FakeEntry } from '../../helpers/create-fake-file-system'
 
 import { createFakeFileSystem } from '../../helpers/create-fake-file-system'
-import { findRepoRoot } from '../../../core/fs/find-repo-root'
+import { findRepositoryRoot } from '../../../core/fs/find-repository-root'
 
 vi.mock(import('node:fs/promises'), () => ({
   stat: vi.fn(),
@@ -21,7 +21,7 @@ function installFileSystem(entries: Record<string, FakeEntry | string>): void {
   vi.mocked(stat).mockImplementation(fileSystem.stat)
 }
 
-describe('findRepoRoot', () => {
+describe('findRepositoryRoot', () => {
   beforeEach(() => {
     vi.resetAllMocks()
   })
@@ -32,7 +32,7 @@ describe('findRepoRoot', () => {
       '/repo/package.json': '{}\n',
     })
 
-    let root = await findRepoRoot('/repo')
+    let root = await findRepositoryRoot('/repo')
 
     expect(root).toBe('/repo')
   })
@@ -43,7 +43,7 @@ describe('findRepoRoot', () => {
       '/repo/src/cli/index.ts': 'export {}\n',
     })
 
-    let root = await findRepoRoot('/repo/src/cli')
+    let root = await findRepositoryRoot('/repo/src/cli')
 
     expect(root).toBe('/repo')
   })
@@ -54,7 +54,7 @@ describe('findRepoRoot', () => {
       '/repo/src/index.ts': 'export {}\n',
     })
 
-    let root = await findRepoRoot('/repo/src')
+    let root = await findRepositoryRoot('/repo/src')
 
     expect(root).toBe('/repo')
   })
@@ -66,7 +66,7 @@ describe('findRepoRoot', () => {
       '/repo/.git/HEAD': 'ref: refs/heads/main\n',
     })
 
-    let root = await findRepoRoot('/repo/packages/app/src')
+    let root = await findRepositoryRoot('/repo/packages/app/src')
 
     expect(root).toBe('/repo/packages/app')
   })
@@ -77,7 +77,7 @@ describe('findRepoRoot', () => {
       '/repo/src/index.ts': 'export {}\n',
     })
 
-    let root = await findRepoRoot('/repo/src')
+    let root = await findRepositoryRoot('/repo/src')
 
     expect(root).toBe('/repo')
   })
@@ -87,7 +87,7 @@ describe('findRepoRoot', () => {
       '/home/dev/notes/todo.md': '# Todo\n',
     })
 
-    let root = await findRepoRoot('/home/dev/notes')
+    let root = await findRepositoryRoot('/home/dev/notes')
 
     expect(root).toBeNull()
   })

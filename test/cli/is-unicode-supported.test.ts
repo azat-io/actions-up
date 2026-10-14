@@ -34,27 +34,27 @@ describe('isUnicodeSupported', () => {
   it('supports Unicode outside Windows', () => {
     setPlatform('darwin')
 
-    expect(isUnicodeSupported()).toBeTruthy()
+    expect(isUnicodeSupported()).toBe(true)
   })
 
   it('falls back to ASCII in the Linux console', () => {
     setPlatform('linux')
     vi.stubEnv('TERM', 'linux')
 
-    expect(isUnicodeSupported()).toBeFalsy()
+    expect(isUnicodeSupported()).toBe(false)
   })
 
   it('falls back to ASCII in a legacy Windows console', () => {
     setPlatform('win32')
 
-    expect(isUnicodeSupported()).toBeFalsy()
+    expect(isUnicodeSupported()).toBe(false)
   })
 
   it('falls back to ASCII on Windows with an empty CI', () => {
     setPlatform('win32')
     vi.stubEnv('CI', '')
 
-    expect(isUnicodeSupported()).toBeFalsy()
+    expect(isUnicodeSupported()).toBe(false)
   })
 
   it.each([
@@ -68,6 +68,6 @@ describe('isUnicodeSupported', () => {
     setPlatform('win32')
     vi.stubEnv(name, value)
 
-    expect(isUnicodeSupported()).toBeTruthy()
+    expect(isUnicodeSupported()).toBe(true)
   })
 })

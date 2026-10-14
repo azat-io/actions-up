@@ -8,7 +8,7 @@ describe('isCommitSha', () => {
     ['a full-length SHA', '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8'],
     ['an uppercase SHA', 'ABCDEF0'],
   ])('accepts %s', (_description, value) => {
-    expect(isCommitSha(value)).toBeTruthy()
+    expect(isCommitSha(value)).toBe(true)
   })
 
   it.each([
@@ -28,6 +28,6 @@ describe('isCommitSha', () => {
     ['null', null],
     ['undefined', undefined],
   ])('rejects %s', (_description, value) => {
-    expect(isCommitSha(value)).toBeFalsy()
+    expect(isCommitSha(value)).toBe(false)
   })
 })

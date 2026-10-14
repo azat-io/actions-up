@@ -40,7 +40,7 @@ function makeUpdate(overrides: Partial<ActionUpdate> = {}): ActionUpdate {
  */
 function clientWithFloatingTags(...tags: string[]): GitHubClient {
   return createMockClient({
-    getTagSha: vi.fn((_owner: string, _repo: string, tag: string) =>
+    getTagSha: vi.fn((_owner: string, _repository: string, tag: string) =>
       Promise.resolve(tags.includes(tag) ? LATEST_SHA : null),
     ),
   })

@@ -4,21 +4,6 @@ import { printMinAgeWarning } from '../../cli/print-min-age-warning'
 import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 
 /**
- * Reference of an update held back by the cool-down.
- */
-interface BlockedOptions {
-  /**
-   * Version the reference is pinned to.
-   */
-  version?: string
-
-  /**
-   * Action name.
-   */
-  name?: string
-}
-
-/**
  * Held-back entry in the shape the CLI hands to the printer.
  */
 type BlockedUpdate = Parameters<typeof printMinAgeWarning>[0][number]
@@ -26,14 +11,11 @@ type BlockedUpdate = Parameters<typeof printMinAgeWarning>[0][number]
 /**
  * Create an update the release age cool-down held back.
  *
- * @param options - Reference; `actions/checkout@v4` by default.
+ * @param name - Action name, pinned to `v4`.
  * @returns Fresh held-back update.
  */
-function makeBlocked({
-  name = 'actions/checkout',
-  version = 'v4',
-}: BlockedOptions = {}): BlockedUpdate {
-  return { action: { version, name }, currentVersion: version }
+function makeBlocked(name = 'actions/checkout'): BlockedUpdate {
+  return { action: { version: 'v4', name }, currentVersion: 'v4' }
 }
 
 describe('printMinAgeWarning', () => {
@@ -69,7 +51,7 @@ describe('printMinAgeWarning', () => {
         '\n⏳ Skipped 2 updates released less than 1 day ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
         '   • actions/checkout@v4\n' +
         '   • actions/setup-node@v4',
-      blocked: [makeBlocked(), makeBlocked({ name: 'actions/setup-node' })],
+      blocked: [makeBlocked(), makeBlocked('actions/setup-node')],
       updates: 'several updates',
       days: 'a single day',
       minAge: 1,
@@ -79,7 +61,7 @@ describe('printMinAgeWarning', () => {
         '\n⏳ Skipped 2 updates released less than 7 days ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
         '   • actions/checkout@v4\n' +
         '   • actions/setup-node@v4',
-      blocked: [makeBlocked(), makeBlocked({ name: 'actions/setup-node' })],
+      blocked: [makeBlocked(), makeBlocked('actions/setup-node')],
       updates: 'several updates',
       days: 'several days',
       minAge: 7,
@@ -96,7 +78,7 @@ describe('printMinAgeWarning', () => {
   it('lists each held-back action once with the number of places it appears in', () => {
     let blocked = [
       makeBlocked(),
-      makeBlocked({ name: 'actions/setup-node' }),
+      makeBlocked('actions/setup-node'),
       makeBlocked(),
     ]
 

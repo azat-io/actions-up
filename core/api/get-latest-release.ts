@@ -16,18 +16,18 @@ import { makeRequest } from './make-request'
  *
  * @param context - Client context.
  * @param owner - Repository owner.
- * @param repo - Repository name.
+ * @param repository - Repository name.
  * @returns Last release info or null when no latest release exists.
  */
 export async function getLatestRelease(
   context: GitHubClientContext,
   owner: string,
-  repo: string,
+  repository: string,
 ): Promise<ReleaseInfo | null> {
   try {
     let releaseResp = await makeRequest(
       context,
-      `/repos/${owner}/${repo}/releases/latest`,
+      `/repos/${owner}/${repository}/releases/latest`,
     )
     let release = releaseResp.data as GitHubReleasePayload
 

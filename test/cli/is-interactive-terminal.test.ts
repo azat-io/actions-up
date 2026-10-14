@@ -18,25 +18,25 @@ describe('isInteractiveTerminal', () => {
   })
 
   it('accepts a terminal on standard output', () => {
-    expect(isInteractiveTerminal()).toBeTruthy()
+    expect(isInteractiveTerminal()).toBe(true)
     expect(isatty).toHaveBeenCalledExactlyOnceWith(1)
   })
 
   it('rejects standard output that is not a terminal', () => {
     vi.mocked(isatty).mockReturnValue(false)
 
-    expect(isInteractiveTerminal()).toBeFalsy()
+    expect(isInteractiveTerminal()).toBe(false)
   })
 
   it('rejects a dumb terminal', () => {
     vi.stubEnv('TERM', 'dumb')
 
-    expect(isInteractiveTerminal()).toBeFalsy()
+    expect(isInteractiveTerminal()).toBe(false)
   })
 
   it('rejects CI, even when the variable is empty', () => {
     vi.stubEnv('CI', '')
 
-    expect(isInteractiveTerminal()).toBeFalsy()
+    expect(isInteractiveTerminal()).toBe(false)
   })
 })

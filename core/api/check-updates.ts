@@ -194,9 +194,9 @@ export async function checkUpdates(
         sha: null,
       }
     }
-    let [owner, repo] = segments
+    let [owner, repository] = segments
 
-    if (!owner || !repo) {
+    if (!owner || !repository) {
       return {
         currentRefType: 'unknown',
         publishedAt: null,
@@ -206,7 +206,7 @@ export async function checkUpdates(
       }
     }
 
-    let repoKey = `${owner}/${repo}`
+    let repositoryKey = `${owner}/${repository}`
 
     try {
       /**
@@ -218,7 +218,11 @@ export async function checkUpdates(
       if (firstVersion && !isSha(firstVersion) && !isSemverLike(firstVersion)) {
         let referenceType: 'branch' | 'tag' | null
         try {
-          referenceType = await client.getRefType(owner, repo, firstVersion)
+          referenceType = await client.getRefType(
+            owner,
+            repository,
+            firstVersion,
+          )
         } catch (error) {
           if (isRateLimitError(error)) {
             throw error
@@ -274,8 +278,9 @@ export async function checkUpdates(
       if (familyPrefix) {
         let familyTags = await memoize(
           matchingReferencesMemo,
-          `${repoKey}#${familyPrefix}`,
-          () => client.getMatchingTagReferences(owner, repo, familyPrefix),
+          `${repositoryKey}#${familyPrefix}`,
+          () =>
+            client.getMatchingTagReferences(owner, repository, familyPrefix),
         )
         let best = selectLatestFamilyTag(familyTags, familyReference!)
 
@@ -291,7 +296,11 @@ export async function checkUpdates(
           }
         }
 
-        let latest = await resolveListedTag(client, { tag: best, owner, repo })
+        let latest = await resolveListedTag(client, {
+          repo: repository,
+          tag: best,
+          owner,
+        })
 
         return {
           currentRefType: currentReferenceType,
@@ -304,13 +313,13 @@ export async function checkUpdates(
       /**
        * Get latest release first to minimize requests.
        */
-      let release = await memoize(latestReleaseMemo, repoKey, () =>
-        client.getLatestRelease(owner, repo),
+      let release = await memoize(latestReleaseMemo, repositoryKey, () =>
+        client.getLatestRelease(owner, repository),
       )
 
       if (!release) {
-        let allReleases = await memoize(allReleasesMemo, repoKey, () =>
-          client.getAllReleases(owner, repo, 1),
+        let allReleases = await memoize(allReleasesMemo, repositoryKey, () =>
+          client.getAllReleases(owner, repository, 1),
         )
         let stableRelease = allReleases.find(
           currentRelease => !currentRelease.isPrerelease,
@@ -348,8 +357,8 @@ export async function checkUpdates(
         }
 
         if (considerTags) {
-          let tags = await memoize(tagsMemo, repoKey, () =>
-            client.getAllTags(owner, repo, tagFetchLimit),
+          let tags = await memoize(tagsMemo, repositoryKey, () =>
+            client.getAllTags(owner, repository, tagFetchLimit),
           )
           let latestSemverTag = selectLatestSemverTag(tags)
 
@@ -369,9 +378,9 @@ export async function checkUpdates(
                 /\d+\.\d+/u.test(best.tag))
             ) {
               let latest = await resolveListedTag(client, {
+                repo: repository,
                 tag: best,
                 owner,
-                repo,
               })
               return {
                 currentRefType: currentReferenceType,
@@ -385,7 +394,7 @@ export async function checkUpdates(
         if (version) {
           let releaseSha = sha
           try {
-            let tagSha = await client.getTagSha(owner, repo, version)
+            let tagSha = await client.getTagSha(owner, repository, version)
             sha = tagSha ?? releaseSha
           } catch (error) {
             if (isRateLimitError(error)) {
@@ -410,8 +419,8 @@ export async function checkUpdates(
       /**
        * No releases found: fetch tags and choose the best semver tag.
        */
-      let tags = await memoize(tagsMemo, repoKey, () =>
-        client.getAllTags(owner, repo, tagFetchLimit),
+      let tags = await memoize(tagsMemo, repositoryKey, () =>
+        client.getAllTags(owner, repository, tagFetchLimit),
       )
       if (tags.length > 0) {
         /**
@@ -425,7 +434,11 @@ export async function checkUpdates(
           tags.find(tag => isSameTagFamily(firstVersion, tag.tag)) ??
           tags[0]!
 
-        let latest = await resolveListedTag(client, { tag: best, owner, repo })
+        let latest = await resolveListedTag(client, {
+          repo: repository,
+          tag: best,
+          owner,
+        })
         return {
           currentRefType: currentReferenceType,
           status: 'ok' as const,

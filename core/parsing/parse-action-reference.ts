@@ -91,8 +91,8 @@ export function parseActionReference(
   if (segs.length < 2) {
     return null
   }
-  let [owner, repo] = segs
-  if (!owner || !repo) {
+  let [owner, repository] = segs
+  if (!owner || !repository) {
     return null
   }
 
@@ -110,7 +110,7 @@ export function parseActionReference(
 
   return {
     type: isReusableWorkflow ? 'reusable-workflow' : 'external',
-    ref: `${owner}/${repo}@${version}`,
+    ref: `${owner}/${repository}@${version}`,
     uses: reference,
     name: namePart,
     version,

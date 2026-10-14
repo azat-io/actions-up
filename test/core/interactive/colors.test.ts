@@ -64,7 +64,7 @@ describe('isColorSupported', () => {
       description: 'an empty NO_COLOR, which counts as unset',
     },
   ])('turns colors on for $description', ({ context }) => {
-    expect(isColorSupported(context)).toBeTruthy()
+    expect(isColorSupported(context)).toBe(true)
   })
 
   it.each([
@@ -102,13 +102,13 @@ describe('isColorSupported', () => {
       description: 'the --no-color flag, whatever else says',
     },
   ])('turns colors off for $description', ({ context }) => {
-    expect(isColorSupported(context)).toBeFalsy()
+    expect(isColorSupported(context)).toBe(false)
   })
 
   it('checks the current process by default', () => {
     vi.stubEnv('NO_COLOR', '1')
 
-    expect(isColorSupported()).toBeFalsy()
+    expect(isColorSupported()).toBe(false)
   })
 })
 

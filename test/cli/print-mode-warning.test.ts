@@ -4,21 +4,6 @@ import { spyOnConsoleInfo } from '../helpers/spy-on-console-info'
 import { printModeWarning } from '../../cli/print-mode-warning'
 
 /**
- * Reference of an update blocked by the update mode.
- */
-interface BlockedOptions {
-  /**
-   * Version the reference is pinned to.
-   */
-  version?: string
-
-  /**
-   * Action name.
-   */
-  name?: string
-}
-
-/**
  * Blocked entry in the shape the CLI hands to the printer.
  */
 type BlockedUpdate = Parameters<typeof printModeWarning>[0][number]
@@ -26,14 +11,11 @@ type BlockedUpdate = Parameters<typeof printModeWarning>[0][number]
 /**
  * Create an update the update mode held back.
  *
- * @param options - Reference; `actions/checkout@v3` by default.
+ * @param name - Action name, pinned to `v3`.
  * @returns Fresh blocked update.
  */
-function makeBlocked({
-  name = 'actions/checkout',
-  version = 'v3',
-}: BlockedOptions = {}): BlockedUpdate {
-  return { action: { version, name }, currentVersion: version }
+function makeBlocked(name = 'actions/checkout'): BlockedUpdate {
+  return { action: { version: 'v3', name }, currentVersion: 'v3' }
 }
 
 describe('printModeWarning', () => {
@@ -60,7 +42,7 @@ describe('printModeWarning', () => {
         '\n⚠️  Skipped 2 actions due to major/minor updates\n' +
         '   • actions/checkout@v3\n' +
         '   • actions/setup-node@v3',
-      blocked: [makeBlocked(), makeBlocked({ name: 'actions/setup-node' })],
+      blocked: [makeBlocked(), makeBlocked('actions/setup-node')],
       label: 'major and minor',
       count: 'several actions',
       mode: 'patch' as const,
@@ -79,7 +61,7 @@ describe('printModeWarning', () => {
         '\n⚠️  Skipped 2 actions due to major updates\n' +
         '   • actions/checkout@v3\n' +
         '   • actions/setup-node@v3',
-      blocked: [makeBlocked(), makeBlocked({ name: 'actions/setup-node' })],
+      blocked: [makeBlocked(), makeBlocked('actions/setup-node')],
       count: 'several actions',
       mode: 'minor' as const,
       label: 'major',
@@ -96,7 +78,7 @@ describe('printModeWarning', () => {
   it('lists each blocked action once with the number of places it appears in', () => {
     let blocked = [
       makeBlocked(),
-      makeBlocked({ name: 'actions/setup-node' }),
+      makeBlocked('actions/setup-node'),
       makeBlocked(),
     ]
 

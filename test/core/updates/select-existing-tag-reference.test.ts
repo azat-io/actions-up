@@ -20,7 +20,7 @@ const STALE_SHA = 'ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12'
 function tagShas(
   answers: Record<string, string | Error>,
 ): GitHubClient['getTagSha'] {
-  return vi.fn((_owner: string, _repo: string, tag: string) => {
+  return vi.fn((_owner: string, _repository: string, tag: string) => {
     let answer = answers[tag]
     return answer instanceof Error ?
         Promise.reject(answer)

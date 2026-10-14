@@ -22,7 +22,7 @@ describe('isYAMLMap', () => {
     it('accepts a sequence parsed from YAML as a map', () => {
       let sequence = parseDocument('- actions/checkout@v4\n').contents
 
-      expect(isYAMLMap(sequence)).toBeTruthy()
+      expect(isYAMLMap(sequence)).toBe(true)
     })
   })
 })

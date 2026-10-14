@@ -8,7 +8,7 @@ describe('isYamlFile', () => {
     ['action.yaml'],
     ['/repo/.github/workflows/release.yml'],
   ])('treats %s as a YAML file', filePath => {
-    expect(isYamlFile(filePath)).toBeTruthy()
+    expect(isYamlFile(filePath)).toBe(true)
   })
 
   it.each([
@@ -18,6 +18,6 @@ describe('isYamlFile', () => {
     ['dependabot.json'],
     ['/repo/.github/workflows/README.md'],
   ])('does not treat %s as a YAML file', filePath => {
-    expect(isYamlFile(filePath)).toBeFalsy()
+    expect(isYamlFile(filePath)).toBe(false)
   })
 })

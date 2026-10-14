@@ -11,7 +11,7 @@ describe('isSameTagFamily', () => {
   ])(
     'accepts %s and %s as members of one prefixed family',
     (current, candidate) => {
-      expect(isSameTagFamily(current, candidate)).toBeTruthy()
+      expect(isSameTagFamily(current, candidate)).toBe(true)
     },
   )
 
@@ -21,7 +21,7 @@ describe('isSameTagFamily', () => {
     ['release/v1', 'v1.2.3'],
     ['@bedrock-rbx/core@0.2.3', 'v0.2.3'],
   ])('rejects %s and %s as different families', (current, candidate) => {
-    expect(isSameTagFamily(current, candidate)).toBeFalsy()
+    expect(isSameTagFamily(current, candidate)).toBe(false)
   })
 
   it.each([
@@ -33,12 +33,12 @@ describe('isSameTagFamily', () => {
   ])(
     'normalizes a single trailing v when comparing %s with %s',
     (current, candidate) => {
-      expect(isSameTagFamily(current, candidate)).toBeTruthy()
+      expect(isSameTagFamily(current, candidate)).toBe(true)
     },
   )
 
   it('keeps the first v of a doubled one as part of the family', () => {
-    expect(isSameTagFamily('vv1.0.0', 'v1.1.0')).toBeFalsy()
+    expect(isSameTagFamily('vv1.0.0', 'v1.1.0')).toBe(false)
   })
 
   it.each([
@@ -46,7 +46,7 @@ describe('isSameTagFamily', () => {
     ['v1.2.3-linux', 'v1.2.4'],
     ['v1.2.3+build.5', 'v1.2.4'],
   ])('keeps the qualified %s inside the family of %s', (current, candidate) => {
-    expect(isSameTagFamily(current, candidate)).toBeTruthy()
+    expect(isSameTagFamily(current, candidate)).toBe(true)
   })
 
   it.each([
@@ -58,7 +58,7 @@ describe('isSameTagFamily', () => {
   ])(
     'does not block %s and %s when one has no detectable family',
     (current, candidate) => {
-      expect(isSameTagFamily(current, candidate)).toBeTruthy()
+      expect(isSameTagFamily(current, candidate)).toBe(true)
     },
   )
 
@@ -68,7 +68,7 @@ describe('isSameTagFamily', () => {
   ])(
     'does not block %s and %s when one is a SHA reference',
     (current, candidate) => {
-      expect(isSameTagFamily(current, candidate)).toBeTruthy()
+      expect(isSameTagFamily(current, candidate)).toBe(true)
     },
   )
 
@@ -80,7 +80,7 @@ describe('isSameTagFamily', () => {
   ])(
     'does not block %j and %j when one reference is missing or empty',
     (current, candidate) => {
-      expect(isSameTagFamily(current, candidate)).toBeTruthy()
+      expect(isSameTagFamily(current, candidate)).toBe(true)
     },
   )
 

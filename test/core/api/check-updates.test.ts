@@ -22,7 +22,7 @@ import { checkUpdates } from '../../../core/api/check-updates'
  * state does not mention answers as if the repository had nothing; a lookup
  * answered with an error fails with that error.
  */
-interface FakeRepo {
+interface FakeRepository {
   /**
    * Answer of `getRefType` per reference. References not listed exist as tags,
    * as the references written in workflows normally do.
@@ -80,48 +80,55 @@ type FakeClient = {
  * Create a fake GitHub client answering each lookup from the state of the
  * requested repository.
  *
- * @param findRepo - Returns the state of a repository.
+ * @param findRepository - Returns the state of a repository.
  * @returns Fake GitHub client.
  */
 function makeFakeClient(
-  findRepo: (owner: string, repo: string) => FakeRepo,
+  findRepository: (owner: string, repository: string) => FakeRepository,
 ): FakeClient {
   return {
-    getRefType: vi.fn<GitHubClient['getRefType']>((owner, repo, reference) => {
-      let { referenceTypes = {} } = findRepo(owner, repo)
-      return settle(
-        Object.hasOwn(referenceTypes, reference) ?
-          (referenceTypes[reference] ?? null)
-        : 'tag',
-      )
-    }),
+    getRefType: vi.fn<GitHubClient['getRefType']>(
+      (owner, repository, reference) => {
+        let { referenceTypes = {} } = findRepository(owner, repository)
+        return settle(
+          Object.hasOwn(referenceTypes, reference) ?
+            (referenceTypes[reference] ?? null)
+          : 'tag',
+        )
+      },
+    ),
     getMatchingTagReferences: vi.fn<GitHubClient['getMatchingTagReferences']>(
-      (owner, repo, prefix) =>
+      (owner, repository, prefix) =>
         Promise.resolve(
-          (findRepo(owner, repo).references ?? []).filter(reference =>
-            reference.tag.startsWith(prefix),
+          (findRepository(owner, repository).references ?? []).filter(
+            reference => reference.tag.startsWith(prefix),
           ),
         ),
     ),
     getAllReleases: vi.fn<GitHubClient['getAllReleases']>(
-      (owner, repo, limit) =>
-        Promise.resolve((findRepo(owner, repo).releases ?? []).slice(0, limit)),
+      (owner, repository, limit) =>
+        Promise.resolve(
+          (findRepository(owner, repository).releases ?? []).slice(0, limit),
+        ),
+    ),
+    getAllTags: vi.fn<GitHubClient['getAllTags']>((owner, repository, limit) =>
+      Promise.resolve(
+        (findRepository(owner, repository).tags ?? []).slice(0, limit),
+      ),
+    ),
+    getLatestRelease: vi.fn<GitHubClient['getLatestRelease']>(
+      (owner, repository) =>
+        settle(findRepository(owner, repository).latestRelease ?? null),
+    ),
+    getTagInfo: vi.fn<GitHubClient['getTagInfo']>((owner, repository, tag) =>
+      settle(findRepository(owner, repository).tagInfo?.[tag] ?? null),
     ),
     getRateLimitStatus: vi.fn<GitHubClient['getRateLimitStatus']>(() => ({
       resetAt: new Date('2026-01-15T10:00:00Z'),
       remaining: 5000,
     })),
-    getAllTags: vi.fn<GitHubClient['getAllTags']>((owner, repo, limit) =>
-      Promise.resolve((findRepo(owner, repo).tags ?? []).slice(0, limit)),
-    ),
-    getLatestRelease: vi.fn<GitHubClient['getLatestRelease']>((owner, repo) =>
-      settle(findRepo(owner, repo).latestRelease ?? null),
-    ),
-    getTagInfo: vi.fn<GitHubClient['getTagInfo']>((owner, repo, tag) =>
-      settle(findRepo(owner, repo).tagInfo?.[tag] ?? null),
-    ),
-    getTagSha: vi.fn<GitHubClient['getTagSha']>((owner, repo, tag) =>
-      settle(findRepo(owner, repo).tagShas?.[tag] ?? null),
+    getTagSha: vi.fn<GitHubClient['getTagSha']>((owner, repository, tag) =>
+      settle(findRepository(owner, repository).tagShas?.[tag] ?? null),
     ),
     shouldWaitForRateLimit: vi.fn<GitHubClient['shouldWaitForRateLimit']>(
       () => false,
@@ -227,6 +234,19 @@ function check(
 }
 
 /**
+ * Create a fake GitHub client that answers each repository from its own state,
+ * keyed by `owner/repo`. Repositories not listed have nothing.
+ *
+ * @param repos - State of each repository.
+ * @returns Fake GitHub client.
+ */
+function makeClientForRepos(repos: Record<string, FakeRepository>): FakeClient {
+  return makeFakeClient(
+    (owner, repository) => repos[`${owner}/${repository}`] ?? {},
+  )
+}
+
+/**
  * Settle a fake lookup: an error rejects, any other answer resolves.
  *
  * @param answer - Answer or error the lookup produces.
@@ -236,17 +256,6 @@ function settle<Answer>(answer: Answer | Error): Promise<Answer> {
   return answer instanceof Error ?
       Promise.reject(answer)
     : Promise.resolve(answer)
-}
-
-/**
- * Create a fake GitHub client that answers each repository from its own state,
- * keyed by `owner/repo`. Repositories not listed have nothing.
- *
- * @param repos - State of each repository.
- * @returns Fake GitHub client.
- */
-function makeClientForRepos(repos: Record<string, FakeRepo>): FakeClient {
-  return makeFakeClient((owner, repo) => repos[`${owner}/${repo}`] ?? {})
 }
 
 /**
@@ -261,11 +270,11 @@ function makeRateLimitError(): GitHubRateLimitError {
 /**
  * Create a fake GitHub client that answers every repository from one state.
  *
- * @param repo - State of the repository.
+ * @param repository - State of the repository.
  * @returns Fake GitHub client.
  */
-function makeClient(repo: FakeRepo = {}): FakeClient {
-  return makeFakeClient(() => repo)
+function makeClient(repository: FakeRepository = {}): FakeClient {
+  return makeFakeClient(() => repository)
 }
 
 /**
@@ -1934,7 +1943,7 @@ describe('checkUpdates', () => {
       },
     )
 
-    it.each<{ action: GitHubAction; lookup: string; repo: FakeRepo }>([
+    it.each<{ action: GitHubAction; repo: FakeRepository; lookup: string }>([
       {
         repo: { referenceTypes: { main: makeRateLimitError() } },
         action: makeAction({ version: 'main' }),

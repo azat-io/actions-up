@@ -34,22 +34,25 @@ export function createGitHubClient(token?: string): GitHubClient {
   }
 
   return {
+    getMatchingTagReferences: (owner, repository, prefix) =>
+      getMatchingTagReferences(context, { repo: repository, prefix, owner }),
     getRateLimitStatus: () => ({
       remaining: context.rateLimitRemaining,
       resetAt: context.rateLimitReset,
     }),
-    getMatchingTagReferences: (owner, repo, prefix) =>
-      getMatchingTagReferences(context, { prefix, owner, repo }),
-    getRefType: (owner, repo, reference) =>
-      getReferenceType(context, { reference, owner, repo }),
+    getRefType: (owner, repository, reference) =>
+      getReferenceType(context, { repo: repository, reference, owner }),
+    getAllReleases: (owner, repository, limit) =>
+      getAllReleases(context, { repo: repository, owner, limit }),
+    getAllTags: (owner, repository, limit) =>
+      getAllTags(context, { repo: repository, owner, limit }),
+    getTagInfo: (owner, repository, tag) =>
+      getTagInfo(context, { repo: repository, owner, tag }),
     shouldWaitForRateLimit: (threshold: number = 100) =>
       context.rateLimitRemaining < threshold,
-    getAllReleases: (owner, repo, limit) =>
-      getAllReleases(context, { owner, limit, repo }),
-    getAllTags: (owner, repo, limit) =>
-      getAllTags(context, { owner, limit, repo }),
-    getTagInfo: (owner, repo, tag) => getTagInfo(context, { owner, repo, tag }),
-    getLatestRelease: (owner, repo) => getLatestRelease(context, owner, repo),
-    getTagSha: (owner, repo, tag) => getTagSha(context, { owner, repo, tag }),
+    getTagSha: (owner, repository, tag) =>
+      getTagSha(context, { repo: repository, owner, tag }),
+    getLatestRelease: (owner, repository) =>
+      getLatestRelease(context, owner, repository),
   }
 }
