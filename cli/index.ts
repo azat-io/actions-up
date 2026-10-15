@@ -1,5 +1,4 @@
 import { resolve } from 'node:path'
-import 'node:worker_threads'
 
 import type { CompatibleUpdate } from '../core/api/get-compatible-update'
 import type { JsonReportStatus } from './build-json-report'
@@ -75,20 +74,21 @@ interface WriteJsonReportOptions {
   status: JsonReportStatus
 }
 
-export function run(): void {
+export function run(): Promise<void> {
   let parsed = parseArguments(process.argv.slice(2), version)
 
   if (parsed.kind === 'help' || parsed.kind === 'version') {
     console.info(parsed.text)
-    return
+    return Promise.resolve()
   }
 
   if (parsed.kind === 'error') {
     console.error(colors.redBright('\nError:'), parsed.message)
-    process.exit(1)
+    process.exitCode = 1
+    return Promise.resolve()
   }
 
-  void runUpdate(parsed.options)
+  return runUpdate(parsed.options)
 }
 
 /**
@@ -713,7 +713,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         error instanceof Error ? error.message : String(error),
       )
     }
-    process.exit(1)
+    process.exitCode = 1
   }
 }
 

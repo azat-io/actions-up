@@ -125,7 +125,6 @@ describe('run', () => {
   let consoleErrorSpy: MockInstance<typeof console.error>
   let consoleWarnSpy: MockInstance<typeof console.warn>
   let stdoutWriteSpy: MockInstance<typeof process.stdout.write>
-  let processExitSpy: MockInstance<typeof process.exit>
   let cwdSpy: MockInstance<typeof process.cwd>
 
   /**
@@ -388,18 +387,11 @@ describe('run', () => {
   /**
    * Runs the CLI and waits until the update pipeline it starts has settled.
    *
-   * `run()` does not return its promise. `vi.dynamicImportSettled()` waits for
-   * one real `setTimeout(0)` tick and for the CLI's lazy imports, and every
-   * collaborator in this file resolves through microtasks, so the whole
-   * pipeline has finished by then. A collaborator that waits on a real timer
-   * would break this assumption.
-   *
    * @param argv - Arguments passed after the executable name.
    */
   async function runCli(...argv: string[]): Promise<void> {
     process.argv = ['node', 'actions-up', ...argv]
-    run()
-    await vi.dynamicImportSettled()
+    await run()
   }
 
   /**
@@ -469,9 +461,6 @@ describe('run', () => {
     stdoutWriteSpy = vi
       .spyOn(process.stdout, 'write')
       .mockImplementation(() => true)
-    processExitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation(() => undefined as never)
     cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/repo')
 
     vi.mocked(findRepositoryRoot).mockResolvedValue('/repo')
@@ -486,6 +475,7 @@ describe('run', () => {
 
   afterEach(() => {
     process.argv = originalArgv
+    process.exitCode = undefined
     vi.restoreAllMocks()
     // CSpell:disable-next-line -- Vitest API name.
     vi.unstubAllEnvs()
@@ -512,16 +502,10 @@ describe('run', () => {
     })
 
     it('reports an invalid argument and exits with code 1', async () => {
-      /**
-       * The real `process.exit` never returns.
-       */
-      processExitSpy.mockImplementation(() => {
-        throw new Error('process.exit')
-      })
+      await runCli('--min-age', 'soon')
 
-      await expect(runCli('--min-age', 'soon')).rejects.toThrow('process.exit')
-
-      expect(processExitSpy).toHaveBeenCalledExactlyOnceWith(1)
+      expect(process.exitCode).toBe(1)
+      expect(scanGitHubActions).not.toHaveBeenCalled()
       expect(printedErrors()).toStrictEqual([
         'Error: Invalid --min-age "soon". Expected a non-negative number.',
       ])
@@ -530,7 +514,7 @@ describe('run', () => {
     it('refuses to combine --json with --yes and exits with code 1', async () => {
       await runCli('--json', '--yes')
 
-      expect(processExitSpy).toHaveBeenCalledExactlyOnceWith(1)
+      expect(process.exitCode).toBe(1)
       expect(printedErrors()).toStrictEqual([
         'Error: --json cannot be used with --yes',
       ])
@@ -1944,7 +1928,7 @@ describe('run', () => {
       await runCli('--json')
 
       expect(printedErrors()).toStrictEqual(['Error: fetch failed'])
-      expect(processExitSpy).toHaveBeenCalledExactlyOnceWith(1)
+      expect(process.exitCode).toBe(1)
     })
   })
 
@@ -2165,7 +2149,7 @@ describe('run', () => {
 
       expect(spinnerMock.error).toHaveBeenCalledExactlyOnceWith('Failed')
       expect(printedErrors()).toStrictEqual(['Error: fetch failed'])
-      expect(processExitSpy).toHaveBeenCalledExactlyOnceWith(1)
+      expect(process.exitCode).toBe(1)
     })
 
     it('explains a rate limit failure and how to raise the limit', async () => {
@@ -2180,7 +2164,7 @@ describe('run', () => {
         error.message,
         'Example: GITHUB_TOKEN=ghp_xxxx actions-up',
       ])
-      expect(processExitSpy).toHaveBeenCalledExactlyOnceWith(1)
+      expect(process.exitCode).toBe(1)
     })
   })
 
