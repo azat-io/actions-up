@@ -1455,6 +1455,48 @@ describe('checkUpdates', () => {
       )
     })
 
+    it.each([
+      { current: 'ci@v1.0.0', latest: 'ci@v1.1.0', prefix: 'ci@' },
+      {
+        current: '@scope/pkg@1.2.3',
+        latest: '@scope/pkg@1.3.0',
+        prefix: '@scope/pkg@',
+      },
+    ])(
+      'resolves a reusable workflow pinned to $current inside the $prefix tag family',
+      async ({ current, latest, prefix }) => {
+        let client = makeClient({
+          references: [
+            makeTag({ tag: current }),
+            makeTag({
+              sha: '0b1b1d7a1c4e9f0c2b6e5d8a3f7c9e1d2a4b6c8e',
+              tag: latest,
+            }),
+          ],
+        })
+        let action = makeAction({
+          name: 'org/workflows/.github/workflows/ci.yml',
+          type: 'reusable-workflow',
+          version: current,
+        })
+
+        let result = await check(client, [action])
+
+        expect(result).toEqual([
+          expectedUpdate(action, {
+            latestSha: '0b1b1d7a1c4e9f0c2b6e5d8a3f7c9e1d2a4b6c8e',
+            latestVersion: latest,
+            hasUpdate: true,
+          }),
+        ])
+        expect(client.getMatchingTagReferences).toHaveBeenCalledExactlyOnceWith(
+          'org',
+          'workflows',
+          prefix,
+        )
+      },
+    )
+
     it('resolves each tag family of one repository from its own members', async () => {
       let client = makeClient({
         references: [

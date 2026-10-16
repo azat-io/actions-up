@@ -128,7 +128,15 @@ describe('parseActionReference', () => {
     ['owner/@v1', 'empty repo name after the slash'],
     ['/repo@version', 'missing owner'],
     ['owner/repo/@version', 'empty segment in path'],
-    ['actions/checkout@v4@main', 'more than one @'],
+    ['actions/checkout@v4@main', 'an @ inside the version of an action'],
+    [
+      'owner/repo/path/to/action@ci@v1',
+      'an @ inside the version of an action with a subpath',
+    ],
+    [
+      'owner/repo.yml@ci@v1',
+      'an @ inside the version of a repository named like a workflow file',
+    ],
   ])('returns null for malformed reference: %j (%s)', reference => {
     let result = parseActionReference(reference, 'workflow.yml', 40)
 
@@ -188,6 +196,27 @@ describe('parseActionReference', () => {
       line: 20,
     })
   })
+
+  it.each(['ci@v1.0.0', '@scope/pkg@1.2.3'])(
+    'keeps every @ of the reusable workflow version %s',
+    version => {
+      let result = parseActionReference(
+        `org/workflows/.github/workflows/ci.yml@${version}`,
+        'workflow.yml',
+        30,
+      )
+
+      expect(result).toStrictEqual({
+        uses: `org/workflows/.github/workflows/ci.yml@${version}`,
+        name: 'org/workflows/.github/workflows/ci.yml',
+        ref: `org/workflows@${version}`,
+        type: 'reusable-workflow',
+        file: 'workflow.yml',
+        line: 30,
+        version,
+      })
+    },
+  )
 
   it('parses reusable workflow with SHA reference', () => {
     let result = parseActionReference(

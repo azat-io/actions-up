@@ -131,6 +131,26 @@ describe('scanWorkflowAst', () => {
       },
     ],
     [
+      'a reusable workflow pinned to a tag that contains @',
+      [
+        'on: push',
+        'jobs:',
+        '  call:',
+        '    uses: org/workflows/.github/workflows/ci.yml@ci@v1.0.0',
+        '',
+      ],
+      {
+        uses: 'org/workflows/.github/workflows/ci.yml@ci@v1.0.0',
+        name: 'org/workflows/.github/workflows/ci.yml',
+        ref: 'org/workflows@ci@v1.0.0',
+        type: 'reusable-workflow',
+        version: 'ci@v1.0.0',
+        file: filePath,
+        job: 'call',
+        line: 4,
+      },
+    ],
+    [
       'a reusable workflow of the same repository',
       [
         'on: push',

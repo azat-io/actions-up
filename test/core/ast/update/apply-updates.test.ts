@@ -387,6 +387,51 @@ describe('applyUpdates', () => {
     )
   })
 
+  it.each([
+    {
+      expected:
+        '    uses: org/workflows/.github/workflows/ci.yml@3f8b2a6c9d1e4f7a0b5c8d2e6f9a1b4c7d0e3f5a # ci@v1.1.0',
+      targetRef: '3f8b2a6c9d1e4f7a0b5c8d2e6f9a1b4c7d0e3f5a',
+      targetRefStyle: 'sha',
+    },
+    {
+      expected: '    uses: org/workflows/.github/workflows/ci.yml@ci@v1.1.0',
+      targetRef: 'ci@v1.1.0',
+      targetRefStyle: 'tag',
+    },
+  ] as const)(
+    'rewrites a reusable workflow pinned to a tag that contains @ to the $targetRefStyle target',
+    async ({ targetRefStyle, targetRef, expected }) => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  call:',
+          '    uses: org/workflows/.github/workflows/ci.yml@ci@v1.0.0',
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([
+        createUpdate({
+          action: {
+            name: 'org/workflows/.github/workflows/ci.yml',
+            type: 'reusable-workflow',
+            version: 'ci@v1.0.0',
+            line: 3,
+          },
+          currentVersion: 'ci@v1.0.0',
+          latestVersion: 'ci@v1.1.0',
+          targetRefStyle,
+          targetRef,
+        }),
+      ])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        ['jobs:', '  call:', expected, ''].join('\n'),
+      )
+    },
+  )
+
   it('pins to the latest SHA when the update carries no resolved target', async () => {
     let fileSystem = installFiles({
       [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),

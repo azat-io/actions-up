@@ -27,6 +27,8 @@ import type { GitHubAction } from '../../types/github-action'
  * @param reference - The action reference string to parse. Can be:
  *
  *   - External action: "owner/repo@version" (e.g., "actions/checkout@v3")
+ *   - Reusable workflow: "owner/repo/path/to/workflow.yml@version", where the
+ *       version may itself contain `@` (e.g., "ci@v1.0.0")
  *   - Local action: "./path/to/action" or "../path/to/action"
  *   - Docker action: "docker://image:tag".
  *
@@ -72,14 +74,12 @@ export function parseActionReference(
   }
 
   /**
-   * Handle external actions, supporting owner/repo or owner/repo/path.
+   * Handle external actions, supporting owner/repo or owner/repo/path. GitHub
+   * splits the reference at its first `@`, so the version keeps any `@` that
+   * follows, as in the `ci@v1.0.0` tags of monorepo release tools.
    */
-  let parts = reference.split('@')
-  if (parts.length !== 2) {
-    return null
-  }
-
-  let [namePart, version] = parts
+  let [namePart, ...versionParts] = reference.split('@')
+  let version = versionParts.join('@')
   if (!namePart || !version) {
     return null
   }
@@ -107,6 +107,15 @@ export function parseActionReference(
    */
   let isReusableWorkflow =
     segs.length > 2 && (namePart.endsWith('.yml') || namePart.endsWith('.yaml'))
+
+  /**
+   * GitHub accepts a version containing `@` only in a reusable workflow
+   * reference. A step that names an action such as `actions/checkout@v4@main`
+   * fails workflow validation.
+   */
+  if (!isReusableWorkflow && version.includes('@')) {
+    return null
+  }
 
   return {
     type: isReusableWorkflow ? 'reusable-workflow' : 'external',
