@@ -18,6 +18,17 @@ describe('getUpdateLevel', () => {
   })
 
   it.each([
+    ['web3-utils@1.2.3', 'web3-utils@2.0.0', 'major'],
+    ['node20-v1.2.3', 'node20-v1.3.0', 'minor'],
+    ['@scope/s3@1.2.3', '@scope/s3@1.2.4', 'patch'],
+  ])(
+    'skips the digits of the family name when rating the update from %s to %s as %s',
+    (current, latest, expected) => {
+      expect(getUpdateLevel(current, latest)).toBe(expected)
+    },
+  )
+
+  it.each([
     ['1.0.0', '2.0.0-rc.1', 'major'],
     ['1.0.0', '1.1.0-beta.1', 'minor'],
     ['1.0.0', '1.0.1-beta.1', 'patch'],

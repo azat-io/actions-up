@@ -1,5 +1,7 @@
 import semver from 'semver'
 
+import { coerceTagVersion } from './coerce-tag-version'
+
 /**
  * Update level for a version change.
  */
@@ -20,8 +22,8 @@ export function getUpdateLevel(
     return 'unknown'
   }
 
-  let current = normalizeVersion(currentVersion)
-  let latest = normalizeVersion(latestVersion)
+  let current = coerceTagVersion(currentVersion)
+  let latest = coerceTagVersion(latestVersion)
 
   if (!current || !latest) {
     return 'unknown'
@@ -49,19 +51,4 @@ export function getUpdateLevel(
     default:
       return 'unknown'
   }
-}
-
-/**
- * Normalize a version string to semver, if possible.
- *
- * @param version - Version string to normalize.
- * @returns Normalized semver string or null if not coercible.
- */
-function normalizeVersion(version: string): string | null {
-  let coerced = semver.coerce(version)
-  if (!coerced) {
-    return null
-  }
-
-  return coerced.version
 }

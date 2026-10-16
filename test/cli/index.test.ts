@@ -1120,6 +1120,30 @@ describe('run', () => {
       },
     )
 
+    /**
+     * Read from its first run of digits, `web3-utils@2.0.0` would rate as
+     * `3.0.0` like the current tag, which no mode holds back.
+     */
+    it('holds back a major update of a tag family whose name holds digits', async () => {
+      arrangeRun({
+        updates: [
+          makeUpdate(
+            makeAction({ version: 'web3-utils@1.2.3', name: 'web3/web3.js' }),
+            { latestVersion: 'web3-utils@2.0.0' },
+          ),
+        ],
+      })
+
+      await runCli('--mode', 'patch')
+
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        MAJOR_OR_MINOR_HELD_NOTICE,
+        '   • web3/web3.js@web3-utils@1.2.3',
+        UP_TO_DATE,
+      ])
+    })
+
     it('ignores a version comment next to a tag reference', async () => {
       arrangeRun({
         updates: [

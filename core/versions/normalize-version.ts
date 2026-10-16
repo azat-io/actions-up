@@ -1,4 +1,4 @@
-import semver from 'semver'
+import { coerceTagVersion } from './coerce-tag-version'
 
 /**
  * Normalize version string.
@@ -7,7 +7,7 @@ import semver from 'semver'
  *
  * - Remove `v` prefix before semver coercion.
  * - Preserve SHA-like values as-is.
- * - Return coerced semver when possible.
+ * - Return coerced semver when possible, read after any tag family prefix.
  * - Return original value when coercion fails.
  *
  * @param version - Version string to normalize.
@@ -26,9 +26,9 @@ export function normalizeVersion(
     return version
   }
 
-  let coerced = semver.coerce(normalized)
+  let coerced = coerceTagVersion(normalized)
   if (coerced) {
-    return coerced.version
+    return coerced
   }
 
   return version

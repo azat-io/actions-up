@@ -1536,6 +1536,35 @@ describe('checkUpdates', () => {
     })
 
     it.each([
+      { current: 'web3-utils@1.2.3', latest: 'web3-utils@2.0.0' },
+      { current: 'node20-v1.2.3', latest: 'node20-v2.0.0' },
+    ])(
+      'reports $latest as a breaking update of $current despite the digits in the family name',
+      async ({ current, latest }) => {
+        let client = makeClient({
+          references: [
+            makeTag({
+              sha: '5f7a3c1e9b2d4f6a8c0e1b3d5f7a9c2e4b6d8f0a',
+              tag: latest,
+            }),
+          ],
+        })
+        let action = makeAction({ name: 'owner/repo/deploy', version: current })
+
+        let result = await check(client, [action], { style: 'preserve' })
+
+        expect(result).toEqual([
+          expectedUpdate(action, {
+            latestSha: '5f7a3c1e9b2d4f6a8c0e1b3d5f7a9c2e4b6d8f0a',
+            latestVersion: latest,
+            isBreaking: true,
+            hasUpdate: true,
+          }),
+        ])
+      },
+    )
+
+    it.each([
       {
         outcome: 'an update to its commit',
         styleName: 'the default style',

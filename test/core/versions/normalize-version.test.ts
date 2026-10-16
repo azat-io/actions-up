@@ -29,6 +29,16 @@ describe('normalizeVersion', () => {
   })
 
   it.each([
+    ['web3-utils@1.2.3', '1.2.3'],
+    ['node20-v1.2.3', '1.2.3'],
+  ])(
+    'skips the digits of the family name in %s and returns %s',
+    (version, expected) => {
+      expect(normalizeVersion(version)).toBe(expected)
+    },
+  )
+
+  it.each([
     ['one character below the minimum SHA length', '3b1f9d'],
     [
       'one character beyond a full SHA',
