@@ -13,6 +13,10 @@ import { makeRequest } from './make-request'
  * prefix of other tags (e.g. `v8` with only `v8.3.2` published) resolves to
  * null.
  *
+ * An annotated tag whose tag object cannot be read resolves to null as well.
+ * The reference names the tag object rather than the commit, and pinning that
+ * SHA would write a reference that no commit answers to.
+ *
  * @param context - Client context.
  * @param parameters - Request parameters.
  * @param parameters.owner - Repository owner.
@@ -51,10 +55,20 @@ export async function getTagSha(
           context,
           `/repos/${owner}/${repo}/git/tags/${objectSha}`,
         )
-        let tagData = tagResp.data as { object: { sha?: string | null } }
-        sha = tagData.object.sha ?? null
-      } catch {
-        sha = objectSha
+        let tagData = tagResp.data as {
+          object: { sha?: string | null; type?: string }
+        }
+        /**
+         * A tag object can point at another tag object rather than at a commit,
+         * and that SHA names no commit either.
+         */
+        sha =
+          tagData.object.type === 'commit' ? (tagData.object.sha ?? null) : null
+      } catch (tagObjectError) {
+        if (isRateLimit(tagObjectError)) {
+          throw tagObjectError
+        }
+        sha = null
       }
     } else if (objectSha && objectType === 'commit') {
       sha = objectSha
@@ -63,10 +77,20 @@ export async function getTagSha(
     context.caches.tagSha.set(cacheKey, sha)
     return sha
   } catch (error) {
-    if (error instanceof Error && error.message.includes('rate limit')) {
+    if (isRateLimit(error)) {
       throw new GitHubRateLimitError(context.rateLimitReset)
     }
     context.caches.tagSha.set(cacheKey, null)
     return null
   }
+}
+
+/**
+ * Recognize the rate limit that `makeRequest` reports as a rewritten message.
+ *
+ * @param error - Error thrown by a request.
+ * @returns True when the request was rate limited.
+ */
+function isRateLimit(error: unknown): error is Error {
+  return error instanceof Error && error.message.includes('rate limit')
 }

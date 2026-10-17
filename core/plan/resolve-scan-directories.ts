@@ -1,6 +1,6 @@
 import { isAbsolute, basename, relative, dirname, resolve } from 'node:path'
 
-import { GITHUB_DIRECTORY } from '../core/constants'
+import { GITHUB_DIRECTORY } from '../constants'
 
 /**
  * Options for resolving scan directories from CLI flags.

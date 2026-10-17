@@ -571,10 +571,11 @@ describe('applyUpdates', () => {
     )
   })
 
-  it.each<[string, UpdateOverrides]>([
+  it.each<[string, UpdateOverrides, boolean]>([
     [
       'there is neither a target ref nor a SHA',
       { targetRefStyle: null, latestSha: null, targetRef: null },
+      true,
     ],
     [
       'the update was skipped although its SHA is known',
@@ -585,19 +586,31 @@ describe('applyUpdates', () => {
         hasUpdate: false,
         targetRef: null,
       },
+      false,
     ],
     [
       'the recorded line is past the end of the file',
       { action: { line: lineAfterStepWorkflow } },
+      true,
     ],
-  ])('leaves the file unchanged when %s', async (_description, overrides) => {
-    let original = workflowWithStep('      - uses: actions/checkout@v3')
-    let fileSystem = installFiles({ [workflowPath]: original })
+    [
+      'the recorded line holds another step',
+      { action: { line: stepLine + 1 } },
+      true,
+    ],
+  ])(
+    'leaves the file unchanged when %s',
+    async (_description, overrides, reported) => {
+      let original = workflowWithStep('      - uses: actions/checkout@v3')
+      let fileSystem = installFiles({ [workflowPath]: original })
+      let update = createUpdate(overrides)
 
-    await applyUpdates([createUpdate(overrides)])
+      let unwritten = await applyUpdates([update])
 
-    expect(fileSystem.contentOf(workflowPath)).toBe(original)
-  })
+      expect(fileSystem.contentOf(workflowPath)).toBe(original)
+      expect(unwritten).toStrictEqual(reported ? [update] : [])
+    },
+  )
 
   it.each<[string, UpdateOverrides, string]>([
     [
@@ -636,11 +649,13 @@ describe('applyUpdates', () => {
       let original = workflowWithStep('      - uses: actions/checkout@v3')
       let fileSystem = installFiles({ [workflowPath]: original })
       let consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let update = createUpdate(overrides)
 
-      await applyUpdates([createUpdate(overrides)])
+      let unwritten = await applyUpdates([update])
 
       expect(fileSystem.contentOf(workflowPath)).toBe(original)
       expect(consoleError).toHaveBeenCalledExactlyOnceWith(expectedMessage)
+      expect(unwritten).toStrictEqual([update])
     },
   )
 
@@ -649,9 +664,115 @@ describe('applyUpdates', () => {
       [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
     })
 
-    await applyUpdates([createUpdate({ action: { file: undefined } })])
+    let update = createUpdate({ action: { file: undefined } })
+
+    let unwritten = await applyUpdates([update])
 
     expect(writeFile).not.toHaveBeenCalled()
+    expect(unwritten).toStrictEqual([update])
+  })
+
+  it('reports no skipped update, even one that records no file', async () => {
+    let unwritten = await applyUpdates([
+      createUpdate({ action: { file: undefined }, status: 'skipped' }),
+    ])
+
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(unwritten).toStrictEqual([])
+  })
+
+  it('reports the updates of a file that is gone and still writes the other files', async () => {
+    let releasePath = '/repo/.github/workflows/release.yml'
+    let fileSystem = installFiles({
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
+    let consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let gone = createUpdate({ action: { file: releasePath } })
+
+    let unwritten = await applyUpdates([gone, createUpdate()])
+
+    expect(unwritten).toStrictEqual([gone])
+    expect(fileSystem.contentOf(workflowPath)).toBe(
+      workflowWithStep(
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+      ),
+    )
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining(releasePath),
+    )
+  })
+
+  it('reports every update of a file that cannot be written', async () => {
+    installFiles({
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
+    vi.mocked(writeFile).mockRejectedValueOnce(
+      new Error(`EACCES: permission denied, open '${workflowPath}'`),
+    )
+    let consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let update = createUpdate()
+
+    let unwritten = await applyUpdates([update])
+
+    expect(unwritten).toStrictEqual([update])
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+      `EACCES: permission denied, open '${workflowPath}'`,
+    )
+  })
+
+  it('reports a failure that is not an error object as text', async () => {
+    installFiles({
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
+    vi.mocked(writeFile).mockRejectedValueOnce('disk full')
+    let consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await applyUpdates([createUpdate()])
+
+    expect(consoleError).toHaveBeenCalledExactlyOnceWith('disk full')
+  })
+
+  it('reports nothing once every update is written, across files and kinds', async () => {
+    let releasePath = '/repo/.github/workflows/release.yml'
+    installFiles({
+      [releasePath]: workflowWithStep('      - uses: actions/setup-node@v3'),
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
+
+    let unwritten = await applyUpdates([
+      createUpdate(),
+      {
+        ...createSetupNodeUpdate(stepLine),
+        action: {
+          ...createSetupNodeUpdate(stepLine).action,
+          file: releasePath,
+        },
+      },
+    ])
+
+    expect(unwritten).toStrictEqual([])
+  })
+
+  it('reports the unwritten updates in the order they were given', async () => {
+    let releasePath = '/repo/.github/workflows/release.yml'
+    installFiles({
+      [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+      [releasePath]: workflowWithStep('      - uses: actions/checkout@v3'),
+    })
+    let staleRelease = createUpdate({
+      action: { line: lineAfterStepWorkflow, file: releasePath },
+    })
+    let missingFile = createUpdate({ action: { file: undefined } })
+    let staleWorkflow = createUpdate({ action: { line: stepLine + 1 } })
+
+    let unwritten = await applyUpdates([
+      staleRelease,
+      createUpdate(),
+      missingFile,
+      staleWorkflow,
+    ])
+
+    expect(unwritten).toStrictEqual([staleRelease, missingFile, staleWorkflow])
   })
 
   describe('without a usable line', () => {
@@ -804,6 +925,290 @@ describe('applyUpdates', () => {
     })
   })
 
+  describe('forms the line alone does not hold', () => {
+    /**
+     * Build a workflow whose `build` job runs the given step lines.
+     *
+     * @param lines - Lines of the step under update.
+     * @returns Workflow YAML text.
+     */
+    function workflowWithStepLines(lines: string[]): string {
+      return [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        ...lines,
+        '      - run: npm test',
+        '',
+      ].join('\n')
+    }
+
+    it.each([
+      [
+        'a reference on the line after its key',
+        ['      - uses:', '          actions/checkout@v3'],
+        [
+          '      - uses:',
+          '          actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        ],
+      ],
+      [
+        'a reference after a key that carries a comment',
+        ['      - uses: # the checkout', '          actions/checkout@v3'],
+        [
+          '      - uses: # the checkout',
+          '          actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        ],
+      ],
+      [
+        'a tagged reference',
+        ['      - uses: !!str actions/checkout@v3'],
+        [
+          '      - uses: !!str actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        ],
+      ],
+      [
+        'an anchored and tagged reference',
+        ['      - uses: &checkout !!str actions/checkout@v3'],
+        [
+          '      - uses: &checkout !!str actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        ],
+      ],
+      [
+        'a double-quoted reference written with escapes',
+        [String.raw`      - uses: "actions/checkout@v\x33"`],
+        [
+          '      - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" # v4.2.2',
+        ],
+      ],
+      [
+        'a reference under an explicit key',
+        ['      - ? uses', '        : actions/checkout@v3'],
+        [
+          '      - ? uses',
+          '        : actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+        ],
+      ],
+      [
+        'a folded block scalar, with the comment on its indicator line',
+        ['      - uses: >-', '          actions/checkout@v3'],
+        [
+          '      - uses: >- # v4.2.2',
+          '          actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
+        ],
+      ],
+      [
+        'a literal block scalar that already carries a version comment',
+        ['      - uses: |- # v3.6.0', '          actions/checkout@v3'],
+        [
+          '      - uses: |- # v4.2.2',
+          '          actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
+        ],
+      ],
+    ])('pins %s', async (_description, stepLines, expectedLines) => {
+      let fileSystem = installFiles({
+        [workflowPath]: workflowWithStepLines(stepLines),
+      })
+
+      let unwritten = await applyUpdates([createUpdate()])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithStepLines(expectedLines),
+      )
+      expect(unwritten).toStrictEqual([])
+    })
+
+    it('keeps CRLF line endings around a block scalar', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: >-',
+          '          actions/checkout@v3',
+          '',
+        ].join('\r\n'),
+      })
+
+      await applyUpdates([createUpdate()])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: >- # v4.2.2',
+          '          actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683',
+          '',
+        ].join('\r\n'),
+      )
+    })
+
+    it('pins a reusable workflow reference written on the line after its key', async () => {
+      let reusable = 'owner/repo/.github/workflows/ci.yml'
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'jobs:',
+          '  call:',
+          '    uses:',
+          `      ${reusable}@v1`,
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([
+        createUpdate({
+          action: { type: 'reusable-workflow', name: reusable, line: 3 },
+          currentVersion: 'v1',
+        }),
+      ])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'jobs:',
+          '  call:',
+          '    uses:',
+          `      ${reusable}@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2`,
+          '',
+        ].join('\n'),
+      )
+    })
+
+    it('leaves a block scalar whose value spans several lines alone and reports it', async () => {
+      let original = workflowWithStepLines([
+        '      - uses: >-',
+        '          actions/checkout@v3',
+        '          extra',
+      ])
+      let fileSystem = installFiles({ [workflowPath]: original })
+      let update = createUpdate({ currentVersion: 'v3 extra' })
+
+      let unwritten = await applyUpdates([update])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(original)
+      expect(unwritten).toStrictEqual([update])
+    })
+
+    it.each([
+      ['single-quoted', "'", "v4.2.2'evil"],
+      ['double-quoted', '"', 'v4.2.2"evil'],
+      ['double-quoted', '"', String.raw`v4.2.2\evil`],
+    ])(
+      'refuses a target a %s value cannot hold as written',
+      async (_description, quote, targetReference) => {
+        let original = workflowWithStep(
+          `      - uses: ${quote}actions/checkout@v3${quote}`,
+        )
+        let fileSystem = installFiles({ [workflowPath]: original })
+        let update = createUpdate({
+          targetRef: targetReference,
+          targetRefStyle: 'tag',
+        })
+
+        let unwritten = await applyUpdates([update])
+
+        expect(fileSystem.contentOf(workflowPath)).toBe(original)
+        expect(unwritten).toStrictEqual([update])
+      },
+    )
+
+    it('rewrites a reference in a later document of the file', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: [
+          'name: first',
+          '---',
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: actions/checkout@v3',
+          '',
+        ].join('\n'),
+      })
+
+      await applyUpdates([createUpdate({ action: { line: 6 } })])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        [
+          'name: first',
+          '---',
+          'jobs:',
+          '  build:',
+          '    steps:',
+          '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+          '',
+        ].join('\n'),
+      )
+    })
+
+    it('leaves a reference inside a run script alone when the update has no line', async () => {
+      let original = [
+        'jobs:',
+        '  build:',
+        '    steps:',
+        '      - run: |',
+        '          echo "uses: actions/checkout@v3"',
+        '',
+      ].join('\n')
+      let fileSystem = installFiles({ [workflowPath]: original })
+      let update = createUpdate({ action: { line: undefined } })
+
+      let unwritten = await applyUpdates([update])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(original)
+      expect(unwritten).toStrictEqual([update])
+    })
+
+    it('notes the version of a reference on the last line of a file without a final line break', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]:
+          'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@v3',
+      })
+
+      await applyUpdates([createUpdate()])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        'jobs:\n  build:\n    steps:\n      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+      )
+    })
+
+    it('writes nothing to a file none of whose references changed', async () => {
+      installFiles({
+        [workflowPath]: workflowWithStep('      - uses: actions/checkout@v4'),
+      })
+
+      await applyUpdates([createUpdate()])
+
+      expect(writeFile).not.toHaveBeenCalled()
+    })
+  })
+
+  it('replaces the whole reference when the current version is unknown', async () => {
+    let filePath = '/repo/.github/workflows/missing-version.yml'
+    let fileSystem = installFiles({
+      [filePath]: 'steps:\n  - uses: actions/cache@v3\n',
+    })
+
+    await applyUpdates([
+      createUpdate({
+        action: {
+          name: 'actions/cache',
+          line: undefined,
+          file: filePath,
+          version: null,
+        },
+        latestSha: '1234567890abcdef1234567890abcdef12345678',
+        targetRefStyle: undefined,
+        latestVersion: 'v3.1.5',
+        targetRef: undefined,
+        currentVersion: null,
+      }),
+    ])
+
+    expect(fileSystem.contentOf(filePath)).toBe(
+      'steps:\n  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5\n',
+    )
+  })
+
   describe('runs-on', () => {
     /**
      * Line on which `workflowWithRunner` puts the runner label, and the line
@@ -884,6 +1289,26 @@ describe('applyUpdates', () => {
         '    runs-on: ubuntu-22.04 # pinned on purpose',
         '    runs-on: ubuntu-24.04 # pinned on purpose',
       ],
+      [
+        'a label in a flow mapping',
+        '    { runs-on: ubuntu-22.04 }',
+        '    { runs-on: ubuntu-24.04 }',
+      ],
+      [
+        'an anchored label',
+        '    runs-on: &os ubuntu-22.04',
+        '    runs-on: &os ubuntu-24.04',
+      ],
+      [
+        'a tagged label',
+        '    runs-on: !!str ubuntu-22.04',
+        '    runs-on: !!str ubuntu-24.04',
+      ],
+      [
+        'a JSON-style label',
+        '    "runs-on": "ubuntu-22.04",',
+        '    "runs-on": "ubuntu-24.04",',
+      ],
     ])('replaces %s', async (_description, runner, expectedRunner) => {
       let fileSystem = installFiles({
         [workflowPath]: workflowWithRunner(runner),
@@ -894,6 +1319,32 @@ describe('applyUpdates', () => {
       expect(fileSystem.contentOf(workflowPath)).toBe(
         workflowWithRunner(expectedRunner),
       )
+    })
+
+    it('replaces a label written on the line after its key', async () => {
+      let fileSystem = installFiles({
+        [workflowPath]: workflowWithRunner('    runs-on:\n      ubuntu-22.04'),
+      })
+
+      let unwritten = await applyUpdates([createRunnerUpdate()])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithRunner('    runs-on:\n      ubuntu-24.04'),
+      )
+      expect(unwritten).toStrictEqual([])
+    })
+
+    it('leaves a label in a block scalar spanning several lines alone and reports it', async () => {
+      let original = workflowWithRunner(
+        '    runs-on: >-\n      ubuntu-22.04\n      extra',
+      )
+      let fileSystem = installFiles({ [workflowPath]: original })
+      let update = createRunnerUpdate({ currentVersion: 'ubuntu-22.04 extra' })
+
+      let unwritten = await applyUpdates([update])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(original)
+      expect(unwritten).toStrictEqual([update])
     })
 
     it('replaces a label whose version has no minor part', async () => {
@@ -974,7 +1425,6 @@ describe('applyUpdates', () => {
 
     it.each<[string, string, UpdateOverrides]>([
       ['the line names another label', '    runs-on: ubuntu-24.04', {}],
-      ['the label sits in a flow mapping', '    { runs-on: ubuntu-22.04 }', {}],
       [
         'the update has no target label',
         '    runs-on: ubuntu-22.04',
@@ -1010,10 +1460,14 @@ describe('applyUpdates', () => {
       async (_description, runner, overrides) => {
         let original = workflowWithRunner(runner)
         let fileSystem = installFiles({ [workflowPath]: original })
+        let update = createRunnerUpdate(overrides)
 
-        await applyUpdates([createRunnerUpdate(overrides)])
+        let unwritten = await applyUpdates([update])
 
         expect(fileSystem.contentOf(workflowPath)).toBe(original)
+        expect(unwritten).toStrictEqual(
+          update.status === 'skipped' ? [] : [update],
+        )
       },
     )
 
@@ -1037,10 +1491,13 @@ describe('applyUpdates', () => {
           .spyOn(console, 'error')
           .mockImplementation(() => {})
 
-        await applyUpdates([createRunnerUpdate({ targetRef: targetLabel })])
+        let update = createRunnerUpdate({ targetRef: targetLabel })
+
+        let unwritten = await applyUpdates([update])
 
         expect(fileSystem.contentOf(workflowPath)).toBe(original)
         expect(consoleError).toHaveBeenCalledExactlyOnceWith(expectedMessage)
+        expect(unwritten).toStrictEqual([update])
       },
     )
   })
@@ -1059,33 +1516,6 @@ describe('applyUpdates', () => {
 
       expect(fileSystem.contentOf(workflowPath)).toBe(
         "steps: [ { 'uses': 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' }, { 'uses': 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020' } ] # v4.4.0\n",
-      )
-    })
-
-    it('glues the original version to the comment when the current version is unknown', async () => {
-      let filePath = '/repo/.github/workflows/missing-version.yml'
-      let fileSystem = installFiles({
-        [filePath]: 'steps:\n  - uses: actions/cache@v3\n',
-      })
-
-      await applyUpdates([
-        createUpdate({
-          action: {
-            name: 'actions/cache',
-            line: undefined,
-            file: filePath,
-            version: null,
-          },
-          latestSha: '1234567890abcdef1234567890abcdef12345678',
-          targetRefStyle: undefined,
-          latestVersion: 'v3.1.5',
-          targetRef: undefined,
-          currentVersion: null,
-        }),
-      ])
-
-      expect(fileSystem.contentOf(filePath)).toBe(
-        'steps:\n  - uses: actions/cache@1234567890abcdef1234567890abcdef12345678 # v3.1.5v3\n',
       )
     })
   })

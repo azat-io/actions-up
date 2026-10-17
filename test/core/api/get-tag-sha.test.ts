@@ -177,22 +177,58 @@ describe('getTagSha', () => {
     expect(sha).toBeNull()
   })
 
-  describe('current behavior pending owner decision', () => {
-    it('returns the tag object SHA instead of a commit SHA when the tag object lookup fails', async () => {
-      routeFetch({
-        [REFERENCE_PATH]: ok(annotatedReference()),
-        [TAG_OBJECT_PATH]: serverError(),
-      })
-
-      let sha = await getTagSha(createClientContext(), {
-        owner: 'actions',
-        repo: 'checkout',
-        tag: 'v4.2.2',
-      })
-
-      expect(sha).toBe(TAG_OBJECT_SHA)
+  it('returns null rather than the tag object SHA when the tag object lookup fails', async () => {
+    routeFetch({
+      [REFERENCE_PATH]: ok(annotatedReference()),
+      [TAG_OBJECT_PATH]: serverError(),
     })
 
+    let sha = await getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    expect(sha).toBeNull()
+  })
+
+  it('returns null for an annotated tag whose tag object points at another tag', async () => {
+    routeFetch({
+      [TAG_OBJECT_PATH]: ok({
+        ...makeTagObjectPayload({ sha: TAG_OBJECT_SHA }),
+        object: { sha: TREE_SHA, type: 'tag' },
+      }),
+      [REFERENCE_PATH]: ok(annotatedReference()),
+    })
+
+    let sha = await getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    expect(sha).toBeNull()
+  })
+
+  it('throws GitHubRateLimitError when the tag object lookup is rate limited', async () => {
+    let resetAt = new Date('2026-10-03T14:37:21.000Z')
+    let api = routeFetch({
+      [REFERENCE_PATH]: ok(annotatedReference()),
+      [TAG_OBJECT_PATH]: rateLimited(resetAt),
+    })
+    let context = createClientContext()
+    let parameters = { owner: 'actions', repo: 'checkout', tag: 'v4.2.2' }
+
+    await expect(getTagSha(context, parameters)).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
+    )
+    await expect(getTagSha(context, parameters)).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
+    )
+    expect(api.paths).toStrictEqual([REFERENCE_PATH, TAG_OBJECT_PATH])
+  })
+
+  describe('current behavior pending owner decision', () => {
     it('remembers a lookup that failed for a reason other than a rate limit as a missing tag', async () => {
       let api = routeFetch({ [REFERENCE_PATH]: serverError() })
       let context = createClientContext()

@@ -1,6 +1,6 @@
 import { isAbsolute, join } from 'node:path'
 
-import { GITHUB_DIRECTORY } from '../core/constants'
+import { GITHUB_DIRECTORY } from '../constants'
 
 /**
  * Options for anchoring directory inputs at the repository root.

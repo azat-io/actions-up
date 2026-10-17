@@ -5,6 +5,7 @@ import type { GitHubAction } from '../../../types/github-action'
 import { parseActionReference } from '../../parsing/parse-action-reference'
 import { isYAMLSequence } from '../guards/is-yaml-sequence'
 import { getLineNumberForKey } from './get-line-number'
+import { recordValueLine } from './record-value-line'
 import { isYAMLMap } from '../guards/is-yaml-map'
 import { isScalar } from '../guards/is-scalar'
 import { isNode } from '../guards/is-node'
@@ -92,6 +93,7 @@ export function extractUsesFromSteps(
       if (isScalar(usesPair?.value) && usesPair.value.comment) {
         action.comment = usesPair.value.comment
       }
+      recordValueLine(action, { node: usesPair?.value, content })
       actions.push(action)
     }
   }

@@ -1,4 +1,4 @@
-import type { UpdateMode } from '../types/update-mode'
+import type { UpdateMode } from '../../types/update-mode'
 
 /**
  * Normalizes the update mode option.

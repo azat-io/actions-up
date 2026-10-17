@@ -1,4 +1,4 @@
-import type { ScanResult } from '../types/scan-result'
+import type { ScanResult } from '../../types/scan-result'
 
 /**
  * Merge multiple scan results into one.

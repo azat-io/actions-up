@@ -1,11 +1,11 @@
 import semver from 'semver'
 
-import type { ActionUpdate } from '../types/action-update'
+import type { ActionUpdate } from '../../types/action-update'
 
-import { parseVersionComment } from '../core/versions/parse-version-comment'
-import { isSameTagFamily } from '../core/versions/is-same-tag-family'
-import { parseTagFamily } from '../core/versions/parse-tag-family'
-import { isSha } from '../core/versions/is-sha'
+import { parseVersionComment } from '../versions/parse-version-comment'
+import { isSameTagFamily } from '../versions/is-same-tag-family'
+import { parseTagFamily } from '../versions/parse-tag-family'
+import { isSha } from '../versions/is-sha'
 
 /**
  * Result of splitting updates into kept and downgrade-blocked groups.

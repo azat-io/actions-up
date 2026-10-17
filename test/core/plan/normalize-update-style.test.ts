@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeUpdateStyle } from '../../cli/normalize-update-style'
+import { normalizeUpdateStyle } from '../../../core/plan/normalize-update-style'
 
 describe('normalizeUpdateStyle', () => {
   it('defaults to sha when no style is given', () => {

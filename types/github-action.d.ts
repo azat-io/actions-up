@@ -26,6 +26,13 @@ export interface GitHubAction {
   version?: string | null
 
   /**
+   * Line the value starts on, when it is written on a later line than its key
+   * (`uses:` followed by the reference on the next line). Ignore comments on
+   * either line apply.
+   */
+  valueLine?: number
+
+  /**
    * Trailing inline comment on the `uses:` line, without its leading `#`.
    */
   comment?: string

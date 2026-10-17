@@ -1,3 +1,4 @@
+import type { RequestLimiter } from '../core/api/create-request-limiter'
 import type { TagInfo } from './tag-info'
 
 /**
@@ -33,6 +34,12 @@ export interface GitHubClientContext {
   }
 
   /**
+   * Responses of the requests sent so far, keyed by path, including those still
+   * in flight.
+   */
+  responses: Map<string, Promise<GitHubResponse>>
+
+  /**
    * Remaining requests available per current rate-limit window.
    */
   rateLimitRemaining: number
@@ -43,6 +50,11 @@ export interface GitHubClientContext {
   token: undefined | string
 
   /**
+   * Admits the requests of the run within its limits.
+   */
+  limiter: RequestLimiter
+
+  /**
    * Scheduled time when rate limit resets.
    */
   rateLimitReset: Date
@@ -51,4 +63,19 @@ export interface GitHubClientContext {
    * GitHub REST API base URL.
    */
   baseUrl: string
+}
+
+/**
+ * Response of a request to the GitHub API.
+ */
+export interface GitHubResponse {
+  /**
+   * Response headers, with lowercased names.
+   */
+  headers: Record<string, string>
+
+  /**
+   * Parsed JSON body.
+   */
+  data: unknown
 }

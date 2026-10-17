@@ -464,45 +464,38 @@ describe('checkUpdates', () => {
     )
 
     it('requests the repository data once when one action is pinned at several references', async () => {
-      let client = makeClient({
-        tags: [
-          makeTag({
-            sha: '0f298509e5acb1cb7161588de079829da577a355',
-            tag: 'v4.2.0',
+      let api = routeFetch({
+        '/repos/actions/checkout/git/ref/tags/v4.2.2': ok(
+          makeReferencePayload('refs/tags/v4.2.2', {
+            sha: '0c9cf1022529583a37d96f16ad80090459a3a1f5',
+            type: 'commit',
           }),
-        ],
+        ),
+        '/repos/actions/checkout/releases/latest': ok(makeReleasePayload()),
       })
-      let older = makeAction({ version: 'v4.0.0' })
-      let newer = makeAction({ version: 'v4.1.0' })
+      let older = makeAction({ name: 'actions/checkout', version: 'v4.0.0' })
+      let newer = makeAction({ name: 'actions/checkout', version: 'v4.1.0' })
 
-      let result = await check(client, [older, newer])
+      let result = await checkUpdates([older, newer])
 
-      expect(result).toEqual([
-        expectedUpdate(older, {
-          latestSha: '0f298509e5acb1cb7161588de079829da577a355',
-          latestVersion: 'v4.2.0',
+      expect(result).toMatchObject([
+        {
+          latestSha: '0c9cf1022529583a37d96f16ad80090459a3a1f5',
+          latestVersion: 'v4.2.2',
           hasUpdate: true,
-        }),
-        expectedUpdate(newer, {
-          latestSha: '0f298509e5acb1cb7161588de079829da577a355',
-          latestVersion: 'v4.2.0',
+          action: older,
+        },
+        {
+          latestSha: '0c9cf1022529583a37d96f16ad80090459a3a1f5',
+          latestVersion: 'v4.2.2',
           hasUpdate: true,
-        }),
+          action: newer,
+        },
       ])
-      expect(client.getLatestRelease).toHaveBeenCalledExactlyOnceWith(
-        'owner',
-        'repo',
-      )
-      expect(client.getAllReleases).toHaveBeenCalledExactlyOnceWith(
-        'owner',
-        'repo',
-        expect.any(Number),
-      )
-      expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
-        'owner',
-        'repo',
-        expect.any(Number),
-      )
+      expect(api.paths).toStrictEqual([
+        '/repos/actions/checkout/releases/latest',
+        '/repos/actions/checkout/git/ref/tags/v4.2.2',
+      ])
     })
   })
 
@@ -2012,7 +2005,42 @@ describe('checkUpdates', () => {
       },
     )
 
-    it('stops requesting further repositories after the first rate limit and rejects', async () => {
+    it('sends no further request once GitHub answers one with a rate limit', async () => {
+      let firstRelease = Promise.withResolvers<Response>()
+      let paths: string[] = []
+      vi.spyOn(globalThis, 'fetch').mockImplementation(input => {
+        let path = typeof input === 'string' ? input : ''
+        paths.push(path)
+        return path.endsWith('/repos/owner/first/releases/latest') ?
+            firstRelease.promise
+          : Promise.resolve(
+              new Response('{"message":"API rate limit exceeded"}', {
+                headers: { 'x-ratelimit-remaining': '0' },
+                statusText: 'Forbidden',
+                status: 403,
+              }),
+            )
+      })
+
+      let lookup = checkUpdates([
+        makeAction({ name: 'owner/first', version: 'v1.0.0' }),
+        makeAction({ name: 'owner/second', version: 'v1.0.0' }),
+      ])
+      await new Promise(resolve => {
+        setTimeout(resolve, 0)
+      })
+      firstRelease.resolve(Response.json(makeReleasePayload()))
+
+      await expect(lookup).rejects.toMatchObject({
+        name: 'GitHubRateLimitError',
+      })
+      expect(paths).toStrictEqual([
+        'https://api.github.com/repos/owner/first/releases/latest',
+        'https://api.github.com/repos/owner/second/releases/latest',
+      ])
+    })
+
+    it('rejects with the rate limit when any lookup runs into it, whatever the others found', async () => {
       let client = makeClientForRepos({
         'owner/first': { latestRelease: makeRelease({ version: 'v1.1.0' }) },
         'owner/third': { latestRelease: makeRelease({ version: 'v1.1.0' }) },
@@ -2027,10 +2055,6 @@ describe('checkUpdates', () => {
       await expect(check(client, actions)).rejects.toMatchObject({
         name: 'GitHubRateLimitError',
       })
-      expect(client.getLatestRelease.mock.calls).toStrictEqual([
-        ['owner', 'first'],
-        ['owner', 'second'],
-      ])
     })
 
     it.each([

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GitHubAction } from '../../types/github-action'
-import type { ScanResult } from '../../types/scan-result'
+import type { GitHubAction } from '../../../types/github-action'
+import type { ScanResult } from '../../../types/scan-result'
 
-import { mergeScanResults } from '../../cli/merge-scan-results'
+import { mergeScanResults } from '../../../core/plan/merge-scan-results'
 
 /**
  * Create an action reference as the scanner reports it.

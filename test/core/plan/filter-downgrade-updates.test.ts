@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ActionUpdate } from '../../types/action-update'
-import type { GitHubAction } from '../../types/github-action'
+import type { ActionUpdate } from '../../../types/action-update'
+import type { GitHubAction } from '../../../types/github-action'
 
-import { filterDowngradeUpdates } from '../../cli/filter-downgrade-updates'
+import { filterDowngradeUpdates } from '../../../core/plan/filter-downgrade-updates'
 
 /**
  * Workflow file the fixture actions are scanned from.

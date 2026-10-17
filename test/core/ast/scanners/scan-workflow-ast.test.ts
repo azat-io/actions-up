@@ -474,21 +474,57 @@ describe('scanWorkflowAst', () => {
         `      labels: ${knownUbuntuLabel}`,
       ],
     ],
+    ['an empty value', ['jobs:', '  build:', '    runs-on:']],
+  ])('ignores runs-on written as %s', (_description, lines) => {
+    expect(scan([...lines, ''])).toStrictEqual([])
+  })
+
+  it.each([
     [
       'an anchored value',
       ['jobs:', '  build:', `    runs-on: &runner ${knownUbuntuLabel}`],
-    ],
-    [
-      'a value carried to the next line',
-      ['jobs:', '  build:', '    runs-on:', `      ${knownUbuntuLabel}`],
+      { line: 3 },
     ],
     [
       'a key inside a flow mapping',
       ['jobs:', `  build: { runs-on: ${knownUbuntuLabel} }`],
+      { line: 2 },
     ],
-    ['an empty value', ['jobs:', '  build:', '    runs-on:']],
-  ])('ignores runs-on written as %s', (_description, lines) => {
-    expect(scan([...lines, ''])).toStrictEqual([])
+    [
+      'a value carried to the next line, with the line of the value',
+      ['jobs:', '  build:', '    runs-on:', `      ${knownUbuntuLabel}`],
+      { valueLine: 4, line: 3 },
+    ],
+  ])('reports runs-on written as %s', (_description, lines, position) => {
+    expect(scan([...lines, ''])).toStrictEqual([
+      {
+        version: knownUbuntuLabel,
+        name: 'runner/ubuntu',
+        type: 'runner',
+        file: filePath,
+        job: 'build',
+        ...position,
+      },
+    ])
+  })
+
+  it('reports the line of a reusable workflow reference written below its key', () => {
+    let actions = scan([
+      'jobs:',
+      '  call:',
+      '    uses:',
+      '      owner/repo/.github/workflows/ci.yml@v1',
+      '',
+    ])
+
+    expect(actions).toMatchObject([
+      {
+        name: 'owner/repo/.github/workflows/ci.yml',
+        type: 'reusable-workflow',
+        valueLine: 4,
+        line: 3,
+      },
+    ])
   })
 
   it.each([

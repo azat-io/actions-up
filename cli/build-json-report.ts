@@ -1,20 +1,26 @@
 import { isAbsolute, relative, resolve } from 'node:path'
 
+import type { UpdatePlanStatus } from '../types/update-plan'
 import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
 import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
 
 /**
- * High-level status of a JSON report.
+ * High-level status of a JSON report, the status of the plan it reports.
  */
-export type JsonReportStatus =
-  'updates-available' | 'no-actions-found' | 'nothing-to-check' | 'up-to-date'
+export type JsonReportStatus = UpdatePlanStatus
 
 /**
  * Options used to build a JSON report from the current CLI state.
  */
 interface BuildJsonReportOptions {
+  /**
+   * Updates held back because they would move a SHA pin to an older version
+   * than its version comment names.
+   */
+  blockedAsDowngrade: ActionUpdate[]
+
   /**
    * Regex patterns supplied through `--min-age-exclude`.
    */
@@ -131,6 +137,12 @@ interface JsonReportUpdate {
   currentVersion: string | null
 
   /**
+   * True when a rate limit kept the floating tag from being validated, so the
+   * exact latest version is the target instead.
+   */
+  targetRefRateLimited: boolean
+
+  /**
    * Latest version found for this dependency.
    */
   latestVersion: string | null
@@ -170,6 +182,11 @@ interface JsonReportUpdate {
  * Aggregate counts included in the JSON report.
  */
 interface JsonReportSummary {
+  /**
+   * Number of updates held back as downgrades of SHA pins.
+   */
+  totalBlockedAsDowngrade: number
+
   /**
    * Number of composite actions discovered during scanning.
    */
@@ -230,6 +247,11 @@ interface JsonReportSummary {
  * Top-level machine-readable report emitted by `--json`.
  */
 interface JsonReport {
+  /**
+   * Entries held back because they would downgrade a SHA pin.
+   */
+  blockedAsDowngrade: JsonReportUpdate[]
+
   /**
    * Entries filtered out by the selected update mode.
    */
@@ -386,6 +408,37 @@ interface JsonReportAction {
 }
 
 /**
+ * Machine-readable report emitted by `--json` when the run fails.
+ */
+interface JsonErrorReport {
+  /**
+   * Why the run failed.
+   */
+  error: {
+    /**
+     * Whether GitHub refused further requests because a rate limit was
+     * exhausted.
+     */
+    rateLimited: boolean
+
+    /**
+     * Reason the run failed, worded as in the terminal.
+     */
+    message: string
+  }
+
+  /**
+   * Version of the JSON payload schema.
+   */
+  schemaVersion: 1
+
+  /**
+   * Marks a run that failed before it could report updates.
+   */
+  status: 'error'
+}
+
+/**
  * Build the machine-readable JSON report returned by `--json`.
  *
  * @param options - Current CLI state and computed update data.
@@ -410,6 +463,7 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
         .length,
       totalActions: options.scanResult.actions.length - scannedRunners.length,
       totalCompositeActions: options.scanResult.compositeActions.size,
+      totalBlockedAsDowngrade: options.blockedAsDowngrade.length,
       totalWorkflows: options.scanResult.workflows.size,
       totalActionsChecked: options.actionsToCheckCount,
       totalBlockedByMode: options.blockedByMode.length,
@@ -434,6 +488,9 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       reportOnly: true,
       json: true,
     },
+    blockedAsDowngrade: options.blockedAsDowngrade.map(update =>
+      serializeUpdate(update, cwd),
+    ),
     blockedByMode: options.blockedByMode.map(update =>
       serializeUpdate(update, cwd),
     ),
@@ -445,6 +502,28 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
     runners: runnerUpdates.map(update => serializeUpdate(update, cwd)),
     status: options.status,
     schemaVersion: 1,
+  }
+}
+
+/**
+ * Build the machine-readable report `--json` prints when the run fails.
+ *
+ * A failed run has no update lists to report, but a consumer that parses the
+ * output still gets a document, together with the reason, instead of empty
+ * output.
+ *
+ * @param error - Error the run failed with.
+ * @returns Serializable JSON payload for stdout.
+ */
+export function buildJsonErrorReport(error: unknown): JsonErrorReport {
+  return {
+    error: {
+      rateLimited:
+        error instanceof Error && error.name === 'GitHubRateLimitError',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    schemaVersion: 1,
+    status: 'error',
   }
 }
 
@@ -467,6 +546,7 @@ function serializeUpdate(update: ActionUpdate, cwd: string): JsonReportUpdate {
       name: update.action.name,
       type: update.action.type,
     },
+    targetRefRateLimited: update.targetRefRateLimited ?? false,
     publishedAt: update.publishedAt?.toISOString() ?? null,
     currentRefType: update.currentRefType ?? null,
     targetRefStyle: update.targetRefStyle ?? null,

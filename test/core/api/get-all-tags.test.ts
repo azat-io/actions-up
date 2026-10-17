@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   makeTagListingEntry,
+  serverError,
   rateLimited,
   routeFetch,
   ok,
 } from '../../helpers/route-fetch'
+import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
 import { createClientContext } from '../../helpers/create-client-context'
 import { getAllTags } from '../../../core/api/get-all-tags'
 
@@ -54,19 +56,34 @@ describe('getAllTags', () => {
     ])
   })
 
-  describe('current behavior pending owner decision', () => {
-    it('rejects a rate-limited listing with the plain request error instead of GitHubRateLimitError', async () => {
-      routeFetch({ [TAGS_PATH]: rateLimited() })
+  it('throws GitHubRateLimitError with the reset time from a rate-limited listing', async () => {
+    let resetAt = new Date('2026-10-03T14:37:21.000Z')
+    routeFetch({ [TAGS_PATH]: rateLimited(resetAt) })
 
-      let request = getAllTags(createClientContext(), {
-        owner: 'actions',
-        repo: 'checkout',
-        limit: 100,
-      })
-
-      await expect(request).rejects.toStrictEqual(
-        Object.assign(new Error('API rate limit exceeded'), { status: 403 }),
-      )
+    let request = getAllTags(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      limit: 100,
     })
+
+    await expect(request).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
+    )
+  })
+
+  it('rejects a failed listing with the request error', async () => {
+    routeFetch({ [TAGS_PATH]: serverError() })
+
+    let request = getAllTags(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      limit: 100,
+    })
+
+    await expect(request).rejects.toStrictEqual(
+      Object.assign(new Error('GitHub API error: 500 Internal Server Error'), {
+        status: 500,
+      }),
+    )
   })
 })

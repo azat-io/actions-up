@@ -4,7 +4,6 @@ import type { GitHubClient } from '../../types/github-client'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
 import type { UpdateStyle } from '../../types/update-style'
-import type { ReleaseInfo } from '../../types/release-info'
 import type { TagInfo } from '../../types/tag-info'
 
 import { selectLatestSemverTag } from '../versions/select-latest-semver-tag'
@@ -35,6 +34,12 @@ interface ReleaseCheckResult extends LatestInfo {
     | 'branch'
 
   /**
+   * Failure the lookup ended with, reported once every lookup has finished so
+   * the warnings come out in scan order.
+   */
+  failure?: { actionName: string; error: unknown }
+
+  /**
    * Detected style of the current reference being evaluated.
    */
   currentRefType?: ActionUpdate['currentRefType']
@@ -43,6 +48,11 @@ interface ReleaseCheckResult extends LatestInfo {
    * Whether lookup succeeded or was skipped (e.g., branch ref).
    */
   status?: 'skipped' | 'ok'
+
+  /**
+   * Rate limit the lookup ran into.
+   */
+  rateLimitError?: Error
 
   /**
    * Lookup key this result belongs to (action name plus current reference).
@@ -141,29 +151,6 @@ export async function checkUpdates(
   }
 
   /**
-   * Repository-scoped responses are memoized for the whole run so that
-   * splitting the groups above does not multiply requests when one repository
-   * is pinned at several references.
-   */
-  let latestReleaseMemo = new Map<string, ReleaseInfo | null>()
-  let allReleasesMemo = new Map<string, ReleaseInfo[]>()
-  let tagsMemo = new Map<string, TagInfo[]>()
-  let matchingReferencesMemo = new Map<string, TagInfo[]>()
-
-  /**
-   * Track rate limit errors with shared state.
-   */
-  let sharedState = {
-    rateLimitError: null as Error | null,
-    rateLimitHit: false,
-  }
-
-  /**
-   * Fetch releases sequentially to stop on rate limit.
-   */
-  let releaseResults: ReleaseCheckResult[] = []
-
-  /**
    * Resolve the latest release/tag info for a single action occurrence.
    *
    * @param actionKey - Lookup key produced by `buildActionKey`.
@@ -172,19 +159,6 @@ export async function checkUpdates(
   async function resolveAction(actionKey: string): Promise<ReleaseCheckResult> {
     let currentVersions = uniqueActions.get(actionKey)!
     let { name: actionName } = currentVersions[0]!
-
-    /**
-     * Skip remaining if rate limit hit.
-     */
-    if (sharedState.rateLimitHit) {
-      return {
-        currentRefType: 'unknown',
-        publishedAt: null,
-        version: null,
-        actionKey,
-        sha: null,
-      }
-    }
 
     /**
      * Parse owner/repo from actionName, which may include path.
@@ -210,8 +184,6 @@ export async function checkUpdates(
         sha: null,
       }
     }
-
-    let repositoryKey = `${owner}/${repository}`
 
     try {
       /**
@@ -281,11 +253,10 @@ export async function checkUpdates(
         )
 
       if (familyPrefix) {
-        let familyTags = await memoize(
-          matchingReferencesMemo,
-          `${repositoryKey}#${familyPrefix}`,
-          () =>
-            client.getMatchingTagReferences(owner, repository, familyPrefix),
+        let familyTags = await client.getMatchingTagReferences(
+          owner,
+          repository,
+          familyPrefix,
         )
         let best = selectLatestFamilyTag(familyTags, familyReference!)
 
@@ -318,14 +289,10 @@ export async function checkUpdates(
       /**
        * Get latest release first to minimize requests.
        */
-      let release = await memoize(latestReleaseMemo, repositoryKey, () =>
-        client.getLatestRelease(owner, repository),
-      )
+      let release = await client.getLatestRelease(owner, repository)
 
       if (!release) {
-        let allReleases = await memoize(allReleasesMemo, repositoryKey, () =>
-          client.getAllReleases(owner, repository, 1),
-        )
+        let allReleases = await client.getAllReleases(owner, repository, 1)
         let stableRelease = allReleases.find(
           currentRelease => !currentRelease.isPrerelease,
         )
@@ -362,9 +329,7 @@ export async function checkUpdates(
         }
 
         if (considerTags) {
-          let tags = await memoize(tagsMemo, repositoryKey, () =>
-            client.getAllTags(owner, repository, tagFetchLimit),
-          )
+          let tags = await client.getAllTags(owner, repository, tagFetchLimit)
           let latestSemverTag = selectLatestSemverTag(tags)
 
           if (latestSemverTag) {
@@ -424,9 +389,7 @@ export async function checkUpdates(
       /**
        * No releases found: fetch tags and choose the best semver tag.
        */
-      let tags = await memoize(tagsMemo, repositoryKey, () =>
-        client.getAllTags(owner, repository, tagFetchLimit),
-      )
+      let tags = await client.getAllTags(owner, repository, tagFetchLimit)
       if (tags.length > 0) {
         /**
          * Prefer the highest semver tag; among equal numeric versions, prefer
@@ -464,13 +427,12 @@ export async function checkUpdates(
        * Handle rate limit errors specially.
        */
       if (error instanceof Error && error.name === 'GitHubRateLimitError') {
-        sharedState.rateLimitHit = true
-        sharedState.rateLimitError = error
         /**
          * Don't log individual rate limit errors.
          */
         return {
           currentRefType: 'unknown',
+          rateLimitError: error,
           publishedAt: null,
           version: null,
           actionKey,
@@ -496,11 +458,11 @@ export async function checkUpdates(
         }
       }
       /**
-       * Log other failures per action.
+       * Other failures are logged per action.
        */
-      console.warn(`Failed to check ${actionName}:`, error)
       return {
         skipReason: 'check-failed' as const,
+        failure: { actionName, error },
         status: 'skipped' as const,
         currentRefType: 'unknown',
         publishedAt: null,
@@ -512,30 +474,30 @@ export async function checkUpdates(
   }
 
   /**
-   * Process actions one at a time so a rate-limit hit short-circuits the rest.
-   *
-   * @param iterator - Iterator over unique action names.
+   * Every lookup starts at once. The client keeps the requests within its
+   * limits, sends each one only once for lookups that share it, and refuses the
+   * rest once a request runs into a rate limit.
    */
-  async function processActions(
-    iterator: IterableIterator<string>,
-  ): Promise<void> {
-    let next = iterator.next()
-    if (next.done) {
-      return
-    }
-    releaseResults.push(await resolveAction(next.value))
-    await processActions(iterator)
-  }
+  let releaseResults = await Promise.all(
+    uniqueActions.keys().map(actionKey => resolveAction(actionKey)),
+  )
 
-  await processActions(uniqueActions.keys())
+  for (let { failure } of releaseResults) {
+    if (failure) {
+      console.warn(`Failed to check ${failure.actionName}:`, failure.error)
+    }
+  }
 
   /**
    * If rate limit was hit, throw a user-friendly error.
    */
-  if (sharedState.rateLimitError) {
+  let rateLimitError = releaseResults.find(
+    result => result.rateLimitError,
+  )?.rateLimitError
+
+  if (rateLimitError) {
     let usingToken = Boolean(token ?? process.env['GITHUB_TOKEN'])
-    let base =
-      sharedState.rateLimitError.message || 'GitHub API rate limit exceeded.'
+    let base = rateLimitError.message || 'GitHub API rate limit exceeded.'
     let message = `${base}\n${
       usingToken ?
         'Wait for reset or reduce request rate.'
@@ -826,28 +788,6 @@ function deriveCurrentReferenceType(
   }
 
   return 'unknown'
-}
-
-/**
- * Read a value from a run-local memo, loading it on first request.
- *
- * @param memo - Memo holding values already loaded during this run.
- * @param key - Key the value is stored under.
- * @param load - Loader invoked only when the memo has no entry yet.
- * @returns Memoized value.
- */
-async function memoize<Value>(
-  memo: Map<string, Value>,
-  key: string,
-  load: () => Promise<Value>,
-): Promise<Value> {
-  if (memo.has(key)) {
-    return memo.get(key)!
-  }
-
-  let value = await load()
-  memo.set(key, value)
-  return value
 }
 
 /**

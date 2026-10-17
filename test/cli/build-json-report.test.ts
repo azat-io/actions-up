@@ -4,8 +4,12 @@ import { parseDocument } from 'yaml'
 import type { ActionUpdate } from '../../types/action-update'
 import type { GitHubAction } from '../../types/github-action'
 
+import {
+  buildJsonErrorReport,
+  buildJsonReport,
+} from '../../cli/build-json-report'
+import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { scanWorkflowAst } from '../../core/ast/scanners/scan-workflow-ast'
-import { buildJsonReport } from '../../cli/build-json-report'
 
 /**
  * Options the CLI passes to the report builder.
@@ -30,6 +34,7 @@ function makeReportOptions(
     directories: ['/repo/.github'],
     status: 'updates-available',
     minAgeExcludePatterns: [],
+    blockedAsDowngrade: [],
     actionsToCheckCount: 0,
     includeBranches: false,
     excludePatterns: [],
@@ -187,6 +192,14 @@ describe('buildJsonReport', () => {
       version: 'v5',
       line: 30,
     })
+    let setupNode = makeAction({
+      uses: 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020',
+      ref: 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020',
+      version: '49933ea5288caeca8642d1e84afbd3f7d6820020',
+      name: 'actions/setup-node',
+      comment: ' v4.4.0',
+      line: 15,
+    })
     let ubuntu = makeRunner()
 
     let report = buildJsonReport(
@@ -202,6 +215,16 @@ describe('buildJsonReport', () => {
             isBreaking: true,
           }),
           makeRunnerUpdate({ action: ubuntu }),
+        ],
+        blockedAsDowngrade: [
+          makeUpdate({
+            currentVersion: '49933ea5288caeca8642d1e84afbd3f7d6820020',
+            latestSha: '39370e3970a6d050c480ffad4ff0ed4d3fdee5af',
+            publishedAt: new Date('2025-04-02T10:00:00.000Z'),
+            latestVersion: 'v4.3.0',
+            currentRefType: 'sha',
+            action: setupNode,
+          }),
         ],
         scanResult: {
           workflows: new Map([
@@ -247,6 +270,32 @@ describe('buildJsonReport', () => {
     )
 
     expect(report).toStrictEqual({
+      blockedAsDowngrade: [
+        {
+          action: {
+            uses: 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020',
+            ref: 'actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020',
+            version: '49933ea5288caeca8642d1e84afbd3f7d6820020',
+            file: '.github/workflows/ci.yml',
+            name: 'actions/setup-node',
+            type: 'external',
+            job: 'build',
+            line: 15,
+          },
+          currentVersion: '49933ea5288caeca8642d1e84afbd3f7d6820020',
+          latestSha: '39370e3970a6d050c480ffad4ff0ed4d3fdee5af',
+          publishedAt: '2025-04-02T10:00:00.000Z',
+          targetRefRateLimited: false,
+          latestVersion: 'v4.3.0',
+          currentRefType: 'sha',
+          targetRefStyle: null,
+          isBreaking: false,
+          skipReason: null,
+          targetRef: null,
+          hasUpdate: true,
+          status: 'ok',
+        },
+      ],
       blockedByAge: [
         {
           action: {
@@ -261,6 +310,7 @@ describe('buildJsonReport', () => {
           },
           latestSha: 'b6a472f63d85b9c78a3ac5e89422239fc15e9b3c',
           publishedAt: '2026-10-02T21:35:33.000Z',
+          targetRefRateLimited: false,
           currentVersion: 'v3.28.0',
           latestVersion: 'v3.28.1',
           currentRefType: 'tag',
@@ -287,6 +337,7 @@ describe('buildJsonReport', () => {
           latestSha: '08eba0b27e820071cde6df949e0beb9ba4906955',
           targetRef: '08eba0b27e820071cde6df949e0beb9ba4906955',
           publishedAt: '2025-08-11T12:00:00.000Z',
+          targetRefRateLimited: false,
           latestVersion: 'v5.0.0',
           currentRefType: 'tag',
           targetRefStyle: 'sha',
@@ -311,6 +362,7 @@ describe('buildJsonReport', () => {
           },
           latestSha: '263435318d21b8e681c14492fe198d362a7d2c83',
           publishedAt: '2025-05-27T08:00:00.000Z',
+          targetRefRateLimited: false,
           latestVersion: 'v6.18.0',
           currentRefType: 'tag',
           targetRefStyle: null,
@@ -334,6 +386,7 @@ describe('buildJsonReport', () => {
             job: 'release',
             line: 22,
           },
+          targetRefRateLimited: false,
           currentRefType: 'branch',
           currentVersion: 'main',
           skipReason: 'branch',
@@ -361,6 +414,7 @@ describe('buildJsonReport', () => {
           },
           currentVersion: 'ubuntu-22.04',
           latestVersion: 'ubuntu-24.04',
+          targetRefRateLimited: false,
           targetRef: 'ubuntu-24.04',
           targetRefStyle: 'tag',
           currentRefType: null,
@@ -372,6 +426,20 @@ describe('buildJsonReport', () => {
           status: 'ok',
         },
       ],
+      summary: {
+        totalBlockedAsDowngrade: 1,
+        totalCompositeActions: 1,
+        totalBreakingUpdates: 1,
+        totalActionsChecked: 4,
+        totalRunnerUpdates: 1,
+        totalBlockedByMode: 1,
+        totalBlockedByAge: 1,
+        totalWorkflows: 2,
+        totalActions: 4,
+        totalRunners: 1,
+        totalSkipped: 1,
+        totalUpdates: 1,
+      },
       options: {
         minAgeExcludePatterns: ['^actions/'],
         excludePatterns: ['^my-org/'],
@@ -384,19 +452,6 @@ describe('buildJsonReport', () => {
         mode: 'minor',
         json: true,
         minAge: 3,
-      },
-      summary: {
-        totalCompositeActions: 1,
-        totalBreakingUpdates: 1,
-        totalActionsChecked: 4,
-        totalRunnerUpdates: 1,
-        totalBlockedByMode: 1,
-        totalBlockedByAge: 1,
-        totalWorkflows: 2,
-        totalActions: 4,
-        totalRunners: 1,
-        totalSkipped: 1,
-        totalUpdates: 1,
       },
       status: 'updates-available',
       schemaVersion: 1,
@@ -715,6 +770,7 @@ describe('buildJsonReport', () => {
           job: null,
           ref: null,
         },
+        targetRefRateLimited: false,
         currentRefType: null,
         targetRefStyle: null,
         currentVersion: null,
@@ -727,6 +783,46 @@ describe('buildJsonReport', () => {
         latestSha: null,
         targetRef: null,
       },
+    ])
+  })
+
+  it('flags a target that fell back to the exact version because tag validation was rate limited', () => {
+    let report = buildJsonReport(
+      makeReportOptions({
+        outdated: [
+          makeUpdate({
+            targetRefRateLimited: true,
+            targetRefStyle: 'tag',
+            targetRef: 'v4.2.2',
+          }),
+        ],
+      }),
+    )
+
+    expect(report.updates).toMatchObject([
+      { targetRefRateLimited: true, targetRef: 'v4.2.2' },
+    ])
+  })
+
+  it('counts updates held back as downgrades apart from the other held-back updates', () => {
+    let report = buildJsonReport(
+      makeReportOptions({
+        blockedAsDowngrade: [
+          makeUpdate({ action: makeAction({ name: 'actions/setup-node' }) }),
+          makeUpdate({ action: makeAction({ name: 'actions/cache' }) }),
+        ],
+      }),
+    )
+
+    expect(report.summary).toMatchObject({
+      totalBlockedAsDowngrade: 2,
+      totalBlockedByMode: 0,
+      totalBlockedByAge: 0,
+      totalUpdates: 0,
+    })
+    expect(report.blockedAsDowngrade).toMatchObject([
+      { action: { name: 'actions/setup-node' } },
+      { action: { name: 'actions/cache' } },
     ])
   })
 
@@ -754,6 +850,45 @@ describe('buildJsonReport', () => {
       expect(report.skipped).toMatchObject([
         { skipReason: 'branch', status: 'ok' },
       ])
+    })
+  })
+})
+
+describe('buildJsonErrorReport', () => {
+  it('reports a rate limit together with its message', () => {
+    let error = new GitHubRateLimitError(new Date('2026-10-03T15:00:00.000Z'))
+
+    let report = buildJsonErrorReport(error)
+
+    expect(report).toStrictEqual({
+      error: { message: error.message, rateLimited: true },
+      schemaVersion: 1,
+      status: 'error',
+    })
+  })
+
+  it('reports any other failure with its message', () => {
+    let report = buildJsonErrorReport(
+      new SyntaxError('Invalid regular expression: /[/: Unterminated class'),
+    )
+
+    expect(report).toStrictEqual({
+      error: {
+        message: 'Invalid regular expression: /[/: Unterminated class',
+        rateLimited: false,
+      },
+      schemaVersion: 1,
+      status: 'error',
+    })
+  })
+
+  it('reports a thrown value that is not an error as text', () => {
+    let report = buildJsonErrorReport('scan aborted')
+
+    expect(report).toStrictEqual({
+      error: { message: 'scan aborted', rateLimited: false },
+      schemaVersion: 1,
+      status: 'error',
     })
   })
 })

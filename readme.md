@@ -158,9 +158,10 @@ npx actions-up --json
 and cannot be combined with `--yes`.
 
 Alongside `updates`, the report lists what was left out: `skipped`, plus
-`blockedByMode` for actions `--mode` held back and `blockedByAge` for actions
-the cool-down held back. `status` describes the actionable updates only, so it
-can read `up-to-date` while those lists are not empty.
+`blockedByMode` for actions `--mode` held back, `blockedByAge` for actions the
+cool-down held back and `blockedAsDowngrade` for updates that would downgrade a
+SHA pin. `status` describes the actionable updates only, so it can read
+`up-to-date` while those lists are not empty.
 
 Runner updates appear in `runners`, with `summary.totalRunnerUpdates` and
 `summary.totalRunners` counting available updates and scanned labels. `updates`,
@@ -219,12 +220,11 @@ the newest stable GitHub-hosted image in its bundled catalog. Upgrade Actions Up
 to receive new images.
 
 Only known, versioned `ubuntu-*`, `macos-*` and `windows-*` labels without
-suffixes are supported. The key and string value must share a line; quotes and
-comments are preserved.
+suffixes are supported. Quotes and comments are preserved.
 
-Arrays, runner groups, self-hosted/custom labels, `*-latest`, expressions,
-matrix values, YAML anchors and flow mappings are skipped. Retired and unknown
-images are ignored; preview images are never update targets.
+Arrays, runner groups, self-hosted/custom labels, `*-latest`, expressions and
+matrix values are skipped. Retired and unknown images are ignored; preview
+images are never update targets.
 
 Runner updates appear as `runner/<family>` in the interactive list. Use
 `--exclude '^runner/'` or `# actions-up-ignore` to skip them.

@@ -1,48 +1,36 @@
-import { resolve } from 'node:path'
-
-import type { CompatibleUpdate } from '../core/api/get-compatible-update'
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
 import type { CLIOptions } from './parse-arguments'
 
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
-import { resolveTargetReference } from '../core/updates/resolve-target-reference'
-import { parseVersionComment } from '../core/versions/parse-version-comment'
-import { getCompatibleUpdate } from '../core/api/get-compatible-update'
-import { matchesAnyPattern } from '../core/filters/matches-any-pattern'
-import { createGitHubClient } from '../core/api/create-github-client'
-import { findRepositoryRoot } from '../core/fs/find-repository-root'
-import { filterDowngradeUpdates } from './filter-downgrade-updates'
-import { resolveScanDirectories } from './resolve-scan-directories'
-import { getRunnerUpdate } from '../core/runners/get-runner-update'
-import { getUpdateLevel } from '../core/versions/get-update-level'
+import { buildJsonErrorReport, buildJsonReport } from './build-json-report'
+import { normalizeUpdateStyle } from '../core/plan/normalize-update-style'
+import { normalizeUpdateMode } from '../core/plan/normalize-update-mode'
+import { createUpdatePlan } from '../core/plan/create-update-plan'
 import { printRateLimitWarning } from './print-rate-limit-warning'
+import { printUnwrittenWarning } from './print-unwritten-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
-import { anchorDirectoryInputs } from './anchor-directory-inputs'
 import { normalizePatternList } from './normalize-pattern-list'
 import { applyUpdates } from '../core/ast/update/apply-updates'
-import { normalizeUpdateStyle } from './normalize-update-style'
+import { scanRepository } from '../core/plan/scan-repository'
 import { printSkippedWarning } from './print-skipped-warning'
-import { normalizeUpdateMode } from './normalize-update-mode'
 import { printMinAgeWarning } from './print-min-age-warning'
 import { validateCliOptions } from './validate-cli-options'
-import { shouldIgnore } from '../core/ignore/should-ignore'
-import { checkUpdates } from '../core/api/check-updates'
-import { mergeScanResults } from './merge-scan-results'
 import { printModeWarning } from './print-mode-warning'
-import { scanRecursive } from '../core/scan-recursive'
-import { buildJsonReport } from './build-json-report'
 import { colors } from '../core/interactive/colors'
 import { parseArguments } from './parse-arguments'
-import { scanGitHubActions } from '../core/index'
 import { createSpinner } from './create-spinner'
-import { isSha } from '../core/versions/is-sha'
 import { version } from '../package.json'
 
 /**
  * Payload used by the local JSON writer helper in the CLI.
  */
 interface WriteJsonReportOptions {
+  /**
+   * Updates held back as downgrades of SHA pins.
+   */
+  blockedAsDowngrade?: ActionUpdate[]
+
   /**
    * Updates excluded by the selected update mode.
    */
@@ -102,21 +90,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
   let spinner: ReturnType<typeof createSpinner> | null = null
 
   try {
-    let cwd = process.cwd()
-    let repositoryRoot =
-      options.recursive ? null : await findRepositoryRoot(cwd)
-    let directories = resolveScanDirectories({
-      dir: anchorDirectoryInputs({
-        root: repositoryRoot,
-        dir: options.dir,
-        cwd,
-      }),
-      recursive: options.recursive,
-      cwd,
-    })
-    let normalizedDirectories = directories.map(({ root, dir }) =>
-      resolve(root, dir),
-    )
     let includeBranches = options.includeBranches ?? false
     let preferTags = options.preferTags ?? false
     let mode = normalizeUpdateMode(options.mode)
@@ -134,15 +107,11 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * Scan for GitHub Actions in the repository.
      */
-    let scanResults =
-      options.recursive ?
-        await Promise.all(
-          directories.map(({ root, dir }) => scanRecursive(root, dir)),
-        )
-      : await Promise.all(
-          directories.map(({ root, dir }) => scanGitHubActions(root, dir)),
-        )
-    let scanResult = mergeScanResults(scanResults)
+    let { directories, scanResult } = await scanRepository({
+      recursive: options.recursive,
+      directories: options.dir,
+      cwd: process.cwd(),
+    })
 
     /**
      * Write the current CLI state as a machine-readable JSON report.
@@ -150,6 +119,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
      * @param reportOptions - Report status and update collections to serialize.
      */
     function writeJsonReport({
+      blockedAsDowngrade = [],
       actionsToCheckCount,
       blockedByMode = [],
       blockedByAge = [],
@@ -163,12 +133,13 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             minAgeExcludePatterns: normalizedMinAgeExcludes,
             recursive: options.recursive ?? false,
             excludePatterns: normalizedExcludes,
-            directories: normalizedDirectories,
             minAge: options.minAge,
             actionsToCheckCount,
+            blockedAsDowngrade,
             includeBranches,
             blockedByMode,
             blockedByAge,
+            directories,
             preferTags,
             scanResult,
             outdated,
@@ -183,20 +154,10 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       )
     }
 
-    /**
-     * Runner labels ride along in the scan result but resolve from a local
-     * table, so they are split off before any lookup and merged back in right
-     * before the prompt.
-     */
-    let scannedRunners = scanResult.actions.filter(
+    let totalRunners = scanResult.actions.filter(
       action => action.type === 'runner',
-    )
-    let scannedActions = scanResult.actions.filter(
-      action => action.type !== 'runner',
-    )
-
-    let totalActions = scannedActions.length
-    let totalRunners = scannedRunners.length
+    ).length
+    let totalActions = scanResult.actions.length - totalRunners
     let totalWorkflows = scanResult.workflows.size
     let totalCompositeActions = scanResult.compositeActions.size
 
@@ -239,34 +200,17 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
 
     /**
-     * Prepare actions list and apply CLI excludes if provided.
+     * Compile the excludes and the cool-down exemptions up front, so an invalid
+     * pattern is reported before the update check starts.
      */
-    let actionsToCheck = scannedActions
-    let runnersToCheck = scannedRunners
+    let excludes: RegExp[] = []
+    let minAgeExcludes: RegExp[] = []
 
     if (normalizedExcludes.length > 0) {
       let { parseExcludePatterns } =
         await import('../core/filters/parse-exclude-patterns')
-      let regexes = parseExcludePatterns(normalizedExcludes)
-      if (regexes.length > 0) {
-        /**
-         * Runner entries are named `runner/<family>`, so the same patterns that
-         * exclude actions can exclude runners too.
-         */
-        actionsToCheck = actionsToCheck.filter(
-          action => !matchesAnyPattern(action.name, regexes),
-        )
-        runnersToCheck = runnersToCheck.filter(
-          runner => !matchesAnyPattern(runner.name, regexes),
-        )
-      }
+      excludes = parseExcludePatterns(normalizedExcludes)
     }
-
-    /**
-     * Compile the cool-down exemptions up front, so an invalid pattern is
-     * reported before the update check starts.
-     */
-    let minAgeExcludes: RegExp[] = []
 
     if (normalizedMinAgeExcludes.length > 0) {
       let { parseExcludePatterns } =
@@ -281,7 +225,18 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       spinner = createSpinner('Checking for updates...').start()
     }
 
-    if (actionsToCheck.length === 0 && runnersToCheck.length === 0) {
+    let plan = await createUpdatePlan(scanResult, {
+      token: process.env['GITHUB_TOKEN'],
+      minAge: options.minAge,
+      includeBranches,
+      minAgeExcludes,
+      preferTags,
+      excludes,
+      style,
+      mode,
+    })
+
+    if (plan.status === 'nothing-to-check') {
       spinner?.success('No entries to check after excludes')
       if (json) {
         writeJsonReport({
@@ -294,254 +249,13 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       return
     }
 
-    let token = process.env['GITHUB_TOKEN']
-    let githubClient = createGitHubClient(token)
-
-    let updates = await checkUpdates(actionsToCheck, token, {
-      client: githubClient,
-      includeBranches,
-      preferTags,
-      style,
-    })
+    let { blockedAsDowngrade, blockedByMode, blockedByAge, skipped } = plan
 
     /**
-     * Runner labels resolve from a local table and have no release behind them,
-     * so they skip every stage that reasons about refs: the cool-down has no
-     * publish date to measure, downgrade detection reads inline version
-     * comments, and target ref resolution turns a tag into a SHA.
+     * Runners reach the preview, the prompt and the writer exactly like an
+     * action update, after the actions.
      */
-    let runnerUpdates: ActionUpdate[] = runnersToCheck.flatMap(runner => {
-      let currentLabel = runner.version ?? ''
-      let targetLabel = getRunnerUpdate(currentLabel)
-      if (!targetLabel) {
-        return []
-      }
-      return [
-        {
-          currentVersion: currentLabel,
-          latestVersion: targetLabel,
-          targetRef: targetLabel,
-          targetRefStyle: 'tag',
-          publishedAt: null,
-          isBreaking: true,
-          latestSha: null,
-          hasUpdate: true,
-          action: runner,
-          status: 'ok',
-        } satisfies ActionUpdate,
-      ]
-    })
-
-    /**
-     * Apply ignore comments (file/block/next-line/inline). The checks run in
-     * parallel, but the kept entries stay in scan order, so every run lists
-     * them the same way.
-     */
-    let filtered = await dropIgnoredUpdates(updates)
-    let filteredRunners = await dropIgnoredUpdates(runnerUpdates)
-
-    /**
-     * Skipped entries that should trigger a warning (e.g., branches).
-     */
-    let skipped = filtered.filter(update => update.status === 'skipped')
-
-    /**
-     * Filter outdated actions.
-     */
-    let outdated = filtered.filter(update => update.hasUpdate)
-
-    /**
-     * Block downgrades of SHA-pinned actions detected via inline comments.
-     */
-    let { blocked: blockedAsDowngrade, kept } = filterDowngradeUpdates(outdated)
-    outdated = kept
-
-    /**
-     * Resolve the update mode and the release age cool-down together. An action
-     * held back by either constraint steps down to the newest release that
-     * clears both, and is reported as blocked only when no release does.
-     * Actions matched by `--min-age-exclude` skip the cool-down but still
-     * follow the update mode.
-     */
-    let minAgeMs = options.minAge * 24 * 60 * 60 * 1000
-    let now = Date.now()
-    let tagsCache = new Map<
-      string,
-      Awaited<ReturnType<typeof githubClient.getAllTags>>
-    >()
-    let shaCache = new Map<string, string | null>()
-
-    /**
-     * Deduplicate the compatible lookup per action and version. The same
-     * blocked action can appear in many workflows, and each uncached lookup
-     * costs a tag listing plus a date walk. Promises are stored rather than
-     * values, so occurrences that start together share one request. The
-     * cool-down exemption depends only on the action name, which is part of the
-     * key, so an exempt and a held-back action never share an entry.
-     */
-    let compatibleCache = new Map<string, Promise<CompatibleUpdate>>()
-
-    let decisions = await Promise.all(
-      outdated.map(async update => {
-        /**
-         * A commit SHA names no version, so a SHA pin is measured from its
-         * version comment. Without one the update level is unknown and the
-         * minor and patch modes hold the pin back, rather than reading a
-         * version out of the digits of the hash.
-         */
-        let effectiveCurrentVersion =
-          isSha(update.currentVersion) ?
-            parseVersionComment(update.action.comment)
-          : update.currentVersion
-
-        let level = getUpdateLevel(
-          effectiveCurrentVersion,
-          update.latestVersion,
-        )
-        let allowedByMode =
-          mode === 'major' ||
-          (mode === 'minor' ?
-            ['minor', 'patch', 'none']
-          : ['patch', 'none']
-          ).includes(level)
-        let isAgeExempt = matchesAnyPattern(update.action.name, minAgeExcludes)
-        let allowedByAge =
-          isAgeExempt ||
-          !update.publishedAt ||
-          now - update.publishedAt.getTime() >= minAgeMs
-
-        if (allowedByMode && allowedByAge) {
-          return { blockedBy: null, update }
-        }
-
-        let compatibleKey = [
-          update.action.name,
-          effectiveCurrentVersion,
-          update.latestVersion,
-        ].join('@')
-        let pending = compatibleCache.get(compatibleKey)
-        if (!pending) {
-          pending = getCompatibleUpdate(githubClient, {
-            currentVersion: effectiveCurrentVersion,
-            minAgeMs: isAgeExempt ? 0 : minAgeMs,
-            latestVersion: update.latestVersion,
-            actionName: update.action.name,
-            tagsCache,
-            shaCache,
-            mode,
-            now,
-          })
-          compatibleCache.set(compatibleKey, pending)
-        }
-        let compatible = await pending
-
-        if (!compatible.update) {
-          /**
-           * The cool-down owns the outcome whenever the mode itself had a
-           * candidate to offer, so the notice names the constraint that
-           * actually held the action back.
-           */
-          let blockedBy: 'mode' | 'age' =
-            allowedByMode || compatible.reason === 'cool-down' ? 'age' : 'mode'
-          return { blockedBy, update }
-        }
-
-        return {
-          update: {
-            ...update,
-            isBreaking:
-              getUpdateLevel(
-                effectiveCurrentVersion,
-                compatible.update.version,
-              ) === 'major',
-            publishedAt: compatible.update.publishedAt,
-            latestVersion: compatible.update.version,
-            latestSha: compatible.update.sha,
-            hasUpdate: true,
-          },
-          blockedBy: null,
-        }
-      }),
-    )
-
-    let blockedByAge: typeof outdated = []
-    let blockedByMode: typeof outdated = []
-    let eligible: typeof outdated = []
-
-    for (let decision of decisions) {
-      if (decision.blockedBy === 'age') {
-        blockedByAge.push(decision.update)
-      } else if (decision.blockedBy === 'mode') {
-        blockedByMode.push(decision.update)
-      } else {
-        eligible.push(decision.update)
-      }
-    }
-
-    outdated = eligible
-
-    /**
-     * Deduplicate resolution per action and version, so repeated occurrences
-     * across files do not trigger duplicate API requests.
-     */
-    let resolutionCache = new Map<string, Promise<ActionUpdate>>()
-    outdated = await Promise.all(
-      outdated.map(async update => {
-        let resolutionKey = [
-          update.action.name,
-          update.currentVersion,
-          update.latestVersion,
-          update.latestSha,
-        ].join('@')
-        let resolution = resolutionCache.get(resolutionKey)
-        if (!resolution) {
-          resolution = resolveTargetReference(update, {
-            client: githubClient,
-            style,
-            mode,
-          })
-          resolutionCache.set(resolutionKey, resolution)
-        }
-        let resolved = await resolution
-        return {
-          ...update,
-          targetRefRateLimited: resolved.targetRefRateLimited,
-          targetRefStyle: resolved.targetRefStyle,
-          targetRef: resolved.targetRef,
-        }
-      }),
-    )
-
-    /**
-     * Drop no-op updates whose resolved target matches the current reference.
-     */
-    outdated = outdated.filter(
-      update => update.targetRef !== update.action.version,
-    )
-    let unresolvedByStyle = outdated
-      .filter(update => !update.targetRef)
-      .map(update => ({
-        ...update,
-        skipReason: 'unsupported-style' as const,
-        status: 'skipped' as const,
-        hasUpdate: false,
-      }))
-    skipped.push(...unresolvedByStyle)
-    outdated = outdated.filter(update => update.targetRef)
-
-    /**
-     * Runners join once every ref-specific stage is done, so they reach the
-     * preview, the prompt and the writer exactly like an action update.
-     *
-     * Moving a job to a newer image is a major-level change by nature, so a
-     * narrowed update mode holds runners back and reports them the same way it
-     * reports a held-back major action bump.
-     */
-    if (mode === 'major') {
-      outdated.push(...filteredRunners)
-    } else {
-      blockedByMode.push(...filteredRunners)
-    }
+    let outdated = [...plan.updates, ...plan.runners]
 
     /**
      * Updates that fell back to exact versions because tag validation was rate
@@ -580,8 +294,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       spinner?.success('All actions are up to date!')
       if (json) {
         writeJsonReport({
-          actionsToCheckCount: actionsToCheck.length,
+          actionsToCheckCount: plan.actionsChecked,
           status: 'up-to-date',
+          blockedAsDowngrade,
           blockedByMode,
           blockedByAge,
           skipped,
@@ -611,8 +326,9 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
     if (json) {
       writeJsonReport({
-        actionsToCheckCount: actionsToCheck.length,
+        actionsToCheckCount: plan.actionsChecked,
         status: 'updates-available',
+        blockedAsDowngrade,
         blockedByMode,
         blockedByAge,
         outdated,
@@ -646,6 +362,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       return
     }
 
+    let requested: ActionUpdate[]
+
     if (options.yes) {
       /**
        * Auto-update every eligible entry, actions and runners alike.
@@ -660,7 +378,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         ),
       )
 
-      await applyUpdates(outdated)
+      requested = outdated
     } else {
       if (
         !quiet &&
@@ -692,11 +410,46 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         ),
       )
 
-      await applyUpdates(selected)
+      requested = selected
     }
-    console.info(colors.green('\n✓ Updates applied successfully!'))
+
+    let unwritten = await applyUpdates(requested)
+
+    if (unwritten.length === 0) {
+      console.info(colors.green('\n✓ Updates applied successfully!'))
+      return
+    }
+
+    /**
+     * An entry the writer could not find where the scan reported it was not
+     * applied, so the run reports it and fails instead of claiming success.
+     */
+    let writtenCount = requested.length - unwritten.length
+    if (writtenCount > 0) {
+      console.info(
+        colors.green(
+          `\n✓ ${writtenCount} of ${requested.length} ${pluralize(
+            requested.length,
+            'entry',
+            'entries',
+          )} applied`,
+        ),
+      )
+    }
+    printUnwrittenWarning(unwritten, requested.length)
+    process.exitCode = 1
   } catch (error) {
     spinner?.error('Failed')
+
+    /**
+     * A consumer of `--json` still gets a document to parse, naming why the run
+     * failed. The terminal notice below goes to stderr as before.
+     */
+    if (json) {
+      process.stdout.write(
+        `${JSON.stringify(buildJsonErrorReport(error), null, 2)}\n`,
+      )
+    }
 
     /**
      * Handle rate limit errors with helpful message.
@@ -717,28 +470,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
   }
 }
 
-/**
- * Drops the entries whose line carries an ignore comment. The comments are read
- * in parallel, and the kept entries stay in the given order.
- *
- * @param updates - Entries to check.
- * @returns Entries without an ignore comment, in the given order.
- */
-async function dropIgnoredUpdates(
-  updates: ActionUpdate[],
-): Promise<ActionUpdate[]> {
-  let checked = await Promise.all(
-    updates.map(async update => ({
-      ignored: await shouldIgnore(update.action.file, update.action.line),
-      update,
-    })),
-  )
-  return checked.filter(({ ignored }) => !ignored).map(({ update }) => update)
-}
-
-/**
- * Run the CLI.
- */
 /**
  * Selects the English singular or plural form for a count.
  *

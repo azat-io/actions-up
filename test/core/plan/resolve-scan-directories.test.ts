@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveScanDirectories } from '../../cli/resolve-scan-directories'
+import { resolveScanDirectories } from '../../../core/plan/resolve-scan-directories'
 
 describe('resolveScanDirectories', () => {
   it('scans .github in the current directory when recursive mode is off', () => {

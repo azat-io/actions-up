@@ -15,6 +15,11 @@ import { makeRequest } from './make-request'
  * that carries no publication date, which the caller reads as a tag old enough
  * to offer.
  *
+ * The SHA is only ever a commit SHA. An annotated tag whose tag object cannot
+ * be read, and a tag that points at anything other than a commit, leave it
+ * unknown, so the caller resolves it another way instead of pinning a SHA no
+ * commit answers to.
+ *
  * @param context - Client context.
  * @param parameters - Request parameters.
  * @param parameters.owner - Repository owner.
@@ -68,11 +73,11 @@ export async function getTagInfo(
               `/repos/${owner}/${repo}/git/tags/${objectSha}`,
             )
             let tagData = tagResp.data as {
+              object: { sha?: string | null; type?: string }
               tagger?: { date?: string | null }
-              object: { sha?: string | null }
               message?: string | null
             }
-            sha = tagData.object.sha ?? objectSha
+            sha = commitShaOf(tagData.object)
             let taggerDate = tagData.tagger?.date
             if (!date && taggerDate) {
               date = new Date(taggerDate)
@@ -84,7 +89,6 @@ export async function getTagInfo(
             if (isRateLimit(tagObjectError)) {
               throw tagObjectError
             }
-            sha = objectSha
           }
         } else if (objectSha && objectType === 'commit') {
           sha = objectSha
@@ -140,24 +144,25 @@ export async function getTagInfo(
           `/repos/${owner}/${repo}/git/ref/tags/${displayTag}`,
         )
         let referenceData = referenceResp.data as {
-          object: { type: 'commit' | 'tag'; sha: string }
+          object: { type: 'commit' | 'blob' | 'tree' | 'tag'; sha: string }
         }
-        let { sha } = referenceData.object
+        let { type: objectType, sha: objectSha } = referenceData.object
+        let sha: string | null = null
         let message: string | null = null
         let date: Date | null = null
 
-        if (referenceData.object.type === 'tag') {
+        if (objectType === 'tag') {
           try {
             let tagResp = await makeRequest(
               context,
-              `/repos/${owner}/${repo}/git/tags/${sha}`,
+              `/repos/${owner}/${repo}/git/tags/${objectSha}`,
             )
             let tagData = tagResp.data as {
+              object: { sha?: string | null; type?: string }
               tagger: { date?: string | null }
-              object: { sha?: string | null }
               message?: string | null
             }
-            sha = tagData.object.sha ?? sha
+            sha = commitShaOf(tagData.object)
             message = tagData.message ?? null
             date = tagData.tagger.date ? new Date(tagData.tagger.date) : null
           } catch (tagObjectError: unknown) {
@@ -165,11 +170,12 @@ export async function getTagInfo(
               throw tagObjectError
             }
           }
-        } else {
+        } else if (objectType === 'commit') {
+          sha = objectSha
           try {
             let commitResp = await makeRequest(
               context,
-              `/repos/${owner}/${repo}/git/commits/${sha}`,
+              `/repos/${owner}/${repo}/git/commits/${objectSha}`,
             )
             let commitData = commitResp.data as {
               author: { date?: string | null }
@@ -190,10 +196,10 @@ export async function getTagInfo(
         return result
       } catch (tagError: unknown) {
         /**
-         * A rate limit arrives as a 403, so it has to be recognized before the
-         * status check below turns every HTTP failure into "tag not found".
-         * Otherwise the caller reads a rate-limited lookup as a tag without a
-         * publication date.
+         * A rate limit arrives as a 403 or a 429, so it has to be recognized
+         * before the status check below turns every HTTP failure into "tag not
+         * found". Otherwise the caller reads a rate-limited lookup as a tag
+         * without a publication date.
          */
         if (isRateLimit(tagError)) {
           throw tagError
@@ -211,6 +217,24 @@ export async function getTagInfo(
     }
     throw error
   }
+}
+
+/**
+ * Read the commit a tag object points at.
+ *
+ * A tag object can point at another tag object rather than at a commit, and
+ * that SHA names no commit either.
+ *
+ * @param target - Object the tag object points at.
+ * @param target.sha - SHA of that object.
+ * @param target.type - Kind of that object.
+ * @returns Commit SHA, or null when the tag object names no commit.
+ */
+function commitShaOf(target: {
+  sha?: string | null
+  type?: string
+}): string | null {
+  return target.type === 'commit' ? (target.sha ?? null) : null
 }
 
 /**

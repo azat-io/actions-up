@@ -179,11 +179,8 @@ describe('getReferenceType', () => {
     await expect(lookup).rejects.toBeInstanceOf(TypeError)
   })
 
-  it.each([
-    { answer: serverError(), description: 'failed' },
-    { description: 'was rate limited', answer: rateLimited() },
-  ])('asks again after a lookup that $description', async ({ answer }) => {
-    let api = routeFetch({ [MAIN_AS_TAG_PATH]: answer })
+  it('asks again after a lookup that failed', async () => {
+    let api = routeFetch({ [MAIN_AS_TAG_PATH]: serverError() })
     let context = createClientContext()
     let parameters = { reference: 'main', owner: 'actions', repo: 'checkout' }
 
@@ -191,6 +188,22 @@ describe('getReferenceType', () => {
     await expect(getReferenceType(context, parameters)).rejects.toThrow(Error)
 
     expect(api.paths).toStrictEqual([MAIN_AS_TAG_PATH, MAIN_AS_TAG_PATH])
+  })
+
+  it('reports a rate limit again without asking again once it was hit', async () => {
+    let resetAt = new Date('2026-10-03T14:37:21.000Z')
+    let api = routeFetch({ [MAIN_AS_TAG_PATH]: rateLimited(resetAt) })
+    let context = createClientContext()
+    let parameters = { reference: 'main', owner: 'actions', repo: 'checkout' }
+
+    await expect(getReferenceType(context, parameters)).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
+    )
+    await expect(getReferenceType(context, parameters)).rejects.toStrictEqual(
+      new GitHubRateLimitError(resetAt),
+    )
+
+    expect(api.paths).toStrictEqual([MAIN_AS_TAG_PATH])
   })
 
   it('throws GitHubRateLimitError with the reset time from the response', async () => {

@@ -116,6 +116,32 @@ describe('getCompatibleUpdate', () => {
     expect(result).toStrictEqual({ reason: 'no-candidate', update: null })
   })
 
+  it.each([
+    { listing: 'getAllTags' as const, currentVersion: 'v1.0.0' },
+    {
+      listing: 'getMatchingTagReferences' as const,
+      currentVersion: 'actions-v0.1.1',
+    },
+  ])(
+    'reports a rate-limited $listing listing instead of reading it as no candidate',
+    async ({ currentVersion, listing }) => {
+      let rateLimit = new GitHubRateLimitError(
+        new Date('2026-09-04T01:00:00.000Z'),
+      )
+      let client = createMockClient({
+        [listing]: vi.fn().mockRejectedValue(rateLimit),
+      })
+
+      let lookup = getCompatibleUpdate(client, {
+        actionName: 'actions/checkout',
+        currentVersion,
+        mode: 'minor',
+      })
+
+      await expect(lookup).rejects.toBe(rateLimit)
+    },
+  )
+
   it('reports no candidate when no listed tag is compatible', async () => {
     let client = createMockClient({
       getAllTags: vi.fn().mockResolvedValue([makeTag('v5.0.0', NEWEST_SHA)]),
@@ -243,6 +269,42 @@ describe('getCompatibleUpdate', () => {
     })
   })
 
+  it('offers the tag without a SHA when its SHA lookup fails', async () => {
+    let client = createMockClient({
+      getTagSha: vi.fn().mockRejectedValue(new TypeError('fetch failed')),
+      getAllTags: vi.fn().mockResolvedValue([makeTag('v4.2.4', null)]),
+    })
+
+    let result = await getCompatibleUpdate(client, {
+      actionName: 'actions/checkout',
+      currentVersion: 'v4.2.0',
+      mode: 'patch',
+    })
+
+    expect(result).toStrictEqual({
+      update: { publishedAt: null, version: 'v4.2.4', sha: null },
+      reason: null,
+    })
+  })
+
+  it('reports a rate-limited SHA lookup instead of offering the tag without a SHA', async () => {
+    let rateLimit = new GitHubRateLimitError(
+      new Date('2026-09-04T01:00:00.000Z'),
+    )
+    let client = createMockClient({
+      getAllTags: vi.fn().mockResolvedValue([makeTag('v4.2.4', null)]),
+      getTagSha: vi.fn().mockRejectedValue(rateLimit),
+    })
+
+    let lookup = getCompatibleUpdate(client, {
+      actionName: 'actions/checkout',
+      currentVersion: 'v4.2.0',
+      mode: 'patch',
+    })
+
+    await expect(lookup).rejects.toBe(rateLimit)
+  })
+
   it('lists the tags of the repository that an action path belongs to', async () => {
     let client = createMockClient({
       getAllTags: vi.fn().mockResolvedValue([makeTag('v2.1.0', NEWEST_SHA)]),
@@ -289,60 +351,6 @@ describe('getCompatibleUpdate', () => {
     )
     expect(client.getAllTags).not.toHaveBeenCalled()
   })
-
-  it('lists the tags once for lookups that share a tags cache', async () => {
-    let client = createMockClient({
-      getAllTags: vi.fn().mockResolvedValue([makeTag('v4.3.0', NEWEST_SHA)]),
-    })
-    let parameters = {
-      tagsCache: new Map<string, TagInfo[]>(),
-      actionName: 'actions/checkout',
-      currentVersion: 'v4.1.0',
-      mode: 'minor' as const,
-    }
-
-    let first = await getCompatibleUpdate(client, parameters)
-    let second = await getCompatibleUpdate(client, parameters)
-
-    expect(second).toStrictEqual(first)
-    expect(client.getAllTags).toHaveBeenCalledExactlyOnceWith(
-      'actions',
-      'checkout',
-      expect.any(Number),
-    )
-  })
-
-  it.each([
-    { description: 'a resolved SHA', sha: RESOLVED_SHA },
-    { description: 'an unresolved SHA', sha: null },
-  ])(
-    'looks $description up once for lookups that share a SHA cache',
-    async ({ sha }) => {
-      let client = createMockClient({
-        getAllTags: vi.fn().mockResolvedValue([makeTag('v4.2.4', null)]),
-        getTagSha: vi.fn().mockResolvedValue(sha),
-      })
-      let parameters = {
-        shaCache: new Map<string, string | null>(),
-        actionName: 'actions/checkout',
-        currentVersion: 'v4.2.0',
-        mode: 'patch' as const,
-      }
-
-      let first = await getCompatibleUpdate(client, parameters)
-      let second = await getCompatibleUpdate(client, parameters)
-
-      expect([first, second]).toStrictEqual([
-        { update: { publishedAt: null, version: 'v4.2.4', sha }, reason: null },
-        { update: { publishedAt: null, version: 'v4.2.4', sha }, reason: null },
-      ])
-      expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
-        'actions',
-        'checkout',
-        'v4.2.4',
-      )
-    },
-  )
 
   describe('with a cool-down', () => {
     it('steps down to the newest tag that clears the cool-down, without dating older tags', async () => {
@@ -584,42 +592,6 @@ describe('getCompatibleUpdate', () => {
         update: { publishedAt: null, version: 'v0.6.3', sha: NEWEST_SHA },
         reason: null,
       })
-    })
-
-    it('offers the tag without a SHA and remembers the gap when the SHA lookup is rate limited', async () => {
-      let client = createMockClient({
-        getTagSha: vi
-          .fn()
-          .mockRejectedValue(
-            new GitHubRateLimitError(new Date('2026-09-04T01:00:00.000Z')),
-          ),
-        getAllTags: vi.fn().mockResolvedValue([makeTag('v4.2.4', null)]),
-      })
-      let parameters = {
-        shaCache: new Map<string, string | null>(),
-        actionName: 'actions/checkout',
-        currentVersion: 'v4.2.0',
-        mode: 'patch' as const,
-      }
-
-      let first = await getCompatibleUpdate(client, parameters)
-      let second = await getCompatibleUpdate(client, parameters)
-
-      expect([first, second]).toStrictEqual([
-        {
-          update: { publishedAt: null, version: 'v4.2.4', sha: null },
-          reason: null,
-        },
-        {
-          update: { publishedAt: null, version: 'v4.2.4', sha: null },
-          reason: null,
-        },
-      ])
-      expect(client.getTagSha).toHaveBeenCalledExactlyOnceWith(
-        'actions',
-        'checkout',
-        'v4.2.4',
-      )
     })
   })
 })

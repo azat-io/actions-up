@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { anchorDirectoryInputs } from '../../cli/anchor-directory-inputs'
+import { anchorDirectoryInputs } from '../../../core/plan/anchor-directory-inputs'
 
 describe('anchorDirectoryInputs', () => {
   it('returns the --dir value unchanged when no root is found', () => {

@@ -54,16 +54,6 @@ export type CompatibleUpdate =
 
 interface GetCompatibleUpdateParameters {
   /**
-   * Optional in-memory cache for resolved tag SHAs.
-   */
-  shaCache?: Map<string, string | null>
-
-  /**
-   * Optional in-memory cache for action tags.
-   */
-  tagsCache?: Map<string, TagInfo[]>
-
-  /**
    * Current action version used as compatibility baseline.
    */
   currentVersion: string | null
@@ -123,8 +113,8 @@ interface SelectedCandidate {
  * @param client - GitHub client instance.
  * @param parameters - Lookup parameters.
  * @returns The selected tag, or the reason no tag qualifies.
- * @throws GitHubRateLimitError - When the cool-down needed a publication date
- *   and the request for it was rate limited.
+ * @throws GitHubRateLimitError - When a request the lookup needed, for the tag
+ *   listing, a publication date or a commit SHA, was rate limited.
  */
 export async function getCompatibleUpdate(
   client: GitHubClient,
@@ -149,25 +139,26 @@ export async function getCompatibleUpdate(
     return { reason: 'no-candidate', update: null }
   }
 
-  let tagsCache = parameters.tagsCache ?? new Map<string, TagInfo[]>()
-  let shaCache = parameters.shaCache ?? new Map<string, string | null>()
-
   /**
    * A named family is fetched by its own prefix, because it can otherwise fall
    * outside the single page of tags the listing returns.
    */
-  let tagsCacheKey = `${actionName}#${familyPrefix}`
-  let tags = tagsCache.get(tagsCacheKey)
-  if (!tags) {
-    try {
-      tags =
-        familyPrefix === '' ?
-          await client.getAllTags(owner, repository, 100)
-        : await client.getMatchingTagReferences(owner, repository, familyPrefix)
-    } catch {
-      return { reason: 'no-candidate', update: null }
+  let tags: TagInfo[]
+  try {
+    tags =
+      familyPrefix === '' ?
+        await client.getAllTags(owner, repository, 100)
+      : await client.getMatchingTagReferences(owner, repository, familyPrefix)
+  } catch (error) {
+    /**
+     * A rate limit says nothing about the tags, and reading it as an empty
+     * listing would report the action as held back by the cool-down or the mode
+     * when it was never checked.
+     */
+    if (isRateLimitError(error)) {
+      throw error
     }
-    tagsCache.set(tagsCacheKey, tags)
+    return { reason: 'no-candidate', update: null }
   }
 
   let candidates = findCompatibleTags(tags, currentVersion, {
@@ -198,16 +189,13 @@ export async function getCompatibleUpdate(
     selected.candidate.sha?.length ? selected.candidate.sha : selected.meta.sha
 
   if (!sha) {
-    let shaCacheKey = `${actionName}@${version}`
-    if (shaCache.has(shaCacheKey)) {
-      sha = shaCache.get(shaCacheKey) ?? null
-    } else {
-      try {
-        sha = await client.getTagSha(owner, repository, version)
-      } catch {
-        sha = null
+    try {
+      sha = await client.getTagSha(owner, repository, version)
+    } catch (error) {
+      if (isRateLimitError(error)) {
+        throw error
       }
-      shaCache.set(shaCacheKey, sha)
+      sha = null
     }
   }
 
@@ -270,4 +258,14 @@ async function selectAgedCandidate(
     },
     Promise.resolve(null),
   )
+}
+
+/**
+ * Recognize the error the client reports a rate-limited request with.
+ *
+ * @param error - Error thrown by a lookup.
+ * @returns True when the request was rate limited.
+ */
+function isRateLimitError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'GitHubRateLimitError'
 }

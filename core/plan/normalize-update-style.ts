@@ -1,4 +1,4 @@
-import type { UpdateStyle } from '../types/update-style'
+import type { UpdateStyle } from '../../types/update-style'
 
 /**
  * Normalizes the update style option.

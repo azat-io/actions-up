@@ -224,10 +224,12 @@ export function routeFetch(routes: Record<string, RouteAnswer>): FetchLog {
  * Response GitHub sends once the primary rate limit is exhausted.
  *
  * @param resetAt - Moment the limit resets, a whole second.
+ * @param headers - Extra response headers, such as `retry-after`.
  * @returns Route answer with status 403 and the `x-ratelimit-*` headers.
  */
 export function rateLimited(
   resetAt: Date = new Date('2026-10-03T15:00:00.000Z'),
+  headers: Record<string, string> = {},
 ): RouteAnswer {
   let answer = errorAnswer(403, 'Forbidden', {
     message:
@@ -243,8 +245,27 @@ export function rateLimited(
       'x-ratelimit-resource': 'core',
       'x-ratelimit-limit': '60',
       'x-ratelimit-used': '60',
+      ...headers,
     },
   }
+}
+
+/**
+ * Response GitHub sends with status 429 once a rate limit is exhausted.
+ *
+ * @param headers - Extra response headers, such as `retry-after`.
+ * @returns Route answer with status 429.
+ */
+export function tooManyRequests(
+  headers: Record<string, string> = {},
+): RouteAnswer {
+  let answer = errorAnswer(429, 'Too Many Requests', {
+    message:
+      'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.',
+    documentation_url:
+      'https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api',
+  })
+  return { ...answer, headers: { ...answer.headers, ...headers } }
 }
 
 /**

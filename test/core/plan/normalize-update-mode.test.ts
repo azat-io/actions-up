@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeUpdateMode } from '../../cli/normalize-update-mode'
+import { normalizeUpdateMode } from '../../../core/plan/normalize-update-mode'
 
 describe('normalizeUpdateMode', () => {
   it('defaults to major when no mode is given', () => {

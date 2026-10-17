@@ -1,5 +1,7 @@
 import type { GitHubClientContext } from '../../types/github-client-context'
 
+import { createRequestLimiter } from '../../core/api/create-request-limiter'
+
 /**
  * Create a GitHub client context with empty caches for API function tests.
  *
@@ -17,8 +19,10 @@ export function createClientContext(
       tagSha: new Map(),
     },
     baseUrl: 'https://api.github.com',
+    limiter: createRequestLimiter(),
     rateLimitReset: new Date(0),
     rateLimitRemaining: 5000,
+    responses: new Map(),
     token: 't',
     ...overrides,
   }

@@ -324,6 +324,43 @@ describe('getTagInfo', () => {
         tag: TAG,
       })
     })
+
+    it('leaves the SHA unknown when the tag object points at another tag', async () => {
+      routeFetch({
+        ...release(),
+        ...annotatedTag(),
+        [TAG_OBJECT_PATH]: ok({
+          ...makeTagObjectPayload({ sha: TAG_OBJECT_SHA }),
+          object: { sha: TREE_SHA, type: 'tag' },
+        }),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: null,
+        tag: TAG,
+      })
+    })
+
+    it('leaves the SHA unknown rather than taking the tag object SHA when the tag object lookup fails', async () => {
+      routeFetch({
+        ...release(),
+        ...annotatedTag(),
+        [TAG_OBJECT_PATH]: serverError(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        date: new Date(RELEASE_DATE),
+        message: RELEASE_NOTES,
+        sha: null,
+        tag: TAG,
+      })
+    })
   })
 
   describe('for a tag without a release', () => {
@@ -376,6 +413,60 @@ describe('getTagInfo', () => {
       let info = await getTagInfo(createClientContext(), LOOKUP)
 
       expect(info).toBeNull()
+    })
+
+    it('leaves the SHA unknown when the tag object of a tag without a release points at another tag', async () => {
+      routeFetch({
+        ...noRelease(),
+        ...annotatedTag(),
+        [TAG_OBJECT_PATH]: ok({
+          ...makeTagObjectPayload({ sha: TAG_OBJECT_SHA }),
+          object: { sha: TREE_SHA, type: 'tag' },
+        }),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toMatchObject({ sha: null, tag: TAG })
+    })
+
+    it('leaves everything unknown rather than taking the tag object SHA when the tag object lookup fails', async () => {
+      routeFetch({
+        ...noRelease(),
+        ...annotatedTag(),
+        [TAG_OBJECT_PATH]: serverError(),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        message: null,
+        date: null,
+        sha: null,
+        tag: TAG,
+      })
+    })
+
+    it('leaves everything unknown for a tag that points at a tree, without asking for a commit', async () => {
+      let api = routeFetch({
+        ...noRelease(),
+        [REFERENCE_PATH]: ok(
+          makeReferencePayload(`refs/tags/${TAG}`, {
+            sha: TREE_SHA,
+            type: 'tree',
+          }),
+        ),
+      })
+
+      let info = await getTagInfo(createClientContext(), LOOKUP)
+
+      expect(info).toStrictEqual({
+        message: null,
+        date: null,
+        sha: null,
+        tag: TAG,
+      })
+      expect(api.paths).toStrictEqual([RELEASE_PATH, REFERENCE_PATH])
     })
   })
 
@@ -507,7 +598,7 @@ describe('getTagInfo', () => {
       expect(api.paths).toStrictEqual([RELEASE_PATH])
     })
 
-    it('asks again after a rate-limited lookup', async () => {
+    it('reports the rate limit again without asking again once it was hit', async () => {
       let api = routeFetch({ [RELEASE_PATH]: rateLimited() })
       let context = createClientContext()
 
@@ -518,45 +609,11 @@ describe('getTagInfo', () => {
         GitHubRateLimitError,
       )
 
-      expect(api.paths).toStrictEqual([RELEASE_PATH, RELEASE_PATH])
+      expect(api.paths).toStrictEqual([RELEASE_PATH])
     })
   })
 
   describe('current behavior pending owner decision', () => {
-    it('returns the tag object SHA instead of a commit SHA when the tag object lookup after a release fails', async () => {
-      routeFetch({
-        ...release(),
-        ...annotatedTag(),
-        [TAG_OBJECT_PATH]: serverError(),
-      })
-
-      let info = await getTagInfo(createClientContext(), LOOKUP)
-
-      expect(info).toStrictEqual({
-        date: new Date(RELEASE_DATE),
-        message: RELEASE_NOTES,
-        sha: TAG_OBJECT_SHA,
-        tag: TAG,
-      })
-    })
-
-    it('returns the tag object SHA instead of a commit SHA when the tag object lookup without a release fails', async () => {
-      routeFetch({
-        ...noRelease(),
-        ...annotatedTag(),
-        [TAG_OBJECT_PATH]: serverError(),
-      })
-
-      let info = await getTagInfo(createClientContext(), LOOKUP)
-
-      expect(info).toStrictEqual({
-        sha: TAG_OBJECT_SHA,
-        message: null,
-        date: null,
-        tag: TAG,
-      })
-    })
-
     it('reads a refused reference lookup as a missing tag and remembers it', async () => {
       let api = routeFetch({
         [REFERENCE_PATH]: forbidden('Resource not accessible by integration'),
@@ -594,7 +651,7 @@ describe('getTagInfo', () => {
       },
     )
 
-    it('keeps the tag object SHA when the tag object of a released tag names no target', async () => {
+    it('leaves the SHA unknown when the tag object of a released tag names no target', async () => {
       routeFetch({
         ...release(),
         ...annotatedTag({ object: { type: 'commit', sha: null } }),
@@ -605,12 +662,12 @@ describe('getTagInfo', () => {
       expect(info).toStrictEqual({
         date: new Date(RELEASE_DATE),
         message: RELEASE_NOTES,
-        sha: TAG_OBJECT_SHA,
+        sha: null,
         tag: TAG,
       })
     })
 
-    it('reads a tag object without a target, message or date as the tag object SHA alone', async () => {
+    it('reads a tag object without a target, message or date as nothing known', async () => {
       routeFetch({
         ...noRelease(),
         ...annotatedTag({
@@ -623,9 +680,9 @@ describe('getTagInfo', () => {
       let info = await getTagInfo(createClientContext(), LOOKUP)
 
       expect(info).toStrictEqual({
-        sha: TAG_OBJECT_SHA,
         message: null,
         date: null,
+        sha: null,
         tag: TAG,
       })
     })

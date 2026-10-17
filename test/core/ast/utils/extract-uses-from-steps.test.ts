@@ -97,6 +97,41 @@ describe('extractUsesFromSteps', () => {
     ])
   })
 
+  it.each([
+    ['a plain', '          actions/checkout@v4'],
+    ['a quoted', "          'actions/checkout@v4'"],
+  ])(
+    'reports the line of %s reference written below its uses key',
+    (_description, valueLine) => {
+      let content = workflowWithSteps(['      - uses:', valueLine])
+
+      let actions = extractUsesFromSteps({
+        ...buildStepsOf(content),
+        filePath,
+        content,
+      })
+
+      expect(actions).toMatchObject([
+        { valueLine: firstStepLine + 1, line: firstStepLine },
+      ])
+    },
+  )
+
+  it('records no value line for a block scalar, whose indicator sits on the key line', () => {
+    let content = workflowWithSteps([
+      '      - uses: >-',
+      '          actions/checkout@v4',
+    ])
+
+    let [action] = extractUsesFromSteps({
+      ...buildStepsOf(content),
+      filePath,
+      content,
+    })
+
+    expect(action).not.toHaveProperty('valueLine')
+  })
+
   it('names the job the steps belong to when one is given', () => {
     let content = workflowWithSteps(['      - uses: actions/checkout@v4'])
 

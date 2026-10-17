@@ -15,12 +15,12 @@ import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { createGitHubClient } from '../../core/api/create-github-client'
 import { findRepositoryRoot } from '../../core/fs/find-repository-root'
 import { applyUpdates } from '../../core/ast/update/apply-updates'
+import { scanGitHubActions } from '../../core/scan-github-actions'
 import { createMockClient } from '../helpers/create-mock-client'
 import { shouldIgnore } from '../../core/ignore/should-ignore'
 import { stripAnsi } from '../../core/interactive/strip-ansi'
 import { checkUpdates } from '../../core/api/check-updates'
 import { scanRecursive } from '../../core/scan-recursive'
-import { scanGitHubActions } from '../../core/index'
 import { version } from '../../package.json'
 import { run } from '../../cli/index'
 
@@ -116,7 +116,7 @@ vi.mock(import('../../core/ignore/should-ignore'))
 vi.mock(import('../../core/fs/find-repository-root'))
 vi.mock(import('../../core/api/check-updates'))
 vi.mock(import('../../core/scan-recursive'))
-vi.mock(import('../../core/index'))
+vi.mock(import('../../core/scan-github-actions'))
 
 describe('run', () => {
   let originalArgv: string[]
@@ -470,7 +470,7 @@ describe('run', () => {
     vi.mocked(scanRecursive).mockResolvedValue(makeScanResult([]))
     vi.mocked(checkUpdates).mockResolvedValue([])
     vi.mocked(promptUpdateSelection).mockResolvedValue([])
-    vi.mocked(applyUpdates).mockResolvedValue()
+    vi.mocked(applyUpdates).mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -819,6 +819,30 @@ describe('run', () => {
         ],
       })
       arrangeIgnoreComments(`${ignored.file}:${ignored.line}`)
+
+      await runCli('--dry-run')
+
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        DRY_RUN_HEADER,
+        `${WORKFLOW_FILE}:\nactions/checkout: v3 → v4.2.2 (b4ffde6)`,
+        '1 entry would be updated',
+      ])
+    })
+
+    it('leaves out an update whose value, written below its key, carries an ignore comment', async () => {
+      let ignored = makeAction({
+        name: 'actions/cache',
+        valueLine: 21,
+        line: 20,
+      })
+      arrangeRun({
+        updates: [
+          makeUpdate(makeAction()),
+          makeUpdate(ignored, { latestVersion: 'v4.2.0' }),
+        ],
+      })
+      arrangeIgnoreComments(`${ignored.file}:21`)
 
       await runCli('--dry-run')
 
@@ -1865,6 +1889,70 @@ describe('run', () => {
       )
     })
 
+    it('lists updates that would downgrade a sha pin in the JSON report', async () => {
+      arrangeRun({
+        updates: [
+          makePinUpdate(
+            makeShaPin({ name: 'actions/cache', comment: ' v4.3.0', line: 20 }),
+            { latestVersion: 'v4.2.0' },
+          ),
+        ],
+      })
+
+      await runCli('--json')
+
+      expect(readJsonReport()).toMatchObject({
+        blockedAsDowngrade: [
+          {
+            action: { name: 'actions/cache', line: 20 },
+            latestVersion: 'v4.2.0',
+          },
+        ],
+        summary: { totalBlockedAsDowngrade: 1, totalUpdates: 0 },
+        status: 'up-to-date',
+      })
+    })
+
+    it('flags updates whose tag validation was rate limited in the JSON report', async () => {
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+      arrangeRateLimitedTagLookups()
+
+      await runCli('--json', '--style', 'preserve')
+
+      expect(readJsonReport().updates).toMatchObject([
+        { action: { name: 'actions/checkout' }, targetRefRateLimited: true },
+      ])
+    })
+
+    it.each([
+      {
+        error: new GitHubRateLimitError(new Date(NOW)),
+        failure: 'a rate limit',
+        rateLimited: true,
+      },
+      {
+        error: new Error('fetch failed'),
+        failure: 'any other failure',
+        rateLimited: false,
+      },
+    ])(
+      'reports $failure as an error document in JSON mode',
+      async ({ rateLimited, error }) => {
+        arrangeScan(makeAction())
+        vi.mocked(checkUpdates).mockRejectedValue(error)
+
+        await runCli('--json')
+
+        expect(readJsonReport()).toStrictEqual({
+          error: { message: error.message, rateLimited },
+          schemaVersion: 1,
+          status: 'error',
+        })
+        expect(stdoutWriteSpy.mock.calls).toHaveLength(1)
+        expect(process.exitCode).toBe(1)
+      },
+    )
+
     it('reports an up-to-date repository in JSON mode while listing what it skipped', async () => {
       arrangeRun({
         updates: [
@@ -1996,6 +2084,49 @@ describe('run', () => {
         ])
       },
     )
+
+    it('reports the entries it could not write and fails instead of claiming success', async () => {
+      let checkout = makeAction()
+      let setupNode = makeAction({ name: 'actions/setup-node', line: 20 })
+      arrangeRun({
+        updates: [
+          makeUpdate(checkout),
+          makeUpdate(setupNode, { latestVersion: 'v4.4.0' }),
+        ],
+      })
+      vi.mocked(applyUpdates).mockImplementation(updates =>
+        Promise.resolve(updates.slice(1)),
+      )
+
+      await runCli('--yes')
+
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        '🔄 Updating 2 entries...',
+        '✓ 1 of 2 entries applied',
+      ])
+      expect(printedErrors()).toStrictEqual([
+        '⚠️ Could not write 1 of 2 entries:',
+        `   • actions/setup-node@v3 (${WORKFLOW_FILE}:20)`,
+      ])
+      expect(process.exitCode).toBe(1)
+    })
+
+    it('reports a run that wrote nothing without a success line', async () => {
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+      vi.mocked(applyUpdates).mockImplementation(updates =>
+        Promise.resolve(updates),
+      )
+
+      await runCli('--yes')
+
+      expect(printedLines()).toStrictEqual([BANNER, '🔄 Updating 1 entry...'])
+      expect(printedErrors()).toStrictEqual([
+        '⚠️ Could not write 1 of 1 entry:',
+        `   • actions/checkout@v3 (${WORKFLOW_FILE}:14)`,
+      ])
+      expect(process.exitCode).toBe(1)
+    })
 
     it('lists what it would update and applies nothing with --dry-run', async () => {
       arrangeRun({

@@ -3,6 +3,7 @@ import type { GitHubClient } from '../../types/github-client'
 
 import { getMatchingTagReferences } from './get-matching-tag-references'
 import { resolveGitHubTokenSync } from './resolve-github-token-sync'
+import { createRequestLimiter } from './create-request-limiter'
 import { getReferenceType } from './get-reference-type'
 import { getLatestRelease } from './get-latest-release'
 import { getAllReleases } from './get-all-releases'
@@ -29,7 +30,9 @@ export function createGitHubClient(token?: string): GitHubClient {
     },
     rateLimitRemaining: resolved ? 5000 : 60,
     baseUrl: 'https://api.github.com',
+    limiter: createRequestLimiter(),
     rateLimitReset: new Date(),
+    responses: new Map(),
     token: resolved,
   }
 
