@@ -13,6 +13,7 @@ export interface ActionUpdate {
     | 'not-comparable'
     | 'check-failed'
     | 'tag-family'
+    | 'not-found'
     | 'unknown'
     | 'branch'
 

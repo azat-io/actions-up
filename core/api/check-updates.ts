@@ -27,7 +27,12 @@ interface ReleaseCheckResult extends LatestInfo {
   /**
    * Reason why lookup was skipped, if applicable.
    */
-  skipReason?: 'ref-type-unavailable' | 'check-failed' | 'tag-family' | 'branch'
+  skipReason?:
+    | 'ref-type-unavailable'
+    | 'check-failed'
+    | 'tag-family'
+    | 'not-found'
+    | 'branch'
 
   /**
    * Detected style of the current reference being evaluated.
@@ -473,6 +478,24 @@ export async function checkUpdates(
         }
       }
       /**
+       * A 404 reaches here only from a repository listing, and GitHub answers
+       * an existing repository with an empty list when there is nothing to
+       * list. The repository itself is missing or hidden from the current
+       * credentials, which the report names on its own rather than as a failure
+       * with a stack trace.
+       */
+      if (isNotFoundError(error)) {
+        return {
+          skipReason: 'not-found' as const,
+          status: 'skipped' as const,
+          currentRefType: 'unknown',
+          publishedAt: null,
+          version: null,
+          actionKey,
+          sha: null,
+        }
+      }
+      /**
        * Log other failures per action.
        */
       console.warn(`Failed to check ${actionName}:`, error)
@@ -849,6 +872,16 @@ function resolveFamilyReference(action: GitHubAction): string | null {
 
 function isRateLimitError(error: unknown): error is Error {
   return error instanceof Error && error.name === 'GitHubRateLimitError'
+}
+
+/**
+ * Recognize the error a lookup fails with when GitHub answers with a 404.
+ *
+ * @param error - Error thrown by a lookup.
+ * @returns True when the request was answered with a 404.
+ */
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof Error && 'status' in error && error.status === 404
 }
 
 /**

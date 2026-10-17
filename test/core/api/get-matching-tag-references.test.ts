@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   makeReferencePayload,
+  serverError,
   rateLimited,
   routeFetch,
   notFound,
@@ -140,8 +141,20 @@ describe('getMatchingTagReferences', () => {
     expect(api.paths).toStrictEqual([ACTIONS_FAMILY_PATH, CLI_FAMILY_PATH])
   })
 
-  it('treats a repository it cannot see as having no matching tags, without asking again', async () => {
-    let api = routeFetch({ [ACTIONS_FAMILY_PATH]: notFound() })
+  it('rejects a lookup in a repository it cannot see instead of reporting no matching tags', async () => {
+    routeFetch({ [ACTIONS_FAMILY_PATH]: notFound() })
+
+    let request = getMatchingTagReferences(createClientContext(), {
+      prefix: 'actions-',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    await expect(request).rejects.toHaveProperty('status', 404)
+  })
+
+  it('treats any other failed request as having no matching tags, without asking again', async () => {
+    let api = routeFetch({ [ACTIONS_FAMILY_PATH]: serverError() })
     let context = createClientContext()
     let parameters = { prefix: 'actions-', owner: 'actions', repo: 'checkout' }
 

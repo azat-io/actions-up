@@ -145,6 +145,18 @@ describe('printSkippedWarning', () => {
     },
     {
       expectedText:
+        '\n⚠️  Skipped 1 action whose repository was not found (private repositories need a GITHUB_TOKEN with access)\n' +
+        '   • my-org/internal-action@v1',
+      skipped: makeSkipped({
+        name: 'my-org/internal-action',
+        skipReason: 'not-found',
+        version: 'v1',
+      }),
+      description: 'actions whose repository was not found',
+      style: 'sha' as const,
+    },
+    {
+      expectedText:
         '\n⚠️  Skipped 1 action whose reference type could not be resolved (GitHub API request failed)\n' +
         '   • actions/upload-artifact@v4',
       skipped: makeSkipped({
@@ -205,6 +217,11 @@ describe('printSkippedWarning', () => {
         version: 'v4',
       }),
       makeSkipped({
+        name: 'my-org/internal-action',
+        skipReason: 'not-found',
+        version: 'v1',
+      }),
+      makeSkipped({
         skipReason: 'not-comparable',
         name: 'docker/login-action',
         version: 'latest',
@@ -233,6 +250,8 @@ describe('printSkippedWarning', () => {
         '   • christopher-buss/bedrock/packages/actions/deploy@actions-v0.1.1\n' +
         '\n⚠️  Skipped 1 action that cannot be compared with the latest tag as versions (check them manually)\n' +
         '   • docker/login-action@latest\n' +
+        '\n⚠️  Skipped 1 action whose repository was not found (private repositories need a GITHUB_TOKEN with access)\n' +
+        '   • my-org/internal-action@v1\n' +
         '\n⚠️  Skipped 1 action whose reference type could not be resolved (GitHub API request failed)\n' +
         '   • actions/upload-artifact@v4\n' +
         '\n⚠️  Skipped 1 action whose update check failed (see warnings above)\n' +
@@ -261,7 +280,7 @@ describe('printSkippedWarning', () => {
   describe('defensive branches unreachable through the public API', () => {
     /**
      * No producer emits `unknown`: the update check reports
-     * ref-type-unavailable, check-failed, tag-family, branch and
+     * ref-type-unavailable, check-failed, not-found, tag-family, branch and
      * not-comparable, and the CLI adds unsupported-style. The generic group
      * exists so that a reason added later still reaches the user instead of
      * disappearing.

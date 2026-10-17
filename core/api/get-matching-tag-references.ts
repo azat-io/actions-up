@@ -15,12 +15,20 @@ import { makeRequest } from './make-request'
  * it points at, so those entries carry a null SHA and leave dereferencing to
  * the callers that already handle it.
  *
+ * The endpoint answers an existing repository with an empty list when no tag
+ * matches, so a 404 means the repository itself is missing or hidden from the
+ * current credentials. Reading it as an empty family would report a missing
+ * repository as a tag family without members, so it reaches the caller instead.
+ * Any other failure is read as no matching tags.
+ *
  * @param context - Client context.
  * @param parameters - Request parameters.
  * @param parameters.owner - Repository owner.
  * @param parameters.repo - Repository name.
  * @param parameters.prefix - Tag name prefix to match.
  * @returns Matching tags, or an empty array when nothing matches.
+ * @throws GitHubRateLimitError - When the request was rate limited.
+ * @throws Error - When the repository was not found, with status 404.
  */
 export async function getMatchingTagReferences(
   context: GitHubClientContext,
@@ -55,6 +63,14 @@ export async function getMatchingTagReferences(
   } catch (error) {
     if (error instanceof Error && error.message.includes('rate limit')) {
       throw new GitHubRateLimitError(context.rateLimitReset)
+    }
+    if (
+      error &&
+      typeof error === 'object' &&
+      'status' in error &&
+      (error as { status: number }).status === 404
+    ) {
+      throw error
     }
     context.caches.matchingReferences.set(cacheKey, [])
     return []

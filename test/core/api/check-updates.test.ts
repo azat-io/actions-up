@@ -47,13 +47,13 @@ interface FakeRepository {
   /**
    * Releases, newest first, which `getAllReleases` lists up to its limit.
    */
-  releases?: ReleaseInfo[]
+  releases?: ReleaseInfo[] | Error
 
   /**
    * Tag references `getMatchingTagReferences` filters by prefix. As in the real
    * API, an annotated tag carries a null SHA there.
    */
-  references?: TagInfo[]
+  references?: TagInfo[] | Error
 
   /**
    * Tags, newest first, which `getAllTags` lists up to its limit.
@@ -98,18 +98,20 @@ function makeFakeClient(
       },
     ),
     getMatchingTagReferences: vi.fn<GitHubClient['getMatchingTagReferences']>(
-      (owner, repository, prefix) =>
-        Promise.resolve(
-          (findRepository(owner, repository).references ?? []).filter(
-            reference => reference.tag.startsWith(prefix),
-          ),
-        ),
+      async (owner, repository, prefix) => {
+        let references = await settle(
+          findRepository(owner, repository).references ?? [],
+        )
+        return references.filter(reference => reference.tag.startsWith(prefix))
+      },
     ),
     getAllReleases: vi.fn<GitHubClient['getAllReleases']>(
-      (owner, repository, limit) =>
-        Promise.resolve(
-          (findRepository(owner, repository).releases ?? []).slice(0, limit),
-        ),
+      async (owner, repository, limit) => {
+        let releases = await settle(
+          findRepository(owner, repository).releases ?? [],
+        )
+        return releases.slice(0, limit)
+      },
     ),
     getAllTags: vi.fn<GitHubClient['getAllTags']>((owner, repository, limit) =>
       Promise.resolve(
@@ -256,6 +258,19 @@ function settle<Answer>(answer: Answer | Error): Promise<Answer> {
   return answer instanceof Error ?
       Promise.reject(answer)
     : Promise.resolve(answer)
+}
+
+/**
+ * Create the error the GitHub client throws when a repository listing is
+ * answered with a 404: the repository does not exist, or the credentials cannot
+ * see it.
+ *
+ * @returns Error carrying the status of the response.
+ */
+function makeNotFoundError(): Error {
+  return Object.assign(new Error('GitHub API error: 404 Not Found'), {
+    status: 404,
+  })
 }
 
 /**
@@ -1955,6 +1970,47 @@ describe('checkUpdates', () => {
         failure,
       )
     })
+
+    it.each<{ action: GitHubAction; repo: FakeRepository; reference: string }>([
+      {
+        action: makeAction({ version: 'v1.0.0' }),
+        repo: { releases: makeNotFoundError() },
+        reference: 'a tag reference',
+      },
+      {
+        repo: {
+          referenceTypes: { main: null },
+          releases: makeNotFoundError(),
+        },
+        reference: 'a reference that is neither a tag nor a branch',
+        action: makeAction({ version: 'main' }),
+      },
+      {
+        action: makeAction({
+          name: 'owner/repo/deploy',
+          version: 'actions-v0.1.1',
+        }),
+        repo: { references: makeNotFoundError() },
+        reference: 'a tag family reference',
+      },
+    ])(
+      'skips $reference whose repository GitHub cannot find, without a warning',
+      async ({ action, repo }) => {
+        let client = makeClient(repo)
+        let warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+        let result = await check(client, [action])
+
+        expect(result).toEqual([
+          expectedUpdate(action, {
+            currentRefType: 'unknown',
+            skipReason: 'not-found',
+            status: 'skipped',
+          }),
+        ])
+        expect(warn).not.toHaveBeenCalled()
+      },
+    )
 
     it('stops requesting further repositories after the first rate limit and rejects', async () => {
       let client = makeClientForRepos({

@@ -32,6 +32,9 @@ export function printSkippedWarning(
   let notComparableSkipped = skipped.filter(
     update => update.skipReason === 'not-comparable',
   )
+  let notFoundSkipped = skipped.filter(
+    update => update.skipReason === 'not-found',
+  )
   let referenceTypeSkipped = skipped.filter(
     update => update.skipReason === 'ref-type-unavailable',
   )
@@ -50,6 +53,7 @@ export function printSkippedWarning(
     'not-comparable',
     'check-failed',
     'tag-family',
+    'not-found',
     'branch',
   ])
   let otherSkipped = skipped.filter(
@@ -85,6 +89,13 @@ export function printSkippedWarning(
     printSkippedGroup(
       notComparableSkipped,
       'that cannot be compared with the latest tag as versions (check them manually)',
+    )
+  }
+
+  if (notFoundSkipped.length > 0) {
+    printSkippedGroup(
+      notFoundSkipped,
+      'whose repository was not found (private repositories need a GITHUB_TOKEN with access)',
     )
   }
 
