@@ -16,7 +16,7 @@ interface AssessCandidateParameters {
   /**
    * Release of the tag when the caller already holds it, null when the caller
    * knows the tag has none. Omitted, it is looked up when the cool-down needs
-   * it.
+   * it or the tag no longer points at the pin.
    */
   release?: Pick<ReleaseInfo, 'publishedAt' | 'immutable'> | null
 
@@ -69,6 +69,11 @@ interface AssessCandidateParameters {
  *   commit already held it at the start of the cool-down and has kept it since,
  *   as the history GitHub records for that branch shows.
  *
+ * Before either, a tag that a SHA pin names in its version comment must still
+ * point at the pinned commit, whatever the cool-down: a tag moved away from a
+ * pin is what a hijacked action looks like, however old the commit it points at
+ * now.
+ *
  * The dates written into a commit or a tag object are never evidence: whoever
  * moves a tag writes them too. The publication date of a mutable release is no
  * evidence either, since its tag can point at another commit by now; a release
@@ -109,13 +114,23 @@ export async function assessCandidate(
 
   let { sha } = assessment
   let { release } = parameters
+  let differsFromPin = Boolean(pinnedSha && !compareSha(pinnedSha, sha))
 
-  if (cooldown && release === undefined) {
+  /**
+   * Only the release tells a moved tag from a pin written by hand, so it is
+   * looked up for a pin the tag no longer points at even with the cool-down
+   * off. A failed lookup leaves open the age the cool-down needs or, without
+   * it, whether the tag was moved.
+   */
+  if (release === undefined && (cooldown || differsFromPin)) {
     try {
       release = await client.getReleaseByTag(owner, repo, tag)
     } catch (error) {
       rethrowRateLimit(error)
-      return { ...assessment, reason: 'age-unknown' }
+      return {
+        ...assessment,
+        reason: cooldown ? 'age-unknown' : 'release-unresolved',
+      }
     }
   }
 
@@ -131,12 +146,7 @@ export async function assessCandidate(
    * apart before the age of its release, since a release can be recreated along
    * with the move.
    */
-  if (
-    cooldown &&
-    pinnedSha &&
-    !compareSha(pinnedSha, sha) &&
-    !release?.immutable
-  ) {
+  if (differsFromPin && !release?.immutable) {
     return { ...assessment, reason: 'tag-moved' }
   }
 

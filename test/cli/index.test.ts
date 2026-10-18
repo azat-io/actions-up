@@ -1857,41 +1857,36 @@ describe('run', () => {
       expect(applyUpdates).not.toHaveBeenCalled()
     })
 
-    it('holds back a moved tag of the pinned version in every mode', async () => {
-      arrangeRun({
-        updates: [
-          makePinUpdate(makeShaPin(), {
-            latestVersion: 'v3.6.0',
-            isBreaking: false,
-          }),
-        ],
-      })
+    it.each([
+      ['in a narrowed mode', ['--mode', 'patch']],
+      ['with the cool-down off', ['--min-age', '0']],
+      [
+        'for an action exempt from the cool-down',
+        ['--min-age-exclude', '^actions/'],
+      ],
+    ])(
+      'holds back a moved tag of the pinned version %s',
+      async (_case, argv) => {
+        arrangeRun({
+          updates: [
+            makePinUpdate(makeShaPin(), {
+              latestVersion: 'v3.6.0',
+              isBreaking: false,
+            }),
+          ],
+        })
 
-      await runCli('--mode', 'patch', '--dry-run')
+        await runCli(...argv, '--dry-run')
 
-      expect(printedWarnings()).toStrictEqual([
-        SECURITY_HEADER,
-        '   • actions/checkout@v3.6.0 → b4ffde6: tag now points at another commit than the pin',
-      ])
-    })
-
-    it('offers a moved tag of the pinned version with the cool-down off', async () => {
-      arrangeRun({
-        updates: [
-          makePinUpdate(makeShaPin(), {
-            latestVersion: 'v3.6.0',
-            isBreaking: false,
-          }),
-        ],
-      })
-
-      await runCli('--min-age', '0', '--dry-run')
-
-      expect(printedLines()).toContain(
-        `${WORKFLOW_FILE}:\nactions/checkout: ${PINNED_SHA} → v3.6.0 (b4ffde6)`,
-      )
-      expect(consoleWarnSpy).not.toHaveBeenCalled()
-    })
+        expect(printedWarnings()).toStrictEqual([
+          SECURITY_HEADER,
+          '   • actions/checkout@v3.6.0 → b4ffde6: tag now points at another commit than the pin',
+        ])
+        expect(printedLines()).not.toContain(
+          `${WORKFLOW_FILE}:\nactions/checkout: ${PINNED_SHA} → v3.6.0 (b4ffde6)`,
+        )
+      },
+    )
 
     it('reports a held tag in the JSON report with what the checks found, and warns on stderr', async () => {
       arrangeUnreachableCommits()

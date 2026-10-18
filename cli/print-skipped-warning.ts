@@ -47,6 +47,9 @@ export function printSkippedWarning(
   let reachabilityUnknownSkipped = skipped.filter(
     update => update.skipReason === 'reachability-unknown',
   )
+  let releaseUnresolvedSkipped = skipped.filter(
+    update => update.skipReason === 'release-unresolved',
+  )
 
   /**
    * Every reason without a dedicated group still has to reach the user, so a
@@ -56,6 +59,7 @@ export function printSkippedWarning(
   let groupedReasons = new Set([
     'reachability-unknown',
     'ref-type-unavailable',
+    'release-unresolved',
     'unsupported-style',
     'not-comparable',
     'sha-unresolved',
@@ -132,6 +136,13 @@ export function printSkippedWarning(
     printSkippedGroup(
       reachabilityUnknownSkipped,
       'whose commit could not be checked against the repository history (failed GitHub API request or too many protected branches)',
+    )
+  }
+
+  if (releaseUnresolvedSkipped.length > 0) {
+    printSkippedGroup(
+      releaseUnresolvedSkipped,
+      'whose tag now points at another commit than the pin and whose release could not be read (failed GitHub API request)',
     )
   }
 

@@ -203,6 +203,18 @@ describe('printSkippedWarning', () => {
       description: 'commits that could not be checked against the history',
       style: 'sha' as const,
     },
+    {
+      expectedText:
+        '\n⚠️  Skipped 1 action whose tag now points at another commit than the pin and whose release could not be read (failed GitHub API request)\n' +
+        '   • actions/setup-go@v5',
+      skipped: makeSkipped({
+        skipReason: 'release-unresolved',
+        name: 'actions/setup-go',
+        version: 'v5',
+      }),
+      description: 'moved pins whose release could not be read',
+      style: 'sha' as const,
+    },
   ])(
     'reports $description under a dedicated header',
     ({ expectedText, skipped, style }) => {

@@ -51,12 +51,16 @@ export interface CandidateAssessment {
  *   commit public for long enough.
  * - `tag-moved`: a workflow pins another commit under the version comment of this
  *   very tag, so the tag was moved after the pin was written.
+ * - `release-unresolved`: with the cool-down off, the lookup of the release of a
+ *   tag that points at another commit than the pin failed, so a moved tag
+ *   cannot be told from a pin written by hand.
  * - `unreachable-commit`: neither the default branch nor a protected branch of
  *   the repository holds the commit.
  * - `reachability-unknown`: the history of the repository could not be checked.
  */
 export type CandidateHoldReason =
   | 'reachability-unknown'
+  | 'release-unresolved'
   | 'unreachable-commit'
   | 'sha-unresolved'
   | 'age-unknown'

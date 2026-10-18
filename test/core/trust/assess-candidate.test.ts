@@ -373,20 +373,26 @@ describe('assessCandidate', () => {
   })
 
   describe('pinned commit', () => {
-    it('holds a tag that now points at another commit than the pin as moved, without checking history', async () => {
-      let client = createClient()
+    it.each([
+      ['with the cool-down on', COOL_DOWN],
+      ['with the cool-down off', null],
+    ])(
+      'holds a tag that now points at another commit than the pin as moved %s, without checking history',
+      async (_case, cooldown) => {
+        let client = createClient()
 
-      let assessment = await assessCandidate(client, {
-        ...CANDIDATE,
-        release: releasedAt(TWO_YEARS_AGO),
-        pinnedSha: PINNED_SHA,
-        cooldown: COOL_DOWN,
-        sha: SHA,
-      })
+        let assessment = await assessCandidate(client, {
+          ...CANDIDATE,
+          release: releasedAt(TWO_YEARS_AGO),
+          pinnedSha: PINNED_SHA,
+          cooldown,
+          sha: SHA,
+        })
 
-      expect(assessment.reason).toBe('tag-moved')
-      expect(client.compareCommits).not.toHaveBeenCalled()
-    })
+        expect(assessment.reason).toBe('tag-moved')
+        expect(client.compareCommits).not.toHaveBeenCalled()
+      },
+    )
 
     it.each([
       ['the tag still points at the pin', releasedAt(TWO_YEARS_AGO), SHA],
@@ -426,27 +432,44 @@ describe('assessCandidate', () => {
       expect(assessment.reason).toBe('tag-moved')
     })
 
-    it('decides on an immutable release only once its release was looked up', async () => {
+    it.each([
+      ['with the cool-down on', COOL_DOWN],
+      ['with the cool-down off', null],
+    ])(
+      'decides on an immutable release only once its release was looked up %s',
+      async (_case, cooldown) => {
+        let client = createClient({
+          overrides: {
+            getReleaseByTag: vi
+              .fn<GitHubClient['getReleaseByTag']>()
+              .mockResolvedValue(IMMUTABLE_RELEASE),
+          },
+        })
+
+        let assessment = await assessCandidate(client, {
+          ...CANDIDATE,
+          pinnedSha: PINNED_SHA,
+          cooldown,
+          sha: SHA,
+        })
+
+        expect(assessment.reason).toBeNull()
+        expect(client.getReleaseByTag).toHaveBeenCalledExactlyOnceWith(
+          'actions',
+          'checkout',
+          'v4.2.2',
+        )
+      },
+    )
+
+    it('leaves a tag that points at another commit than the pin unresolved when its release cannot be read with the cool-down off', async () => {
       let client = createClient({
         overrides: {
           getReleaseByTag: vi
             .fn<GitHubClient['getReleaseByTag']>()
-            .mockResolvedValue(IMMUTABLE_RELEASE),
+            .mockRejectedValue(new Error('GitHub API error: 502 Bad Gateway')),
         },
       })
-
-      let assessment = await assessCandidate(client, {
-        ...CANDIDATE,
-        pinnedSha: PINNED_SHA,
-        cooldown: COOL_DOWN,
-        sha: SHA,
-      })
-
-      expect(assessment.reason).toBeNull()
-    })
-
-    it('does not check the pin with the cool-down off', async () => {
-      let client = createClient()
 
       let assessment = await assessCandidate(client, {
         ...CANDIDATE,
@@ -455,7 +478,8 @@ describe('assessCandidate', () => {
         sha: SHA,
       })
 
-      expect(assessment.reason).toBeNull()
+      expect(assessment.reason).toBe('release-unresolved')
+      expect(client.compareCommits).not.toHaveBeenCalled()
     })
   })
 
@@ -479,6 +503,23 @@ describe('assessCandidate', () => {
         sha: SHA,
       })
       expect(client.getBranchTipAt).not.toHaveBeenCalled()
+      expect(client.getReleaseByTag).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['without a pin', null],
+      ['for a pin the tag still points at', SHA],
+    ])('does not look the release up %s', async (_case, pinnedSha) => {
+      let client = createClient()
+
+      let assessment = await assessCandidate(client, {
+        ...CANDIDATE,
+        cooldown: null,
+        pinnedSha,
+        sha: SHA,
+      })
+
+      expect(assessment.reason).toBeNull()
       expect(client.getReleaseByTag).not.toHaveBeenCalled()
     })
   })

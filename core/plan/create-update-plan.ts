@@ -338,15 +338,21 @@ export async function createUpdatePlan(
         }
 
         if (
-          ['reachability-unknown', 'sha-unresolved', 'no-commit'].includes(
-            latestAssessment.reason,
-          )
+          [
+            'reachability-unknown',
+            'release-unresolved',
+            'sha-unresolved',
+            'no-commit',
+          ].includes(latestAssessment.reason)
         ) {
           return {
             update: skipUpdate(
               update,
-              latestAssessment.reason === 'reachability-unknown' ?
-                'reachability-unknown'
+              (
+                latestAssessment.reason === 'reachability-unknown' ||
+                  latestAssessment.reason === 'release-unresolved'
+              ) ?
+                latestAssessment.reason
               : 'sha-unresolved',
             ),
             kind: 'skipped',
@@ -751,7 +757,7 @@ function createEmptyPlan(status: UpdatePlanStatus): UpdatePlan {
  */
 function skipUpdate(
   update: ActionUpdate,
-  skipReason: 'reachability-unknown' | 'sha-unresolved',
+  skipReason: 'reachability-unknown' | 'release-unresolved' | 'sha-unresolved',
 ): ActionUpdate {
   return { ...update, status: 'skipped', hasUpdate: false, skipReason }
 }

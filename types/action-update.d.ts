@@ -9,13 +9,16 @@ import type { TrustHold } from './trust-hold'
 export interface ActionUpdate {
   /**
    * Reason for skipping the update check. `sha-unresolved` means the commit the
-   * tag of the latest version points at could not be read, and
+   * tag of the latest version points at could not be read,
    * `reachability-unknown` that the history of its repository could not be
-   * checked; neither falls back to another commit.
+   * checked, and `release-unresolved` that the release which tells a moved tag
+   * from a pin written by hand could not be read; none falls back to another
+   * commit.
    */
   skipReason?:
     | 'reachability-unknown'
     | 'ref-type-unavailable'
+    | 'release-unresolved'
     | 'unsupported-style'
     | 'not-comparable'
     | 'sha-unresolved'

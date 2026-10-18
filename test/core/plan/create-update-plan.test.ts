@@ -856,32 +856,88 @@ describe('createUpdatePlan', () => {
     ])
   })
 
-  it('holds back a SHA pin whose pinned tag now points at another commit, without checking that commit', async () => {
-    let api = routeFetch({
-      ...latestReleaseRoutes({
-        publishedAt: TWO_YEARS_AGO,
-        sha: MALICIOUS_SHA,
-      }),
-      ...walkListing([['v4.2.2', MALICIOUS_SHA]]),
-    })
+  it.each([
+    ['with the cool-down on', {}],
+    ['with the cool-down off', { minAge: 0 }],
+    [
+      'for an action exempt from the cool-down',
+      { minAgeExcludes: [/^actions\//u] },
+    ],
+  ])(
+    'holds back a SHA pin whose pinned tag now points at another commit %s, without checking that commit',
+    async (_case, options) => {
+      let api = routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: MALICIOUS_SHA,
+        }),
+        ...walkListing([['v4.2.2', MALICIOUS_SHA]]),
+      })
 
-    let result = await plan([
-      makeAction({ version: RELEASE_SHA, comment: ' v4.2.2' }),
-    ])
+      let result = await plan(
+        [makeAction({ version: RELEASE_SHA, comment: ' v4.2.2' })],
+        options,
+      )
 
-    expect(result).toMatchObject({
-      blockedByTrust: [
-        {
-          trustHolds: [
-            { reason: 'tag-moved', sha: MALICIOUS_SHA, version: 'v4.2.2' },
-          ],
-          holdReason: 'tag-moved',
-        },
-      ],
-      updates: [],
-    })
-    expect(api.paths).not.toContain(REPOSITORY)
-  })
+      expect(result).toMatchObject({
+        blockedByTrust: [
+          {
+            trustHolds: [
+              { reason: 'tag-moved', sha: MALICIOUS_SHA, version: 'v4.2.2' },
+            ],
+            holdReason: 'tag-moved',
+          },
+        ],
+        updates: [],
+      })
+      expect(api.paths).not.toContain(REPOSITORY)
+    },
+  )
+
+  it.each([
+    [
+      'moved when it has no release',
+      notFound(),
+      { blockedByTrust: [{ holdReason: 'tag-moved' }], updates: [] },
+    ],
+    [
+      'pinned by hand when its release is immutable',
+      ok(makeTagRelease('v4.1.0', TWO_YEARS_AGO, { immutable: true })),
+      { updates: [{ targetRef: RELEASE_SHA }], blockedByTrust: [] },
+    ],
+    [
+      'unresolved when its release cannot be read',
+      serverError(),
+      {
+        skipped: [{ skipReason: 'release-unresolved', status: 'skipped' }],
+        blockedByTrust: [],
+        updates: [],
+      },
+    ],
+  ])(
+    'reads the release of a listed tag that no longer points at the pin with the cool-down off, and finds the tag %s',
+    async (_case, release, expected) => {
+      routeFetch({
+        [`${REPOSITORY}/tags?per_page=30`]: ok([
+          makeTagListingEntry('v4.1.0', RELEASE_SHA),
+          makeTagListingEntry('v4.0.0', OLDER_SHA),
+        ]),
+        [`${REPOSITORY}/releases/tags/v4.1.0`]: release,
+        [REPOSITORY]: ok(makeRepositoryPayload('main')),
+        [`${REPOSITORY}/releases?per_page=1`]: ok([]),
+        ...walkListing([['v4.1.0', RELEASE_SHA]]),
+        [comparisonPath(RELEASE_SHA)]: behind(),
+        [LATEST_RELEASE_PATH]: notFound(),
+      })
+
+      let result = await plan(
+        [makeAction({ version: OLDER_SHA, comment: ' v4.1.0' })],
+        { minAge: 0 },
+      )
+
+      expect(result).toMatchObject(expected)
+    },
+  )
 
   it.each([
     ['an immutable release, whose tag cannot have moved', true, ' v4.2.2'],
