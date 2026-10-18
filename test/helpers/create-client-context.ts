@@ -15,8 +15,6 @@ export function createClientContext(
     caches: {
       matchingReferences: new Map(),
       refType: new Map(),
-      tagInfo: new Map(),
-      tagSha: new Map(),
     },
     baseUrl: 'https://api.github.com',
     limiter: createRequestLimiter(),

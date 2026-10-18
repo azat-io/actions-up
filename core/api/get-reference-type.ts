@@ -7,7 +7,9 @@ import { makeRequest } from './make-request'
  * Detect whether a reference is a tag or a branch.
  *
  * Uses the exact-match `git/ref` endpoints, so a reference that only matches
- * existing refs as a prefix is not reported as a tag or a branch.
+ * existing refs as a prefix is not reported as a tag or a branch. The name is
+ * sent percent-encoded, since Git allows `#` and `%` in it, which would end the
+ * path or turn into other characters on the way.
  *
  * Only a pair of 404 answers resolves to `null`. A request that failed for any
  * other reason leaves the reference type unanswered, and a caller that read
@@ -36,7 +38,7 @@ export async function getReferenceType(
 
   let isTag = await referenceExists(
     context,
-    `/repos/${owner}/${repo}/git/ref/tags/${reference}`,
+    `/repos/${owner}/${repo}/git/ref/tags/${encodeURIComponent(reference)}`,
   )
   if (isTag) {
     context.caches.refType.set(cacheKey, 'tag')
@@ -45,7 +47,7 @@ export async function getReferenceType(
 
   let isBranch = await referenceExists(
     context,
-    `/repos/${owner}/${repo}/git/ref/heads/${reference}`,
+    `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(reference)}`,
   )
   if (isBranch) {
     context.caches.refType.set(cacheKey, 'branch')

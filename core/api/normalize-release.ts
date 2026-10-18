@@ -1,11 +1,14 @@
 import type { ReleaseInfo } from '../../types/release-info'
 
+import { parseTimestamp } from './parse-timestamp'
+
 /**
  * Release fields read from the GitHub releases API.
  */
 export interface GitHubReleasePayload {
   /**
-   * Branch name or commit SHA the release tag was created from.
+   * Branch name or commit SHA the release tag was created from. Never read for
+   * a commit: GitHub keeps it when the tag already existed or was moved later.
    */
   target_commitish: string | null
 
@@ -13,6 +16,12 @@ export interface GitHubReleasePayload {
    * Publication timestamp in ISO 8601 format.
    */
   published_at: string
+
+  /**
+   * True when the release is immutable, so its tag cannot be moved or deleted.
+   * Absent from GitHub versions that predate immutable releases.
+   */
+  immutable?: boolean
 
   /**
    * Release title, null when not set.
@@ -44,20 +53,16 @@ export interface GitHubReleasePayload {
  * Convert a GitHub release payload into normalized release information.
  *
  * @param release - Release payload returned by the GitHub API.
- * @param sha - Commit SHA of the release tag, null when unknown.
  * @returns Normalized release information.
  */
-export function normalizeRelease(
-  release: GitHubReleasePayload,
-  sha: string | null,
-): ReleaseInfo {
+export function normalizeRelease(release: GitHubReleasePayload): ReleaseInfo {
   return {
-    publishedAt: new Date(release.published_at),
+    publishedAt: parseTimestamp(release.published_at),
     name: release.name ?? release.tag_name,
+    immutable: release.immutable === true,
     description: release.body ?? null,
     isPrerelease: release.prerelease,
     version: release.tag_name,
     url: release.html_url,
-    sha,
   }
 }

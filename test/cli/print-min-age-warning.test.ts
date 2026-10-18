@@ -75,6 +75,25 @@ describe('printMinAgeWarning', () => {
     },
   )
 
+  it('lists updates whose age could not be established apart from the recent ones', () => {
+    let blocked = [
+      makeBlocked(),
+      {
+        ...makeBlocked('actions/setup-node'),
+        holdReason: 'age-unknown' as const,
+      },
+    ]
+
+    printMinAgeWarning(blocked, 1)
+
+    expect(consoleInfoSpy.printedText()).toBe(
+      '\n⏳ Skipped 1 update released less than 1 day ago (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
+        '   • actions/checkout@v4\n' +
+        '\n⏳ Skipped 1 update whose age could not be established (cool-down, use --min-age 0 to disable or --min-age-exclude to exempt actions)\n' +
+        '   • actions/setup-node@v4',
+    )
+  })
+
   it('lists each held-back action once with the number of places it appears in', () => {
     let blocked = [
       makeBlocked(),

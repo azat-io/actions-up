@@ -8,7 +8,6 @@ import type { ActionUpdate } from '../../types/action-update'
 import type { GitHubClient } from '../../types/github-client'
 import type { ScanResult } from '../../types/scan-result'
 import type { Spinner } from '../../cli/create-spinner'
-import type { TagInfo } from '../../types/tag-info'
 
 import { promptUpdateSelection } from '../../core/interactive/prompt-update-selection'
 import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
@@ -23,6 +22,26 @@ import { checkUpdates } from '../../core/api/check-updates'
 import { scanRecursive } from '../../core/scan-recursive'
 import { version } from '../../package.json'
 import { run } from '../../cli/index'
+
+/**
+ * Tag of an action repository as the tests describe it.
+ */
+interface RepositoryTag {
+  /**
+   * Publication date of the release of the tag, null for a tag without one.
+   */
+  publishedAt: Date | null
+
+  /**
+   * Commit the tag points at.
+   */
+  sha: string
+
+  /**
+   * Tag name.
+   */
+  tag: string
+}
 
 /**
  * Machine-readable report printed by `--json`.
@@ -69,12 +88,17 @@ const SETUP_NODE_SHA = '49933ea5288caeca8642d1e84afbd3f7d6820020'
  */
 const PINNED_SHA = 'e'.repeat(40)
 
+/**
+ * Committer and author date of every commit the default branch holds, long
+ * before any release of the tests.
+ */
+const ON_BRANCH_SINCE = '2026-07-15T00:00:00.000Z'
+
 const BANNER = '🚀 Actions Up!'
 const DRY_RUN_HEADER = '📋 Dry Run - No changes will be made'
 const UP_TO_DATE = '✨ Everything is already at the latest version!'
 
 const BRANCH_NOTICE = noticeAbout('pinned to branches')
-const STYLE_NOTICE = noticeAbout('could not be updated with the current style')
 const MAJOR_HELD_NOTICE = noticeAbout('due to major updates')
 const MAJOR_OR_MINOR_HELD_NOTICE = noticeAbout('due to major/minor updates')
 const COOL_DOWN_NOTICE = noticeAbout('released less than 7 days ago')
@@ -260,24 +284,49 @@ describe('run', () => {
   }
 
   /**
-   * Tag of an action repository as the GitHub API describes it.
+   * Tag of an action repository, with the publication date of its release.
    *
    * @param tag - Tag name.
    * @param sha - Commit the tag points to.
-   * @param publishedAt - Publication date, null when unknown.
-   * @returns Tag metadata.
+   * @param publishedAt - Publication date of its release, null for a tag
+   *   without one.
+   * @returns Tag of the repository.
    */
   function makeTag(
     tag: string,
     sha: string,
     publishedAt: string | null = null,
-  ): TagInfo {
+  ): RepositoryTag {
     return {
-      date: publishedAt === null ? null : new Date(publishedAt),
-      message: null,
+      publishedAt: publishedAt === null ? null : new Date(publishedAt),
       sha,
       tag,
     }
+  }
+
+  /**
+   * GitHub client of repositories whose default branch holds every commit, and
+   * held it long before any cool-down of the tests started. Every other lookup
+   * answers as if the repository had nothing.
+   *
+   * @param overrides - Methods to replace.
+   * @returns Mocked client.
+   */
+  function createRepositoryClient(
+    overrides: Partial<GitHubClient> = {},
+  ): GitHubClient {
+    return createMockClient({
+      getBranchTipAt: vi
+        .fn<GitHubClient['getBranchTipAt']>()
+        .mockResolvedValue({
+          sha: 'f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a',
+          since: new Date(ON_BRANCH_SINCE),
+        }),
+      compareCommits: vi
+        .fn<GitHubClient['compareCommits']>()
+        .mockResolvedValue('behind'),
+      ...overrides,
+    })
   }
 
   /**
@@ -313,23 +362,23 @@ describe('run', () => {
 
   /**
    * Lets the GitHub API know the tags of the given repositories: the tag
-   * listing, the commit of each tag and its publication date. Every other
-   * repository and tag does not exist.
+   * listing, the commit of each tag and, for a tag with a publication date, its
+   * release. Every other repository and tag does not exist.
    *
    * @param tagsByRepository - Tags per `owner/repo`.
    * @returns Tag listing request handler, to count the listings requested.
    */
-  function arrangeTags(tagsByRepository: Record<string, TagInfo[]>): {
+  function arrangeTags(tagsByRepository: Record<string, RepositoryTag[]>): {
     getAllTags: Mock<GitHubClient['getAllTags']>
   } {
-    function tagsOf(owner: string, repository: string): TagInfo[] {
+    function tagsOf(owner: string, repository: string): RepositoryTag[] {
       return tagsByRepository[`${owner}/${repository}`] ?? []
     }
     function findTag(
       owner: string,
       repository: string,
       name: string,
-    ): TagInfo | null {
+    ): RepositoryTag | null {
       return tagsOf(owner, repository).find(({ tag }) => tag === name) ?? null
     }
     /**
@@ -337,19 +386,28 @@ describe('run', () => {
      */
     let getAllTags = vi.fn<GitHubClient['getAllTags']>((owner, repository) =>
       Promise.resolve(
-        tagsOf(owner, repository).map(({ sha, tag }) => ({
-          message: null,
-          date: null,
-          sha,
-          tag,
-        })),
+        tagsOf(owner, repository).map(({ sha, tag }) => ({ sha, tag })),
       ),
     )
     vi.mocked(createGitHubClient).mockReturnValue(
-      createMockClient({
-        getTagInfo: vi.fn<GitHubClient['getTagInfo']>(
-          (owner, repository, name) =>
-            Promise.resolve(findTag(owner, repository, name)),
+      createRepositoryClient({
+        getReleaseByTag: vi.fn<GitHubClient['getReleaseByTag']>(
+          (owner, repository, name) => {
+            let publishedAt = findTag(owner, repository, name)?.publishedAt
+            return Promise.resolve(
+              publishedAt ?
+                {
+                  url: `https://github.com/${owner}/${repository}/releases/tag/${name}`,
+                  isPrerelease: false,
+                  description: null,
+                  immutable: false,
+                  version: name,
+                  publishedAt,
+                  name,
+                }
+              : null,
+            )
+          },
         ),
         getTagSha: vi.fn<GitHubClient['getTagSha']>((owner, repository, name) =>
           Promise.resolve(findTag(owner, repository, name)?.sha ?? null),
@@ -365,7 +423,7 @@ describe('run', () => {
    */
   function arrangeRateLimitedTagLookups(): void {
     vi.mocked(createGitHubClient).mockReturnValue(
-      createMockClient({
+      createRepositoryClient({
         getTagSha: vi
           .fn<GitHubClient['getTagSha']>()
           .mockRejectedValue(new GitHubRateLimitError(new Date(NOW))),
@@ -419,6 +477,32 @@ describe('run', () => {
   }
 
   /**
+   * Text printed with `console.warn`, one entry per call, without colors and
+   * surrounding line breaks.
+   *
+   * @returns Printed entries.
+   */
+  function printedWarnings(): string[] {
+    return consoleWarnSpy.mock.calls.map(parts =>
+      stripAnsi(parts.map(String).join(' ')).replaceAll(/^\n+|\n+$/gu, ''),
+    )
+  }
+
+  /**
+   * Lets every commit lie outside the history of its repository, as the commits
+   * the tags of hijacked actions were moved to did.
+   */
+  function arrangeUnreachableCommits(): void {
+    vi.mocked(createGitHubClient).mockReturnValue(
+      createRepositoryClient({
+        compareCommits: vi
+          .fn<GitHubClient['compareCommits']>()
+          .mockResolvedValue(null),
+      }),
+    )
+  }
+
+  /**
    * Messages the spinners finished with, without colors.
    *
    * @returns Spinner results in order.
@@ -465,7 +549,7 @@ describe('run', () => {
 
     vi.mocked(findRepositoryRoot).mockResolvedValue('/repo')
     vi.mocked(shouldIgnore).mockResolvedValue(false)
-    vi.mocked(createGitHubClient).mockReturnValue(createMockClient())
+    vi.mocked(createGitHubClient).mockReturnValue(createRepositoryClient())
     vi.mocked(scanGitHubActions).mockResolvedValue(makeScanResult([]))
     vi.mocked(scanRecursive).mockResolvedValue(makeScanResult([]))
     vi.mocked(checkUpdates).mockResolvedValue([])
@@ -1006,24 +1090,6 @@ describe('run', () => {
         level: 'a patch update',
         mode: 'patch',
       },
-      {
-        update: makePinUpdate(makeShaPin(), {
-          latestVersion: 'v3.6.0',
-          isBreaking: false,
-        }),
-        offered: `actions/checkout: ${PINNED_SHA} → v3.6.0 (b4ffde6)`,
-        level: 'a moved tag of the pinned version',
-        mode: 'minor',
-      },
-      {
-        update: makePinUpdate(makeShaPin(), {
-          latestVersion: 'v3.6.0',
-          isBreaking: false,
-        }),
-        offered: `actions/checkout: ${PINNED_SHA} → v3.6.0 (b4ffde6)`,
-        level: 'a moved tag of the pinned version',
-        mode: 'patch',
-      },
     ])('offers $level in $mode mode', async ({ offered, update, mode }) => {
       arrangeRun({ updates: [update] })
 
@@ -1293,16 +1359,57 @@ describe('run', () => {
   })
 
   describe('cool-down', () => {
-    it.each([
-      {
-        publishedAt: new Date(RELEASED_AT_COOL_DOWN_EDGE),
-        age: 'exactly the cool-down',
-      },
-      { publishedAt: null, age: 'unknown' },
-    ])('offers a release whose age is $age', async ({ publishedAt }) => {
-      arrangeRun({ updates: [makeUpdate(makeAction(), { publishedAt })] })
+    it('offers a release whose age is exactly the cool-down', async () => {
+      arrangeRun({
+        updates: [
+          makeUpdate(makeAction(), {
+            publishedAt: new Date(RELEASED_AT_COOL_DOWN_EDGE),
+          }),
+        ],
+      })
 
       await runCli('--min-age', '7', '--dry-run')
+
+      expect(printedLines()).toContain(
+        `${WORKFLOW_FILE}:\nactions/checkout: v3 → v4.2.2 (b4ffde6)`,
+      )
+    })
+
+    it('holds back a version whose age cannot be established', async () => {
+      vi.mocked(createGitHubClient).mockReturnValue(
+        createRepositoryClient({
+          getReleaseByTag: vi
+            .fn<GitHubClient['getReleaseByTag']>()
+            .mockRejectedValue(new Error('GitHub API error: 502 Bad Gateway')),
+        }),
+      )
+      arrangeRun({
+        updates: [makeUpdate(makeAction(), { publishedAt: null })],
+      })
+
+      await runCli('--min-age', '7')
+
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        noticeAbout('whose age could not be established'),
+        '   • actions/checkout@v3',
+        UP_TO_DATE,
+      ])
+    })
+
+    it('offers a version whose age cannot be established when the cool-down is off', async () => {
+      vi.mocked(createGitHubClient).mockReturnValue(
+        createRepositoryClient({
+          getReleaseByTag: vi
+            .fn<GitHubClient['getReleaseByTag']>()
+            .mockRejectedValue(new Error('GitHub API error: 502 Bad Gateway')),
+        }),
+      )
+      arrangeRun({
+        updates: [makeUpdate(makeAction(), { publishedAt: null })],
+      })
+
+      await runCli('--min-age', '0', '--dry-run')
 
       expect(printedLines()).toContain(
         `${WORKFLOW_FILE}:\nactions/checkout: v3 → v4.2.2 (b4ffde6)`,
@@ -1624,18 +1731,18 @@ describe('run', () => {
     it('skips an update whose target cannot be expressed in the chosen style', async () => {
       arrangeRun({
         updates: [
-          makeUpdate(makeAction({ name: 'actions/cache' }), {
-            latestSha: null,
+          makeUpdate(makeAction({ name: 'actions/cache', version: 'main' }), {
+            currentRefType: 'branch',
           }),
         ],
       })
 
-      await runCli()
+      await runCli('--style', 'preserve', '--include-branches')
 
       expect(printedLines()).toStrictEqual([
         BANNER,
-        STYLE_NOTICE,
-        '   • actions/cache@v3',
+        noticeAbout('whose current ref style could not be preserved'),
+        '   • actions/cache@main',
         UP_TO_DATE,
       ])
     })
@@ -1644,13 +1751,14 @@ describe('run', () => {
       arrangeRun({
         updates: [
           makeUpdate(makeAction()),
-          makeUpdate(makeAction({ name: 'actions/cache', line: 20 }), {
-            latestSha: null,
-          }),
+          makeUpdate(
+            makeAction({ name: 'actions/cache', version: 'main', line: 20 }),
+            { currentRefType: 'branch' },
+          ),
         ],
       })
 
-      await runCli('--json')
+      await runCli('--json', '--style', 'preserve', '--include-branches')
 
       expect(readJsonReport()).toMatchObject({
         skipped: [
@@ -1665,12 +1773,31 @@ describe('run', () => {
       })
     })
 
+    it('reports an update whose tag points at no commit as unresolved rather than as an unsupported style', async () => {
+      arrangeRun({
+        updates: [
+          makeUpdate(makeAction({ name: 'actions/cache' }), {
+            latestSha: null,
+          }),
+        ],
+      })
+
+      await runCli()
+
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        noticeAbout('whose tag could not be resolved to a commit'),
+        '   • actions/cache@v3',
+        UP_TO_DATE,
+      ])
+    })
+
     it('validates the floating tag of a reference only once however many files mention it', async () => {
       let getTagSha = vi
         .fn<GitHubClient['getTagSha']>()
         .mockResolvedValue(LATEST_SHA)
       vi.mocked(createGitHubClient).mockReturnValue(
-        createMockClient({ getTagSha }),
+        createRepositoryClient({ getTagSha }),
       )
       arrangeRun({
         updates: [
@@ -1708,6 +1835,108 @@ describe('run', () => {
         `${WORKFLOW_FILE}:\nactions/checkout: v3 → v4`,
         `${WORKFLOW_FILE}:\nactions/setup-node: v3 → v4.4.0`,
         '2 entries would be updated',
+      ])
+    })
+  })
+
+  describe('trust checks', () => {
+    let SECURITY_HEADER =
+      '🚨 Skipped 1 tag that failed a security check. Review these repositories manually before updating:'
+
+    it('warns about a commit outside the history of the repository on stderr even with --quiet, and writes nothing', async () => {
+      arrangeUnreachableCommits()
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+
+      await runCli('--quiet', '--yes')
+
+      expect(printedWarnings()).toStrictEqual([
+        SECURITY_HEADER,
+        '   • actions/checkout@v4.2.2 → b4ffde6: commit was found on neither the default branch nor a protected branch',
+      ])
+      expect(printedLines()).toStrictEqual([BANNER])
+      expect(applyUpdates).not.toHaveBeenCalled()
+    })
+
+    it('holds back a moved tag of the pinned version in every mode', async () => {
+      arrangeRun({
+        updates: [
+          makePinUpdate(makeShaPin(), {
+            latestVersion: 'v3.6.0',
+            isBreaking: false,
+          }),
+        ],
+      })
+
+      await runCli('--mode', 'patch', '--dry-run')
+
+      expect(printedWarnings()).toStrictEqual([
+        SECURITY_HEADER,
+        '   • actions/checkout@v3.6.0 → b4ffde6: tag now points at another commit than the pin',
+      ])
+    })
+
+    it('offers a moved tag of the pinned version with the cool-down off', async () => {
+      arrangeRun({
+        updates: [
+          makePinUpdate(makeShaPin(), {
+            latestVersion: 'v3.6.0',
+            isBreaking: false,
+          }),
+        ],
+      })
+
+      await runCli('--min-age', '0', '--dry-run')
+
+      expect(printedLines()).toContain(
+        `${WORKFLOW_FILE}:\nactions/checkout: ${PINNED_SHA} → v3.6.0 (b4ffde6)`,
+      )
+      expect(consoleWarnSpy).not.toHaveBeenCalled()
+    })
+
+    it('reports a held tag in the JSON report with what the checks found, and warns on stderr', async () => {
+      arrangeUnreachableCommits()
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+
+      await runCli('--json')
+
+      expect(readJsonReport()).toMatchObject({
+        blockedByTrust: [
+          {
+            trustHolds: [
+              {
+                reason: 'unreachable-commit',
+                version: 'v4.2.2',
+                sha: LATEST_SHA,
+              },
+            ],
+            holdReason: 'unreachable-commit',
+            publishedAt: RELEASED_LONG_AGO,
+            immutableRelease: false,
+            effectiveDate: null,
+            ageSource: null,
+          },
+        ],
+        summary: { totalBlockedByTrust: 1, totalUpdates: 0 },
+        status: 'up-to-date',
+        schemaVersion: 2,
+        updates: [],
+      })
+      expect(printedWarnings()).toContain(SECURITY_HEADER)
+    })
+
+    it('reports a written update with the date the cool-down measured and where it came from', async () => {
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+
+      await runCli('--json')
+
+      expect(readJsonReport().updates).toMatchObject([
+        {
+          effectiveDate: ON_BRANCH_SINCE,
+          publishedAt: RELEASED_LONG_AGO,
+          ageSource: 'branch',
+          holdReason: null,
+          trustHolds: [],
+        },
       ])
     })
   })
@@ -1885,7 +2114,7 @@ describe('run', () => {
       expect(consoleInfoSpy).not.toHaveBeenCalled()
       expect(createSpinnerMock).not.toHaveBeenCalled()
       expect(stdoutWriteSpy).toHaveBeenCalledExactlyOnceWith(
-        expect.stringContaining('"schemaVersion": 1'),
+        expect.stringContaining('"schemaVersion": 2'),
       )
     })
 
@@ -1945,7 +2174,7 @@ describe('run', () => {
 
         expect(readJsonReport()).toStrictEqual({
           error: { message: error.message, rateLimited },
-          schemaVersion: 1,
+          schemaVersion: 2,
           status: 'error',
         })
         expect(stdoutWriteSpy.mock.calls).toHaveLength(1)
@@ -2053,7 +2282,16 @@ describe('run', () => {
       await runCli('--yes')
 
       expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
-        { ...makeUpdate(action), targetRefStyle: 'sha', targetRef: LATEST_SHA },
+        {
+          ...makeUpdate(action),
+          effectiveDate: new Date(ON_BRANCH_SINCE),
+          targetRefRateLimited: undefined,
+          immutableRelease: false,
+          targetRefStyle: 'sha',
+          targetRef: LATEST_SHA,
+          ageSource: 'branch',
+          trustHolds: [],
+        },
         expect.objectContaining({ targetRef: 'ubuntu-24.04', action: runner }),
       ])
       expect(promptUpdateSelection).not.toHaveBeenCalled()

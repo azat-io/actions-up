@@ -12,11 +12,15 @@ import { scanRepository } from './scan-repository'
  *
  * The repository is scanned, every action is checked against GitHub, and the
  * same policy as in the CLI is applied: excludes, ignore comments, the
- * downgrade guard, the update mode, the release age cool-down and the update
- * style. Each option defaults to the default of the matching CLI flag.
+ * downgrade guard, the update mode, the release age cool-down, the trust checks
+ * of the commit behind each tag and the update style. Each option defaults to
+ * the default of the matching CLI flag. Updates whose tag was moved or whose
+ * commit is outside the history of its repository are listed in
+ * `blockedByTrust`.
  *
  * Nothing is written. Pass the planned `updates` and `runners`, or a selection
- * of them, to `applyUpdates` to write them.
+ * of them, to `applyUpdates` to write them; it never writes an entry the plan
+ * held back or skipped.
  *
  * @example
  *

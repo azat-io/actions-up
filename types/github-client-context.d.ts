@@ -21,16 +21,6 @@ export interface GitHubClientContext {
      * Cache of tag references resolved by name prefix.
      */
     matchingReferences: Map<string, TagInfo[]>
-
-    /**
-     * Cache of resolved tag metadata (message/date/SHA).
-     */
-    tagInfo: Map<string, TagInfo | null>
-
-    /**
-     * Cache of resolved tag commit SHAs.
-     */
-    tagSha: Map<string, string | null>
   }
 
   /**

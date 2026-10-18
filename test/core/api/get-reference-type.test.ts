@@ -79,6 +79,32 @@ describe('getReferenceType', () => {
     expect(type).toBe('branch')
   })
 
+  it('looks a reference up by its percent-encoded name, never as the tag that a name holding `#` starts with', async () => {
+    routeFetch({
+      '/repos/actions/checkout/git/ref/heads/channel%23v2': ok(
+        makeReferencePayload('refs/heads/channel#v2', {
+          sha: COMMIT_SHA,
+          type: 'commit',
+        }),
+      ),
+      '/repos/actions/checkout/git/ref/tags/channel': ok(
+        makeReferencePayload('refs/tags/channel', {
+          sha: COMMIT_SHA,
+          type: 'commit',
+        }),
+      ),
+      '/repos/actions/checkout/git/ref/tags/channel%23v2': notFound(),
+    })
+
+    let type = await getReferenceType(createClientContext(), {
+      reference: 'channel#v2',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    expect(type).toBe('branch')
+  })
+
   it('returns null when neither a tag nor a branch has that exact name', async () => {
     routeFetch({
       [MAIN_AS_BRANCH_PATH]: notFound(),

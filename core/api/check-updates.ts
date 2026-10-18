@@ -16,7 +16,6 @@ import { getFamilyPrefix } from '../versions/get-family-prefix'
 import { createGitHubClient } from './create-github-client'
 import { isSemverLike } from '../versions/is-semver-like'
 import { compareSha } from '../versions/compare-sha'
-import { resolveTagMeta } from './resolve-tag-meta'
 import { isSha } from '../versions/is-sha'
 
 /**
@@ -65,7 +64,9 @@ interface ReleaseCheckResult extends LatestInfo {
  */
 interface LatestInfo {
   /**
-   * Publication date of the latest version.
+   * Publication date of the release of the latest version, null when the
+   * version came from a tag listing, whose releases are looked up later and
+   * only when the cool-down needs them.
    */
   publishedAt: Date | null
 
@@ -75,7 +76,13 @@ interface LatestInfo {
   version: string | null
 
   /**
-   * SHA hash of the latest version.
+   * Whether that release is immutable, unset when no release was read.
+   */
+  immutable?: boolean
+
+  /**
+   * Commit the tag of the latest version points at, read from the tag
+   * reference; null when it could not be read.
    */
   sha: string | null
 }
@@ -305,7 +312,7 @@ export async function checkUpdates(
        * find a more specific highest semver.
        */
       if (release) {
-        let { publishedAt, version, sha } = release
+        let { publishedAt, immutable, version } = release
         let considerTags = false
         {
           /**
@@ -361,25 +368,25 @@ export async function checkUpdates(
           }
         }
 
-        if (version) {
-          let releaseSha = sha
-          try {
-            let tagSha = await client.getTagSha(owner, repository, version)
-            sha = tagSha ?? releaseSha
-          } catch (error) {
-            if (isRateLimitError(error)) {
-              throw error
-            }
-            /**
-             * Ignore SHA fetch errors and keep the release SHA as fallback.
-             */
-            sha = releaseSha
-          }
-        }
+        /**
+         * The commit comes from the tag reference alone. The release also names
+         * one in `target_commitish`, but GitHub keeps that value when the tag
+         * already existed or was moved later, so it can name a commit the tag
+         * no longer runs.
+         */
+        let sha =
+          version ?
+            await resolveTagSha(client, {
+              repo: repository,
+              tag: version,
+              owner,
+            })
+          : null
         return {
           currentRefType: currentReferenceType,
           status: 'ok' as const,
           publishedAt,
+          immutable,
           actionKey,
           version,
           sha,
@@ -517,6 +524,7 @@ export async function checkUpdates(
       currentRefType: result.currentRefType,
       publishedAt: result.publishedAt,
       skipReason: result.skipReason,
+      immutable: result.immutable,
       actionKey: result.actionKey,
       version: result.version,
       status: result.status,
@@ -537,6 +545,7 @@ export async function checkUpdates(
           action,
           {
             publishedAt: cached.publishedAt,
+            immutable: cached.immutable,
             version: cached.version,
             sha: cached.sha,
           },
@@ -584,6 +593,7 @@ function createUpdate(
   },
 ): ActionUpdate {
   let { version: latestVersion, sha: latestSha, publishedAt } = latest
+  let immutableRelease = latest.immutable
   let currentVersionRaw = action.version ?? 'unknown'
   let currentVersion = normalizeVersion(currentVersionRaw)
   let currentReferenceType = meta.currentRefType
@@ -633,72 +643,68 @@ function createUpdate(
     skipReason = 'not-comparable'
   }
 
-  if (status === 'skipped') {
-    return {
-      currentRefType: currentReferenceType,
-      currentVersion: currentVersionRaw,
-      isBreaking: false,
-      hasUpdate: false,
-      latestVersion,
-      publishedAt,
-      skipReason,
-      latestSha,
-      action,
-      status,
-    }
-  }
   let hasUpdate = false
-
   let isBreaking = false
 
-  if (currentVersion && isSha(currentVersion)) {
-    if (latestSha) {
-      hasUpdate = !compareSha(currentVersion, latestSha)
-    } else if (normalized) {
-      hasUpdate = true
+  if (status !== 'skipped') {
+    if (currentVersion && isSha(currentVersion)) {
+      hasUpdate = latestSha !== null && !compareSha(currentVersion, latestSha)
+    } else if (currentVersion && normalized) {
+      let currentSemver = semver.valid(currentVersion)
+      let latestSemver = semver.valid(normalized)
+
+      if (currentSemver && latestSemver) {
+        hasUpdate = semver.lt(currentSemver, latestSemver)
+
+        if (hasUpdate) {
+          let currentMajor = semver.major(currentSemver)
+          let latestMajor = semver.major(latestSemver)
+          isBreaking = latestMajor > currentMajor
+        }
+        /**
+         * If versions are equal but current ref is an unpinned tag and latest
+         * SHA is known, suggest pinning to SHA (or normalizing to the canonical
+         * floating tag in semver style). A semver-style no-op is dropped later
+         * when the resolved target matches the current reference.
+         */
+        if (
+          !hasUpdate &&
+          latestSha &&
+          (style === 'sha' || style === 'semver') &&
+          semver.eq(currentSemver, latestSemver) &&
+          !isSha(action.version)
+        ) {
+          hasUpdate = true
+          isBreaking = false
+        }
+      } else {
+        /**
+         * Only a branch reaches here, since the guard above reports every other
+         * pair that cannot be read as versions. A branch carries no version to
+         * compare against, so any reference other than the one in the file is
+         * the move the run was asked to make.
+         */
+        hasUpdate = currentVersion !== normalized
+      }
     }
-  } else if (currentVersion && normalized) {
-    let currentSemver = semver.valid(currentVersion)
-    let latestSemver = semver.valid(normalized)
 
-    if (currentSemver && latestSemver) {
-      hasUpdate = semver.lt(currentSemver, latestSemver)
-
-      if (hasUpdate) {
-        let currentMajor = semver.major(currentSemver)
-        let latestMajor = semver.major(latestSemver)
-        isBreaking = latestMajor > currentMajor
-      }
-      /**
-       * If versions are equal but current ref is an unpinned tag and latest SHA
-       * is known, suggest pinning to SHA (or normalizing to the canonical
-       * floating tag in semver style). A semver-style no-op is dropped later
-       * when the resolved target matches the current reference.
-       */
-      if (
-        !hasUpdate &&
-        latestSha &&
-        (style === 'sha' || style === 'semver') &&
-        semver.eq(currentSemver, latestSemver) &&
-        !isSha(action.version)
-      ) {
-        hasUpdate = true
-        isBreaking = false
-      }
-    } else {
-      /**
-       * Only a branch reaches here, since the guard above reports every other
-       * pair that cannot be read as versions. A branch carries no version to
-       * compare against, so any reference other than the one in the file is the
-       * move the run was asked to make.
-       */
-      hasUpdate = currentVersion !== normalized
+    /**
+     * Without the commit its tag points at, the latest version can be neither
+     * compared with a SHA pin nor written, and no other commit stands in for
+     * it. A tag reference already at the latest version needs neither.
+     */
+    if (latestVersion && !latestSha && (hasUpdate || isSha(currentVersion))) {
+      status = 'skipped'
+      skipReason = 'sha-unresolved'
+      hasUpdate = false
+      isBreaking = false
     }
   }
 
   return {
     currentRefType: currentReferenceType,
     currentVersion: currentVersionRaw,
+    immutableRelease,
     latestVersion,
     publishedAt,
     isBreaking,
@@ -711,17 +717,46 @@ function createUpdate(
 }
 
 /**
+ * Read the commit a tag points at from its tag reference.
+ *
+ * @param client - GitHub API client.
+ * @param parameters - Request parameters.
+ * @param parameters.owner - Repository owner.
+ * @param parameters.repo - Repository name.
+ * @param parameters.tag - Tag name.
+ * @returns Commit SHA, or null when the tag points at no commit or the lookup
+ *   failed.
+ * @throws GitHubRateLimitError - When the request was rate limited.
+ */
+async function resolveTagSha(
+  client: GitHubClient,
+  parameters: { owner: string; repo: string; tag: string },
+): Promise<string | null> {
+  let { owner, repo, tag } = parameters
+  try {
+    return await client.getTagSha(owner, repo, tag)
+  } catch (error) {
+    if (isRateLimitError(error)) {
+      throw error
+    }
+    return null
+  }
+}
+
+/**
  * Resolve the latest version information for a tag picked from a tag listing.
  *
- * The SHA comes from the tag metadata first, then from the listing itself, and
- * finally from a dedicated tag lookup whose failures are ignored.
+ * GitHub derives the commit a listing names from the tag reference, so it is
+ * taken as it is. An annotated tag listed by name prefix names its tag object
+ * instead, and its commit is read from the tag reference. Dates are left to the
+ * cool-down, which looks them up only for the versions it has to measure.
  *
  * @param client - GitHub API client.
  * @param parameters - Request parameters.
  * @param parameters.owner - Repository owner.
  * @param parameters.repo - Repository name.
  * @param parameters.tag - Tag picked from the listing.
- * @returns Publication date, version and commit SHA of the tag.
+ * @returns Version and commit SHA of the tag, without a publication date.
  * @throws GitHubRateLimitError - When a request was rate limited.
  */
 async function resolveListedTag(
@@ -729,18 +764,9 @@ async function resolveListedTag(
   parameters: { owner: string; repo: string; tag: TagInfo },
 ): Promise<LatestInfo> {
   let { owner, repo, tag } = parameters
-  let meta = await resolveTagMeta(client, { tag: tag.tag, owner, repo })
-  let sha = meta.sha ?? (tag.sha?.length ? tag.sha : null)
-  if (!sha && tag.tag) {
-    try {
-      sha = await client.getTagSha(owner, repo, tag.tag)
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        throw error
-      }
-    }
-  }
-  return { publishedAt: meta.date, version: tag.tag, sha }
+  let sha =
+    tag.sha ?? (await resolveTagSha(client, { tag: tag.tag, owner, repo }))
+  return { publishedAt: null, version: tag.tag, sha }
 }
 
 /**

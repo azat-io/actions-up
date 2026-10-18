@@ -49,6 +49,41 @@ export type RouteAnswer =
     }
 
 /**
+ * Update of a branch as the repository activity endpoint returns it.
+ */
+export interface BranchUpdatePayload {
+  /**
+   * Kind of update, such as `push`, `force_push` or `pr_merge`.
+   */
+  activity_type: string
+
+  /**
+   * Moment GitHub applied the update.
+   */
+  timestamp: string
+
+  /**
+   * Commit the branch moved from.
+   */
+  before: string
+
+  /**
+   * Commit the branch moved to.
+   */
+  after: string
+
+  /**
+   * Fully qualified name of the branch.
+   */
+  ref: string
+
+  /**
+   * Identifier of the update.
+   */
+  id: number
+}
+
+/**
  * Annotated tag object as the `git/tags` endpoint returns it.
  */
 export interface TagObjectPayload {
@@ -120,6 +155,27 @@ export interface TagListingEntryPayload {
 }
 
 /**
+ * Comparison as the compare endpoint returns it, trimmed to the fields that
+ * tell how the head relates to the base.
+ */
+export interface ComparisonPayload {
+  /**
+   * Status of the head relative to the base.
+   */
+  status: 'identical' | 'diverged' | 'behind' | 'ahead'
+
+  /**
+   * Number of commits the base holds and the head lacks.
+   */
+  behind_by: number
+
+  /**
+   * Number of commits the head holds and the base lacks.
+   */
+  ahead_by: number
+}
+
+/**
  * Requests the stubbed `fetch` received, in the order they were sent.
  */
 export interface FetchLog {
@@ -130,29 +186,29 @@ export interface FetchLog {
 
   /**
    * Path and query relative to the GitHub API origin, or the full URL of a
-   * request sent anywhere else.
+   * request sent anywhere else, without the fragment.
    */
   paths: string[]
 }
 
 /**
- * Commit as the `git/commits` endpoint returns it.
+ * Branch as the branches endpoint returns it.
  */
-export interface CommitPayload {
+export interface BranchPayload {
   /**
-   * Commit author and the moment the commit was authored.
+   * Commit at the tip of the branch.
    */
-  author: { date: string | null }
+  commit: { sha: string; url: string }
 
   /**
-   * Commit message.
+   * Whether branch protection or a ruleset applies to the branch.
    */
-  message: string | null
+  protected: boolean
 
   /**
-   * Commit SHA.
+   * Branch name.
    */
-  sha: string
+  name: string
 }
 
 /**
@@ -174,8 +230,10 @@ export interface ReleasePayload extends Omit<
  * Every call builds a fresh response, because a response body can be read only
  * once. A request that no route answers is rejected, and it also fails the
  * running test when the code under test swallows the rejection, so no test can
- * reach the real network. Call it inside a test and restore the spy with
- * `vi.restoreAllMocks()` in `afterEach`.
+ * reach the real network. A route is picked by what the server would receive:
+ * the fragment of a URL never leaves the client, so it is dropped first. Call
+ * it inside a test and restore the spy with `vi.restoreAllMocks()` in
+ * `afterEach`.
  *
  * @param routes - Answers keyed by path and query, such as
  *   `/repos/actions/checkout/releases/latest`.
@@ -186,7 +244,7 @@ export function routeFetch(routes: Record<string, RouteAnswer>): FetchLog {
   let unexpected: string[] = []
 
   vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-    let url = toUrl(input)
+    let url = toUrl(input).replace(/#.*/u, '')
     let path =
       url.startsWith(`${GITHUB_API_ORIGIN}/`) ?
         url.slice(GITHUB_API_ORIGIN.length)
@@ -251,21 +309,30 @@ export function rateLimited(
 }
 
 /**
- * Response GitHub sends with status 429 once a rate limit is exhausted.
+ * Release payload of a tag of the `actions/checkout` repository.
  *
- * @param headers - Extra response headers, such as `retry-after`.
- * @returns Route answer with status 429.
+ * @param tag - Tag the release was published for.
+ * @param publishedAt - Publication timestamp in ISO 8601 format.
+ * @param options - Fields that differ from a mutable release cut from `main`.
+ * @param options.immutable - Whether the release is immutable.
+ * @param options.targetCommitish - Branch or commit the release names as its
+ *   target.
+ * @returns Fresh release payload.
  */
-export function tooManyRequests(
-  headers: Record<string, string> = {},
-): RouteAnswer {
-  let answer = errorAnswer(429, 'Too Many Requests', {
-    message:
-      'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.',
-    documentation_url:
-      'https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api',
+export function makeTagRelease(
+  tag: string,
+  publishedAt: string,
+  options: { targetCommitish?: string; immutable?: boolean } = {},
+): ReleasePayload {
+  let { targetCommitish = 'main', immutable = false } = options
+  return makeReleasePayload({
+    html_url: `https://github.com/actions/checkout/releases/tag/${tag}`,
+    target_commitish: targetCommitish,
+    published_at: publishedAt,
+    tag_name: tag,
+    immutable,
+    name: tag,
   })
-  return { ...answer, headers: { ...answer.headers, ...headers } }
 }
 
 /**
@@ -284,8 +351,63 @@ export function makeReleasePayload(
     target_commitish: 'main',
     tag_name: 'v4.2.2',
     prerelease: false,
+    immutable: false,
     name: 'v4.2.2',
     ...overrides,
+  }
+}
+
+/**
+ * Response GitHub sends with status 429 once a rate limit is exhausted.
+ *
+ * @param headers - Extra response headers, such as `retry-after`.
+ * @returns Route answer with status 429.
+ */
+export function tooManyRequests(
+  headers: Record<string, string> = {},
+): RouteAnswer {
+  let answer = errorAnswer(429, 'Too Many Requests', {
+    message:
+      'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.',
+    documentation_url:
+      'https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api',
+  })
+  return { ...answer, headers: { ...answer.headers, ...headers } }
+}
+
+/**
+ * Update of a branch of a repository.
+ *
+ * @param update - Fields of the update.
+ * @param update.timestamp - Moment GitHub applied it, in ISO 8601 format.
+ * @param update.before - Commit the branch moved from.
+ * @param update.after - Commit the branch moved to.
+ * @param update.activityType - Kind of update, `push` by default.
+ * @param update.reference - Fully qualified name of the branch,
+ *   `refs/heads/main` by default.
+ * @returns Fresh branch update payload.
+ */
+export function makeBranchUpdate(update: {
+  activityType?: string
+  reference?: string
+  timestamp: string
+  before: string
+  after: string
+}): BranchUpdatePayload {
+  let {
+    reference = 'refs/heads/main',
+    activityType = 'push',
+    timestamp,
+    before,
+    after,
+  } = update
+  return {
+    id: Date.parse(timestamp) / 1000,
+    activity_type: activityType,
+    ref: reference,
+    timestamp,
+    before,
+    after,
   }
 }
 
@@ -354,19 +476,39 @@ export function makeTagObjectPayload(
 }
 
 /**
- * Commit payload with realistic defaults.
+ * Page of branch updates, with a link to the next page when there is one.
  *
- * @param overrides - Fields to replace.
- * @returns Fresh commit payload.
+ * @param updates - Updates on the page, newest first.
+ * @param nextCursor - Cursor of the next page, if any.
+ * @returns Route answer with status 200.
  */
-export function makeCommitPayload(
-  overrides: Partial<CommitPayload> = {},
-): CommitPayload {
+export function branchUpdatesPage(
+  updates: BranchUpdatePayload[],
+  nextCursor?: string,
+): RouteAnswer {
+  return ok(
+    updates,
+    nextCursor ?
+      {
+        link: `<${GITHUB_API_ORIGIN}/repositories/197814629/activity?direction=desc&per_page=100&after=${nextCursor}>; rel="next"`,
+      }
+    : {},
+  )
+}
+
+/**
+ * Comparison payload, with counts that follow the status.
+ *
+ * @param status - Status of the head relative to the base.
+ * @returns Fresh comparison payload.
+ */
+export function makeComparisonPayload(
+  status: ComparisonPayload['status'],
+): ComparisonPayload {
   return {
-    sha: 'c37189c43ac432723883a0b74aa822bd5cb70b79',
-    author: { date: '2024-10-22T09:15:00Z' },
-    message: 'Prepare release v4.2.2',
-    ...overrides,
+    behind_by: status === 'behind' || status === 'diverged' ? 1 : 0,
+    ahead_by: status === 'ahead' || status === 'diverged' ? 1 : 0,
+    status,
   }
 }
 
@@ -386,6 +528,43 @@ export function ok(
     body: JSON.stringify(payload),
     statusText: 'OK',
     status: 200,
+  }
+}
+
+/**
+ * Repository payload of `actions/checkout`, trimmed to the fields a lookup
+ * reads.
+ *
+ * @param defaultBranch - Name of the default branch.
+ * @returns Fresh repository payload.
+ */
+export function makeRepositoryPayload(defaultBranch: string): {
+  default_branch: string
+  full_name: string
+  private: boolean
+} {
+  return {
+    default_branch: defaultBranch,
+    full_name: 'actions/checkout',
+    private: false,
+  }
+}
+
+/**
+ * Branch payload of the `actions/checkout` repository.
+ *
+ * @param name - Name the branch is listed under, such as `releases/v4`.
+ * @param sha - Commit at the tip of the branch.
+ * @returns Fresh branch payload, protected.
+ */
+export function makeBranchPayload(name: string, sha: string): BranchPayload {
+  return {
+    commit: {
+      url: `https://api.github.com/repos/actions/checkout/commits/${sha}`,
+      sha,
+    },
+    protected: true,
+    name,
   }
 }
 

@@ -4,10 +4,14 @@ import type { GitHubClient } from '../../types/github-client'
 import { getMatchingTagReferences } from './get-matching-tag-references'
 import { resolveGitHubTokenSync } from './resolve-github-token-sync'
 import { createRequestLimiter } from './create-request-limiter'
+import { getProtectedBranches } from './get-protected-branches'
+import { getDefaultBranch } from './get-default-branch'
 import { getReferenceType } from './get-reference-type'
 import { getLatestRelease } from './get-latest-release'
+import { getReleaseByTag } from './get-release-by-tag'
+import { getBranchTipAt } from './get-branch-tip-at'
 import { getAllReleases } from './get-all-releases'
-import { getTagInfo } from './get-tag-info'
+import { compareCommits } from './compare-commits'
 import { getAllTags } from './get-all-tags'
 import { getTagSha } from './get-tag-sha'
 
@@ -25,8 +29,6 @@ export function createGitHubClient(token?: string): GitHubClient {
     caches: {
       matchingReferences: new Map(),
       refType: new Map(),
-      tagInfo: new Map(),
-      tagSha: new Map(),
     },
     rateLimitRemaining: resolved ? 5000 : 60,
     baseUrl: 'https://api.github.com',
@@ -39,6 +41,10 @@ export function createGitHubClient(token?: string): GitHubClient {
   return {
     getMatchingTagReferences: (owner, repository, prefix) =>
       getMatchingTagReferences(context, { repo: repository, prefix, owner }),
+    compareCommits: (owner, repository, { base, head }) =>
+      compareCommits(context, { repo: repository, owner, base, head }),
+    getBranchTipAt: (owner, repository, { branch, at }) =>
+      getBranchTipAt(context, { repo: repository, branch, owner, at }),
     getRateLimitStatus: () => ({
       remaining: context.rateLimitRemaining,
       resetAt: context.rateLimitReset,
@@ -47,10 +53,14 @@ export function createGitHubClient(token?: string): GitHubClient {
       getReferenceType(context, { repo: repository, reference, owner }),
     getAllReleases: (owner, repository, limit) =>
       getAllReleases(context, { repo: repository, owner, limit }),
+    getReleaseByTag: (owner, repository, tag) =>
+      getReleaseByTag(context, { repo: repository, owner, tag }),
+    getProtectedBranches: (owner, repository) =>
+      getProtectedBranches(context, { repo: repository, owner }),
     getAllTags: (owner, repository, limit) =>
       getAllTags(context, { repo: repository, owner, limit }),
-    getTagInfo: (owner, repository, tag) =>
-      getTagInfo(context, { repo: repository, owner, tag }),
+    getDefaultBranch: (owner, repository) =>
+      getDefaultBranch(context, { repo: repository, owner }),
     shouldWaitForRateLimit: (threshold: number = 100) =>
       context.rateLimitRemaining < threshold,
     getTagSha: (owner, repository, tag) =>

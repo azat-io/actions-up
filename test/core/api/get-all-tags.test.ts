@@ -37,8 +37,8 @@ describe('getAllTags', () => {
     })
 
     expect(tags).toStrictEqual([
-      { sha: NEWEST_SHA, message: null, tag: 'v4.2.2', date: null },
-      { sha: OLDER_SHA, message: null, tag: 'v4.2.1', date: null },
+      { sha: NEWEST_SHA, tag: 'v4.2.2' },
+      { sha: OLDER_SHA, tag: 'v4.2.1' },
     ])
   })
 

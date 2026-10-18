@@ -37,8 +37,6 @@ export async function getAllTags(
     return tags.map(tag => ({
       sha: tag.commit.sha,
       tag: tag.name,
-      message: null,
-      date: null,
     }))
   } catch (error) {
     if (error instanceof Error && error.message.includes('rate limit')) {

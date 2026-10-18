@@ -49,9 +49,28 @@ describe('getMatchingTagReferences', () => {
     })
 
     expect(tags).toStrictEqual([
-      { tag: 'actions-v0.1.1', sha: OLDER_SHA, message: null, date: null },
-      { tag: 'actions-v0.1.2', sha: NEWER_SHA, message: null, date: null },
+      { tag: 'actions-v0.1.1', sha: OLDER_SHA },
+      { tag: 'actions-v0.1.2', sha: NEWER_SHA },
     ])
+  })
+
+  it('asks for a prefix by its percent-encoded form', async () => {
+    routeFetch({
+      '/repos/actions/checkout/git/matching-refs/tags/channel%23': ok([
+        makeReferencePayload('refs/tags/channel#v2.0.0', {
+          type: 'commit',
+          sha: NEWER_SHA,
+        }),
+      ]),
+    })
+
+    let tags = await getMatchingTagReferences(createClientContext(), {
+      prefix: 'channel#',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    expect(tags).toStrictEqual([{ tag: 'channel#v2.0.0', sha: NEWER_SHA }])
   })
 
   it('leaves the SHA unknown for an annotated tag', async () => {
@@ -70,9 +89,7 @@ describe('getMatchingTagReferences', () => {
       repo: 'checkout',
     })
 
-    expect(tags).toStrictEqual([
-      { tag: 'actions-v0.2.0', message: null, date: null, sha: null },
-    ])
+    expect(tags).toStrictEqual([{ tag: 'actions-v0.2.0', sha: null }])
   })
 
   it('returns an empty list when no tag matches', async () => {
@@ -135,8 +152,8 @@ describe('getMatchingTagReferences', () => {
     })
 
     expect([actionsFamily, cliFamily]).toStrictEqual([
-      [{ tag: 'actions-v0.1.2', sha: NEWER_SHA, message: null, date: null }],
-      [{ tag: 'cli-v2.0.0', sha: OLDER_SHA, message: null, date: null }],
+      [{ tag: 'actions-v0.1.2', sha: NEWER_SHA }],
+      [{ tag: 'cli-v2.0.0', sha: OLDER_SHA }],
     ])
     expect(api.paths).toStrictEqual([ACTIONS_FAMILY_PATH, CLI_FAMILY_PATH])
   })
@@ -153,16 +170,19 @@ describe('getMatchingTagReferences', () => {
     await expect(request).rejects.toHaveProperty('status', 404)
   })
 
-  it('treats any other failed request as having no matching tags, without asking again', async () => {
+  it('reports any other failed request instead of reading it as a family without members, and asks again later', async () => {
     let api = routeFetch({ [ACTIONS_FAMILY_PATH]: serverError() })
     let context = createClientContext()
     let parameters = { prefix: 'actions-', owner: 'actions', repo: 'checkout' }
 
-    let first = await getMatchingTagReferences(context, parameters)
-    let second = await getMatchingTagReferences(context, parameters)
+    await expect(
+      getMatchingTagReferences(context, parameters),
+    ).rejects.toHaveProperty('status', 500)
+    await expect(
+      getMatchingTagReferences(context, parameters),
+    ).rejects.toHaveProperty('status', 500)
 
-    expect([first, second]).toStrictEqual([[], []])
-    expect(api.paths).toStrictEqual([ACTIONS_FAMILY_PATH])
+    expect(api.paths).toStrictEqual([ACTIONS_FAMILY_PATH, ACTIONS_FAMILY_PATH])
   })
 
   it('throws GitHubRateLimitError with the reset time from the response', async () => {

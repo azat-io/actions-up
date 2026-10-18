@@ -1,4 +1,7 @@
+import type { ComparisonStatus } from './comparison-status'
+import type { BranchTipAt } from './branch-tip-at'
 import type { ReleaseInfo } from './release-info'
+import type { BranchHead } from './branch-head'
 import type { TagInfo } from './tag-info'
 
 /**
@@ -9,6 +12,25 @@ import type { TagInfo } from './tag-info'
  * normalized, serializable data structures.
  */
 export interface GitHubClient {
+  /**
+   * Compare a commit with a base, or null when the two share no history.
+   */
+  compareCommits(
+    owner: string,
+    repository: string,
+    range: { base: string; head: string },
+  ): Promise<ComparisonStatus | null>
+
+  /**
+   * Find the commit at the tip of a branch at a past moment, from the history
+   * of the branch GitHub records; null when it cannot be established.
+   */
+  getBranchTipAt(
+    owner: string,
+    repository: string,
+    moment: { branch: string; at: Date },
+  ): Promise<BranchTipAt | null>
+
   /**
    * Detect whether a reference is a tag or a branch (or unknown).
    */
@@ -28,6 +50,15 @@ export interface GitHubClient {
   ): Promise<TagInfo[]>
 
   /**
+   * Fetch the published release of a tag, or null when it has none.
+   */
+  getReleaseByTag(
+    owner: string,
+    repository: string,
+    tag: string,
+  ): Promise<ReleaseInfo | null>
+
+  /**
    * List releases with minimal enrichment.
    */
   getAllReleases(
@@ -37,16 +68,7 @@ export interface GitHubClient {
   ): Promise<ReleaseInfo[]>
 
   /**
-   * Fetch tag metadata (message/date) and the resolved commit SHA.
-   */
-  getTagInfo(
-    owner: string,
-    repository: string,
-    tag: string,
-  ): Promise<TagInfo | null>
-
-  /**
-   * Resolve commit SHA for a tag without fetching commit data.
+   * Resolve the commit a tag points at, or null when it points at no commit.
    */
   getTagSha(
     owner: string,
@@ -70,6 +92,16 @@ export interface GitHubClient {
     owner: string,
     repository: string,
   ): Promise<ReleaseInfo | null>
+
+  /**
+   * List the protected branches with the commit at the tip of each.
+   */
+  getProtectedBranches(owner: string, repository: string): Promise<BranchHead[]>
+
+  /**
+   * Read the name of the default branch of a repository.
+   */
+  getDefaultBranch(owner: string, repository: string): Promise<string>
 
   /**
    * Current rate limit snapshot.

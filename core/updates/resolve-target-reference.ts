@@ -32,6 +32,12 @@ interface ResolveTargetReferenceOptions {
  * is only written when it actually exists; otherwise the closest existing
  * floating tag or the exact latest version is used.
  *
+ * The plan checked the commit the latest version pointed at when its tag was
+ * read. A SHA keeps that commit. A tag is resolved again on every workflow run
+ * and can move at any time after it was read, even before the file is written,
+ * an alias such as `v4` even when the release it named is immutable. With the
+ * tag styles the checks therefore hold only for the moment the tags were read.
+ *
  * @param update - Update entry enriched with lookup data.
  * @param options - Resolution options (style, client, mode).
  * @returns Update entry with resolved target reference fields.

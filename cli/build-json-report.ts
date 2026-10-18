@@ -5,11 +5,113 @@ import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
 import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
+import type { TrustHold } from '../types/trust-hold'
 
 /**
  * High-level status of a JSON report, the status of the plan it reports.
  */
 export type JsonReportStatus = UpdatePlanStatus
+
+/**
+ * Serialized update entry in the JSON report.
+ */
+interface JsonReportUpdate {
+  /**
+   * Style of the final reference.
+   */
+  targetRefStyle: NonNullable<ActionUpdate['targetRefStyle']> | null
+
+  /**
+   * Why the entry was held back, null outside the held-back lists.
+   */
+  holdReason: NonNullable<ActionUpdate['holdReason']> | null
+
+  /**
+   * Where `effectiveDate` came from: `release` or `branch`.
+   */
+  ageSource: NonNullable<ActionUpdate['ageSource']> | null
+
+  /**
+   * Detected style of the current reference in the source file.
+   */
+  currentRefType: ActionUpdate['currentRefType'] | null
+
+  /**
+   * Reason why this entry was skipped, if any.
+   */
+  skipReason: ActionUpdate['skipReason'] | null
+
+  /**
+   * Processing status for this entry.
+   */
+  status: NonNullable<ActionUpdate['status']>
+
+  /**
+   * Whether the latest version has an immutable release, whose tag cannot have
+   * been moved since it was published; null when the release was not read.
+   */
+  immutableRelease: boolean | null
+
+  /**
+   * Version currently used in the workflow or action file.
+   */
+  currentVersion: string | null
+
+  /**
+   * True when a rate limit kept the floating tag from being validated, so the
+   * exact latest version is the target instead.
+   */
+  targetRefRateLimited: boolean
+
+  /**
+   * Latest version found for this dependency.
+   */
+  latestVersion: string | null
+
+  /**
+   * Moment from which GitHub's records show the commit of the latest version
+   * public, in ISO format; null when the cool-down did not apply or no such
+   * moment was established.
+   */
+  effectiveDate: string | null
+
+  /**
+   * Publication date of the release of the latest version in ISO format, null
+   * when it has none or it was not looked up.
+   */
+  publishedAt: string | null
+
+  /**
+   * Original action reference metadata.
+   */
+  action: JsonReportAction
+
+  /**
+   * Commit the tag of the latest version points at, read from the tag
+   * reference.
+   */
+  latestSha: string | null
+
+  /**
+   * Final reference that would be written back to the file.
+   */
+  targetRef: string | null
+
+  /**
+   * Tags held back because their commit failed a trust check, newest first.
+   */
+  trustHolds: TrustHold[]
+
+  /**
+   * Whether this update crosses a major version boundary.
+   */
+  isBreaking: boolean
+
+  /**
+   * Whether an update is available for this entry.
+   */
+  hasUpdate: boolean
+}
 
 /**
  * Options used to build a JSON report from the current CLI state.
@@ -25,6 +127,11 @@ interface BuildJsonReportOptions {
    * Regex patterns supplied through `--min-age-exclude`.
    */
   minAgeExcludePatterns: string[]
+
+  /**
+   * Updates held back because their commit failed a trust check.
+   */
+  blockedByTrust: ActionUpdate[]
 
   /**
    * Updates excluded by the selected update mode.
@@ -108,77 +215,6 @@ interface BuildJsonReportOptions {
 }
 
 /**
- * Serialized update entry in the JSON report.
- */
-interface JsonReportUpdate {
-  /**
-   * Style of the final reference.
-   */
-  targetRefStyle: NonNullable<ActionUpdate['targetRefStyle']> | null
-
-  /**
-   * Detected style of the current reference in the source file.
-   */
-  currentRefType: ActionUpdate['currentRefType'] | null
-
-  /**
-   * Reason why this entry was skipped, if any.
-   */
-  skipReason: ActionUpdate['skipReason'] | null
-
-  /**
-   * Processing status for this entry.
-   */
-  status: NonNullable<ActionUpdate['status']>
-
-  /**
-   * Version currently used in the workflow or action file.
-   */
-  currentVersion: string | null
-
-  /**
-   * True when a rate limit kept the floating tag from being validated, so the
-   * exact latest version is the target instead.
-   */
-  targetRefRateLimited: boolean
-
-  /**
-   * Latest version found for this dependency.
-   */
-  latestVersion: string | null
-
-  /**
-   * Release publication date in ISO format.
-   */
-  publishedAt: string | null
-
-  /**
-   * Original action reference metadata.
-   */
-  action: JsonReportAction
-
-  /**
-   * Resolved SHA for the target version.
-   */
-  latestSha: string | null
-
-  /**
-   * Final reference that would be written back to the file.
-   */
-  targetRef: string | null
-
-  /**
-   * Whether this update crosses a major version boundary.
-   */
-  isBreaking: boolean
-
-  /**
-   * Whether an update is available for this entry.
-   */
-  hasUpdate: boolean
-}
-
-/**
  * Aggregate counts included in the JSON report.
  */
 interface JsonReportSummary {
@@ -203,6 +239,11 @@ interface JsonReportSummary {
   totalActionsChecked: number
 
   /**
+   * Number of updates held back because their commit failed a trust check.
+   */
+  totalBlockedByTrust: number
+
+  /**
    * Number of updates filtered out by `--mode`.
    */
   totalBlockedByMode: number
@@ -216,6 +257,13 @@ interface JsonReportSummary {
    * Number of updates held back by `--min-age`.
    */
   totalBlockedByAge: number
+
+  /**
+   * Number of tags that failed a trust check, one per tag of each entry: on
+   * updates held back for it, and on updates that stepped down past them to an
+   * older version. A run with no security finding reports zero.
+   */
+  totalTrustHolds: number
 
   /**
    * Number of workflows discovered during scanning.
@@ -253,12 +301,20 @@ interface JsonReport {
   blockedAsDowngrade: JsonReportUpdate[]
 
   /**
+   * Entries held back because the commit their tag points at failed a trust
+   * check: a tag moved after its release, or a commit outside the history of
+   * the repository.
+   */
+  blockedByTrust: JsonReportUpdate[]
+
+  /**
    * Entries filtered out by the selected update mode.
    */
   blockedByMode: JsonReportUpdate[]
 
   /**
-   * Entries held back by the release age cool-down.
+   * Entries held back by the release age cool-down, including those whose date
+   * could not be established.
    */
   blockedByAge: JsonReportUpdate[]
 
@@ -298,7 +354,7 @@ interface JsonReport {
   /**
    * Version of the JSON payload schema.
    */
-  schemaVersion: 1
+  schemaVersion: 2
 }
 
 /**
@@ -430,7 +486,7 @@ interface JsonErrorReport {
   /**
    * Version of the JSON payload schema.
    */
-  schemaVersion: 1
+  schemaVersion: 2
 
   /**
    * Marks a run that failed before it could report updates.
@@ -459,11 +515,16 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
 
   return {
     summary: {
+      totalTrustHolds: [...options.blockedByTrust, ...options.outdated].reduce(
+        (total, update) => total + (update.trustHolds?.length ?? 0),
+        0,
+      ),
       totalBreakingUpdates: actionUpdates.filter(update => update.isBreaking)
         .length,
       totalActions: options.scanResult.actions.length - scannedRunners.length,
       totalCompositeActions: options.scanResult.compositeActions.size,
       totalBlockedAsDowngrade: options.blockedAsDowngrade.length,
+      totalBlockedByTrust: options.blockedByTrust.length,
       totalWorkflows: options.scanResult.workflows.size,
       totalActionsChecked: options.actionsToCheckCount,
       totalBlockedByMode: options.blockedByMode.length,
@@ -491,6 +552,9 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
     blockedAsDowngrade: options.blockedAsDowngrade.map(update =>
       serializeUpdate(update, cwd),
     ),
+    blockedByTrust: options.blockedByTrust.map(update =>
+      serializeUpdate(update, cwd),
+    ),
     blockedByMode: options.blockedByMode.map(update =>
       serializeUpdate(update, cwd),
     ),
@@ -501,7 +565,7 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
     updates: actionUpdates.map(update => serializeUpdate(update, cwd)),
     runners: runnerUpdates.map(update => serializeUpdate(update, cwd)),
     status: options.status,
-    schemaVersion: 1,
+    schemaVersion: 2,
   }
 }
 
@@ -522,7 +586,7 @@ export function buildJsonErrorReport(error: unknown): JsonErrorReport {
         error instanceof Error && error.name === 'GitHubRateLimitError',
       message: error instanceof Error ? error.message : String(error),
     },
-    schemaVersion: 1,
+    schemaVersion: 2,
     status: 'error',
   }
 }
@@ -546,12 +610,17 @@ function serializeUpdate(update: ActionUpdate, cwd: string): JsonReportUpdate {
       name: update.action.name,
       type: update.action.type,
     },
+    effectiveDate: update.effectiveDate?.toISOString() ?? null,
     targetRefRateLimited: update.targetRefRateLimited ?? false,
     publishedAt: update.publishedAt?.toISOString() ?? null,
+    immutableRelease: update.immutableRelease ?? null,
     currentRefType: update.currentRefType ?? null,
     targetRefStyle: update.targetRefStyle ?? null,
+    holdReason: update.holdReason ?? null,
     currentVersion: update.currentVersion,
     skipReason: update.skipReason ?? null,
+    trustHolds: update.trustHolds ?? [],
+    ageSource: update.ageSource ?? null,
     latestVersion: update.latestVersion,
     targetRef: update.targetRef ?? null,
     isBreaking: update.isBreaking,

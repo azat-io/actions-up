@@ -159,9 +159,10 @@ and cannot be combined with `--yes`.
 
 Alongside `updates`, the report lists what was left out: `skipped`, plus
 `blockedByMode` for actions `--mode` held back, `blockedByAge` for actions the
-cool-down held back and `blockedAsDowngrade` for updates that would downgrade a
-SHA pin. `status` describes the actionable updates only, so it can read
-`up-to-date` while those lists are not empty.
+cool-down held back, `blockedByTrust` for actions whose tag failed a security
+check and `blockedAsDowngrade` for updates that would downgrade a SHA pin.
+`status` describes the actionable updates only, so it can read `up-to-date`
+while those lists are not empty.
 
 Runner updates appear in `runners`, with `summary.totalRunnerUpdates` and
 `summary.totalRunners` counting available updates and scanned labels. `updates`,
@@ -607,13 +608,17 @@ protects against supply-chain attacks through freshly published releases. Use
 npx actions-up --min-age 7
 ```
 
-Versions resolved from tags (repositories without releases, or `--prefer-tags`
-results) honor the cool-down using the tag's commit or tagger date.
+The age is taken only from GitHub's records, never from commit or tag dates: the
+date of an immutable release, or the moment the default branch or a protected
+branch got the commit the tag points at now. An update whose age is unknown is
+held back, and so is a commit outside those branches, even with `--min-age 0`;
+such holds are printed even with `--quiet`. Only SHA pins keep the checked
+commit: a tag written by `--style preserve` or `semver` can be moved later.
 
 When the latest release is too new, the older releases are checked in turn and
 the newest one that clears the cool-down is offered instead. The walk never
 rises above the latest release, and it skips prereleases unless the pinned
-version is itself a prerelease. An action is reported as held back only when no
+version is itself a prerelease. An action is reported as held back when no
 release satisfies both the cool-down and `--mode`.
 
 Use `--min-age-exclude` to skip the cool-down for trusted actions, such as your

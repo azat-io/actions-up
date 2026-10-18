@@ -5,6 +5,7 @@ import type { ReferencePayload } from '../../helpers/route-fetch'
 import {
   makeTagObjectPayload,
   makeReferencePayload,
+  networkFailure,
   serverError,
   rateLimited,
   routeFetch,
@@ -20,6 +21,15 @@ const COMMIT_SHA = '1d3bb3940b11fb19062da85539933c53a7bc9f1f'
 const TAG_OBJECT_SHA = '057b2c5fe322260608f0764aa0674139c14d3b65'
 
 const TREE_SHA = '59dd04d1d9d3144493ba5762a3180eb7f225020c'
+
+/**
+ * Commit of the tag `channel`, which a request for `channel#v2.0.0` would reach
+ * if the name were sent as it is.
+ */
+const CHANNEL_SHA = 'a81bbbf8298c0fa03ea29cdc473d45769f953675'
+
+const CHANNEL_REFERENCE_PATH =
+  '/repos/actions/checkout/git/ref/tags/channel%23v2.0.0'
 
 const REFERENCE_PATH = '/repos/actions/checkout/git/ref/tags/v4.2.2'
 
@@ -97,6 +107,52 @@ describe('getTagSha', () => {
     })
 
     expect(sha).toBe(COMMIT_SHA)
+  })
+
+  it('reads a tag by its percent-encoded name, never the tag that a name holding `#` starts with', async () => {
+    routeFetch({
+      '/repos/actions/checkout/git/ref/tags/channel': ok(
+        makeReferencePayload('refs/tags/channel', {
+          sha: CHANNEL_SHA,
+          type: 'commit',
+        }),
+      ),
+      [CHANNEL_REFERENCE_PATH]: ok(
+        makeReferencePayload('refs/tags/channel#v2.0.0', {
+          sha: COMMIT_SHA,
+          type: 'commit',
+        }),
+      ),
+    })
+
+    let sha = await getTagSha(createClientContext(), {
+      tag: 'channel#v2.0.0',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    expect(sha).toBe(COMMIT_SHA)
+  })
+
+  it('reports the reference of another tag instead of taking its commit for the requested tag', async () => {
+    routeFetch({
+      [CHANNEL_REFERENCE_PATH]: ok(
+        makeReferencePayload('refs/tags/channel', {
+          sha: CHANNEL_SHA,
+          type: 'commit',
+        }),
+      ),
+    })
+
+    let lookup = getTagSha(createClientContext(), {
+      tag: 'channel#v2.0.0',
+      owner: 'actions',
+      repo: 'checkout',
+    })
+
+    await expect(lookup).rejects.toThrow(
+      'GitHub answered for tag channel#v2.0.0 with the reference refs/tags/channel',
+    )
   })
 
   it('returns null for a tag that exists only as a prefix of other tags', async () => {
@@ -177,19 +233,19 @@ describe('getTagSha', () => {
     expect(sha).toBeNull()
   })
 
-  it('returns null rather than the tag object SHA when the tag object lookup fails', async () => {
+  it('reports a failed tag object lookup instead of answering with the tag object SHA', async () => {
     routeFetch({
       [REFERENCE_PATH]: ok(annotatedReference()),
       [TAG_OBJECT_PATH]: serverError(),
     })
 
-    let sha = await getTagSha(createClientContext(), {
+    let lookup = getTagSha(createClientContext(), {
       owner: 'actions',
       repo: 'checkout',
       tag: 'v4.2.2',
     })
 
-    expect(sha).toBeNull()
+    await expect(lookup).rejects.toHaveProperty('status', 500)
   })
 
   it('returns null for an annotated tag whose tag object points at another tag', async () => {
@@ -228,58 +284,47 @@ describe('getTagSha', () => {
     expect(api.paths).toStrictEqual([REFERENCE_PATH, TAG_OBJECT_PATH])
   })
 
-  describe('current behavior pending owner decision', () => {
-    it('remembers a lookup that failed for a reason other than a rate limit as a missing tag', async () => {
-      let api = routeFetch({ [REFERENCE_PATH]: serverError() })
-      let context = createClientContext()
-      let parameters = { owner: 'actions', repo: 'checkout', tag: 'v4.2.2' }
-
-      let first = await getTagSha(context, parameters)
-      let second = await getTagSha(context, parameters)
-
-      expect([first, second]).toStrictEqual([null, null])
-      expect(api.paths).toStrictEqual([REFERENCE_PATH])
+  it('returns null when the tag object of an annotated tag is missing', async () => {
+    routeFetch({
+      [REFERENCE_PATH]: ok(annotatedReference()),
+      [TAG_OBJECT_PATH]: notFound(),
     })
+
+    let sha = await getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
+
+    expect(sha).toBeNull()
   })
 
-  describe('defensive branches unreachable through the public API', () => {
-    it.each(['commit', 'tag'] as const)(
-      'returns null when the reference to a %s carries an empty SHA',
-      async type => {
-        routeFetch({
-          [REFERENCE_PATH]: ok(
-            makeReferencePayload('refs/tags/v4.2.2', { sha: '', type }),
-          ),
-        })
+  it('reports a request that got no response', async () => {
+    routeFetch({ [REFERENCE_PATH]: networkFailure() })
 
-        let sha = await getTagSha(createClientContext(), {
-          owner: 'actions',
-          repo: 'checkout',
-          tag: 'v4.2.2',
-        })
+    let lookup = getTagSha(createClientContext(), {
+      owner: 'actions',
+      repo: 'checkout',
+      tag: 'v4.2.2',
+    })
 
-        expect(sha).toBeNull()
-      },
+    await expect(lookup).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it('reports a lookup that failed for a reason other than a rate limit, and asks again later', async () => {
+    let api = routeFetch({ [REFERENCE_PATH]: serverError() })
+    let context = createClientContext()
+    let parameters = { owner: 'actions', repo: 'checkout', tag: 'v4.2.2' }
+
+    await expect(getTagSha(context, parameters)).rejects.toHaveProperty(
+      'status',
+      500,
+    )
+    await expect(getTagSha(context, parameters)).rejects.toHaveProperty(
+      'status',
+      500,
     )
 
-    it('returns null when the tag object names no target', async () => {
-      routeFetch({
-        [TAG_OBJECT_PATH]: ok(
-          makeTagObjectPayload({
-            object: { type: 'commit', sha: null },
-            sha: TAG_OBJECT_SHA,
-          }),
-        ),
-        [REFERENCE_PATH]: ok(annotatedReference()),
-      })
-
-      let sha = await getTagSha(createClientContext(), {
-        owner: 'actions',
-        repo: 'checkout',
-        tag: 'v4.2.2',
-      })
-
-      expect(sha).toBeNull()
-    })
+    expect(api.paths).toStrictEqual([REFERENCE_PATH, REFERENCE_PATH])
   })
 })

@@ -30,11 +30,6 @@ interface FakeRepository {
   referenceTypes?: Record<string, 'branch' | 'tag' | Error | null>
 
   /**
-   * Answer of `getTagInfo` per tag name.
-   */
-  tagInfo?: Record<string, TagInfo | Error | null>
-
-  /**
    * Answer of `getTagSha` per tag name.
    */
   tagShas?: Record<string, string | Error | null>
@@ -122,9 +117,6 @@ function makeFakeClient(
       (owner, repository) =>
         settle(findRepository(owner, repository).latestRelease ?? null),
     ),
-    getTagInfo: vi.fn<GitHubClient['getTagInfo']>((owner, repository, tag) =>
-      settle(findRepository(owner, repository).tagInfo?.[tag] ?? null),
-    ),
     getRateLimitStatus: vi.fn<GitHubClient['getRateLimitStatus']>(() => ({
       resetAt: new Date('2026-01-15T10:00:00Z'),
       remaining: 5000,
@@ -132,9 +124,24 @@ function makeFakeClient(
     getTagSha: vi.fn<GitHubClient['getTagSha']>((owner, repository, tag) =>
       settle(findRepository(owner, repository).tagShas?.[tag] ?? null),
     ),
+    getProtectedBranches: vi
+      .fn<GitHubClient['getProtectedBranches']>()
+      .mockResolvedValue([]),
+    getDefaultBranch: vi
+      .fn<GitHubClient['getDefaultBranch']>()
+      .mockResolvedValue('main'),
+    getReleaseByTag: vi
+      .fn<GitHubClient['getReleaseByTag']>()
+      .mockResolvedValue(null),
     shouldWaitForRateLimit: vi.fn<GitHubClient['shouldWaitForRateLimit']>(
       () => false,
     ),
+    compareCommits: vi
+      .fn<GitHubClient['compareCommits']>()
+      .mockResolvedValue(null),
+    getBranchTipAt: vi
+      .fn<GitHubClient['getBranchTipAt']>()
+      .mockResolvedValue(null),
   }
 }
 
@@ -152,6 +159,7 @@ function expectedUpdate(
 ): ActionUpdate {
   return {
     currentVersion: action.version ?? null,
+    immutableRelease: undefined,
     currentRefType: 'tag',
     skipReason: undefined,
     latestVersion: null,
@@ -178,8 +186,8 @@ function makeRelease(overrides: Partial<ReleaseInfo> = {}): ReleaseInfo {
     publishedAt: new Date('2024-01-01T00:00:00Z'),
     isPrerelease: false,
     description: null,
+    immutable: false,
     name: version,
-    sha: null,
     version,
     ...overrides,
   }
@@ -198,22 +206,6 @@ function makeAction(overrides: Partial<GitHubAction> = {}): GitHubAction {
     version: 'v1.0.0',
     type: 'external',
     line: 12,
-    ...overrides,
-  }
-}
-
-/**
- * Create a tag as the tags listing reports it: a name and its commit SHA.
- *
- * @param overrides - Fields to replace.
- * @returns Tag information.
- */
-function makeTag(overrides: Partial<TagInfo> = {}): TagInfo {
-  return {
-    sha: 'c5500c31990360ec57059355f4603cf8992cf126',
-    message: null,
-    tag: 'v1.0.0',
-    date: null,
     ...overrides,
   }
 }
@@ -246,6 +238,20 @@ function makeClientForRepos(repos: Record<string, FakeRepository>): FakeClient {
   return makeFakeClient(
     (owner, repository) => repos[`${owner}/${repository}`] ?? {},
   )
+}
+
+/**
+ * Create a tag as the tags listing reports it: a name and its commit SHA.
+ *
+ * @param overrides - Fields to replace.
+ * @returns Tag information.
+ */
+function makeTag(overrides: Partial<TagInfo> = {}): TagInfo {
+  return {
+    sha: 'c5500c31990360ec57059355f4603cf8992cf126',
+    tag: 'v1.0.0',
+    ...overrides,
+  }
 }
 
 /**
@@ -349,14 +355,19 @@ describe('checkUpdates', () => {
       'checks $type references against the latest release',
       async ({ name, type }) => {
         let release = makeRelease({ version: 'v1.1.0' })
-        let client = makeClient({ latestRelease: release })
+        let client = makeClient({
+          tagShas: { 'v1.1.0': 'b4ffde65f46336ab88eb53be808477a3936bae11' },
+          latestRelease: release,
+        })
         let action = makeAction({ version: 'v1.0.0', name, type })
 
         let result = await check(client, [action])
 
         expect(result).toEqual([
           expectedUpdate(action, {
+            latestSha: 'b4ffde65f46336ab88eb53be808477a3936bae11',
             publishedAt: release.publishedAt,
+            immutableRelease: false,
             latestVersion: 'v1.1.0',
             hasUpdate: true,
           }),
@@ -400,7 +411,10 @@ describe('checkUpdates', () => {
   describe('occurrences', () => {
     it('reports every occurrence of an action pinned at the same reference and requests its repository once', async () => {
       let release = makeRelease({ version: 'v1.1.0' })
-      let client = makeClient({ latestRelease: release })
+      let client = makeClient({
+        tagShas: { 'v1.1.0': 'b4ffde65f46336ab88eb53be808477a3936bae11' },
+        latestRelease: release,
+      })
       let inBuild = makeAction({ file: '.github/workflows/build.yml' })
       let inRelease = makeAction({ file: '.github/workflows/release.yml' })
 
@@ -408,12 +422,16 @@ describe('checkUpdates', () => {
 
       expect(result).toEqual([
         expectedUpdate(inBuild, {
+          latestSha: 'b4ffde65f46336ab88eb53be808477a3936bae11',
           publishedAt: release.publishedAt,
+          immutableRelease: false,
           latestVersion: 'v1.1.0',
           hasUpdate: true,
         }),
         expectedUpdate(inRelease, {
+          latestSha: 'b4ffde65f46336ab88eb53be808477a3936bae11',
           publishedAt: release.publishedAt,
+          immutableRelease: false,
           latestVersion: 'v1.1.0',
           hasUpdate: true,
         }),
@@ -444,6 +462,7 @@ describe('checkUpdates', () => {
           tag: expectedUpdate(occurrences.tag, {
             latestSha: 'b55d322140c858c13f460f44f4d1a034740953cb',
             publishedAt: release.publishedAt,
+            immutableRelease: false,
             latestVersion: 'v4.2.0',
             hasUpdate: true,
           }),
@@ -563,6 +582,7 @@ describe('checkUpdates', () => {
           latestSha: 'c1f6ec77fe2fb216a73b8d67b9349fc28c959f31',
           publishedAt: release.publishedAt,
           currentRefType: 'branch',
+          immutableRelease: false,
           latestVersion: 'v1.2.3',
           hasUpdate: true,
         }),
@@ -608,6 +628,7 @@ describe('checkUpdates', () => {
             latestSha: '4e9a3448c1b2946987d6dca7f4672e2db482a2be',
             publishedAt: release.publishedAt,
             currentRefType: 'branch',
+            immutableRelease: false,
             latestVersion: latest,
             hasUpdate,
           }),
@@ -634,6 +655,7 @@ describe('checkUpdates', () => {
           expectedUpdate(action, {
             publishedAt: release.publishedAt,
             skipReason: 'not-comparable',
+            immutableRelease: false,
             latestVersion: 'v1.0.0',
             status: 'skipped',
             currentRefType,
@@ -644,24 +666,34 @@ describe('checkUpdates', () => {
   })
 
   describe('latest release', () => {
+    it('takes the commit of the latest release from its tag', async () => {
+      let release = makeRelease({ version: 'v5.1.0', immutable: true })
+      let client = makeClient({
+        tagShas: { 'v5.1.0': '1c6c3310aa69e3841dd86243cfc8ea84e3a12bbd' },
+        latestRelease: release,
+      })
+      let action = makeAction({ version: 'v5.0.0' })
+
+      let result = await check(client, [action])
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          latestSha: '1c6c3310aa69e3841dd86243cfc8ea84e3a12bbd',
+          publishedAt: release.publishedAt,
+          latestVersion: 'v5.1.0',
+          immutableRelease: true,
+          hasUpdate: true,
+        }),
+      ])
+    })
+
     it.each([
-      {
-        latestSha: '1c6c3310aa69e3841dd86243cfc8ea84e3a12bbd',
-        tagSha: '1c6c3310aa69e3841dd86243cfc8ea84e3a12bbd',
-        source: 'its resolved tag',
-      },
-      {
-        latestSha: 'b13402ff6d5bf94ee34523e6422149f92689a931',
-        source: 'the release when its tag is unresolved',
-        tagSha: null,
-      },
+      ['points at no commit', null],
+      ['cannot be read', new Error('GitHub API error: 502 Bad Gateway')],
     ])(
-      'takes the commit of the latest release from $source',
-      async ({ latestSha, tagSha }) => {
-        let release = makeRelease({
-          sha: 'b13402ff6d5bf94ee34523e6422149f92689a931',
-          version: 'v5.1.0',
-        })
+      'reports the latest release as unresolved when its tag %s, with no commit standing in for it',
+      async (_case, tagSha) => {
+        let release = makeRelease({ version: 'v5.1.0' })
         let client = makeClient({
           tagShas: { 'v5.1.0': tagSha },
           latestRelease: release,
@@ -673,21 +705,38 @@ describe('checkUpdates', () => {
         expect(result).toEqual([
           expectedUpdate(action, {
             publishedAt: release.publishedAt,
+            skipReason: 'sha-unresolved',
+            immutableRelease: false,
             latestVersion: 'v5.1.0',
-            hasUpdate: true,
-            latestSha,
+            status: 'skipped',
           }),
         ])
       },
     )
 
+    it('keeps a tag reference already at the latest release when its tag cannot be resolved', async () => {
+      let release = makeRelease({ version: 'v5.1.0' })
+      let client = makeClient({ latestRelease: release })
+      let action = makeAction({ version: 'v5.1.0' })
+
+      let result = await check(client, [action], { style: 'preserve' })
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          publishedAt: release.publishedAt,
+          immutableRelease: false,
+          latestVersion: 'v5.1.0',
+        }),
+      ])
+    })
+
     it('falls back to the newest listed release when the repository has no latest release', async () => {
       let newest = makeRelease({
-        sha: 'cef02ee8868cd89152cc2af0ba4c8bdf2c13b14d',
         publishedAt: new Date('2024-03-01T00:00:00Z'),
         version: 'v1.5.0',
       })
       let client = makeClient({
+        tagShas: { 'v1.5.0': 'cef02ee8868cd89152cc2af0ba4c8bdf2c13b14d' },
         releases: [newest, makeRelease({ version: 'v1.4.0' })],
       })
       let action = makeAction({ version: 'v1.0.0' })
@@ -698,6 +747,7 @@ describe('checkUpdates', () => {
         expectedUpdate(action, {
           latestSha: 'cef02ee8868cd89152cc2af0ba4c8bdf2c13b14d',
           publishedAt: newest.publishedAt,
+          immutableRelease: false,
           latestVersion: 'v1.5.0',
           hasUpdate: true,
         }),
@@ -734,6 +784,7 @@ describe('checkUpdates', () => {
           latestSha: '99bb2caf247dfd9f03cf984373bc6043d4e32ebf',
           publishedAt: release.publishedAt,
           latestVersion: 'v12.1347.0',
+          immutableRelease: false,
           currentRefType: 'sha',
           hasUpdate: true,
         }),
@@ -815,6 +866,7 @@ describe('checkUpdates', () => {
           expectedUpdate(action, {
             latestSha: 'a144493754fdb4c10fef817b135f970ce43d78cb',
             publishedAt: release.publishedAt,
+            immutableRelease: false,
             latestVersion: 'v3.0.0',
             isBreaking: true,
             hasUpdate: true,
@@ -955,6 +1007,7 @@ describe('checkUpdates', () => {
         expectedUpdate(action, {
           latestSha: '197c1db02d3f90cc37dbf00061fb69864bce0655',
           publishedAt: release.publishedAt,
+          immutableRelease: false,
           latestVersion: 'v2',
           hasUpdate: true,
         }),
@@ -1045,6 +1098,7 @@ describe('checkUpdates', () => {
           latestVersion: 'codeql-bundle-v2.20.0',
           publishedAt: release.publishedAt,
           skipReason: 'tag-family',
+          immutableRelease: false,
           status: 'skipped',
         }),
       ])
@@ -1225,198 +1279,92 @@ describe('checkUpdates', () => {
   })
 
   describe('when a tag beats a moving major release', () => {
-    it.each([
-      {
-        tagInfo: makeTag({
-          sha: '6e07ad1a3ad1fe82c33de2ab5a427e9a8d59b003',
-          date: new Date('2024-06-01T00:00:00Z'),
-          message: 'Release notes',
-          tag: 'v1.2.3',
-        }),
-        latestSha: '6e07ad1a3ad1fe82c33de2ab5a427e9a8d59b003',
-        source: 'the tag metadata ahead of the listing',
-        publishedAt: new Date('2024-06-01T00:00:00Z'),
-      },
-      {
-        latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-        source: 'the listing when the tag has no metadata',
-        publishedAt: null,
-        tagInfo: null,
-      },
-      {
-        latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-        source: 'the listing when the network fails',
-        tagInfo: new TypeError('fetch failed'),
-        publishedAt: null,
-      },
-    ])(
-      'takes the latest commit from $source',
-      async ({ publishedAt, latestSha, tagInfo }) => {
-        let client = makeClient({
-          tags: [
-            makeTag({
-              sha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-              tag: 'v1.2.3',
-            }),
-            makeTag({ tag: 'v1' }),
-          ],
-          latestRelease: makeRelease({ version: 'v1' }),
-          tagInfo: { 'v1.2.3': tagInfo },
-        })
-        let action = makeAction({ version: 'v1' })
-
-        let result = await check(client, [action])
-
-        expect(result).toEqual([
-          expectedUpdate(action, {
-            latestVersion: 'v1.2.3',
-            hasUpdate: true,
-            publishedAt,
-            latestSha,
-          }),
-        ])
-      },
-    )
-
-    it('reports a rate limit hit while reading the tag metadata', async () => {
+    it('takes the latest commit from the listing, without looking up dates', async () => {
       let client = makeClient({
-        tags: [makeTag({ tag: 'v1.2.3' }), makeTag({ tag: 'v1' })],
+        tags: [
+          makeTag({
+            sha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
+            tag: 'v1.2.3',
+          }),
+          makeTag({ tag: 'v1' }),
+        ],
         latestRelease: makeRelease({ version: 'v1' }),
-        tagInfo: { 'v1.2.3': makeRateLimitError() },
       })
       let action = makeAction({ version: 'v1' })
 
-      await expect(check(client, [action])).rejects.toMatchObject({
-        name: 'GitHubRateLimitError',
-      })
+      let result = await check(client, [action])
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
+          latestVersion: 'v1.2.3',
+          hasUpdate: true,
+        }),
+      ])
+      expect(client.getReleaseByTag).not.toHaveBeenCalled()
+      expect(client.getTagSha).not.toHaveBeenCalled()
     })
   })
 
   describe('when the repository publishes no release', () => {
-    it.each([
-      {
-        tagInfo: makeTag({
-          sha: '6e07ad1a3ad1fe82c33de2ab5a427e9a8d59b003',
-          date: new Date('2024-06-01T00:00:00Z'),
-          message: 'Release notes',
-          tag: 'v1.1.0',
-        }),
-        latestSha: '6e07ad1a3ad1fe82c33de2ab5a427e9a8d59b003',
-        source: 'the tag metadata ahead of the listing',
-        publishedAt: new Date('2024-06-01T00:00:00Z'),
-      },
-      {
-        latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-        source: 'the listing when the tag has no metadata',
-        publishedAt: null,
-        tagInfo: null,
-      },
-      {
-        latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-        source: 'the listing when the network fails',
-        tagInfo: new TypeError('fetch failed'),
-        publishedAt: null,
-      },
-    ])(
-      'takes the latest commit from $source',
-      async ({ publishedAt, latestSha, tagInfo }) => {
-        let client = makeClient({
-          tags: [
-            makeTag({
-              sha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-              tag: 'v1.1.0',
-            }),
-            makeTag({ tag: 'v1.0.0' }),
-          ],
-          tagInfo: { 'v1.1.0': tagInfo },
-        })
-        let action = makeAction({ version: 'v1.0.0' })
-
-        let result = await check(client, [action])
-
-        expect(result).toEqual([
-          expectedUpdate(action, {
-            latestVersion: 'v1.1.0',
-            hasUpdate: true,
-            publishedAt,
-            latestSha,
-          }),
-        ])
-      },
-    )
-
-    it('reports a rate limit hit while reading the tag metadata', async () => {
+    it('takes the latest commit from the listing, without looking up dates', async () => {
       let client = makeClient({
-        tags: [makeTag({ tag: 'v1.1.0' }), makeTag({ tag: 'v1.0.0' })],
-        tagInfo: { 'v1.1.0': makeRateLimitError() },
+        tags: [
+          makeTag({
+            sha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
+            tag: 'v1.1.0',
+          }),
+          makeTag({ tag: 'v1.0.0' }),
+        ],
       })
       let action = makeAction({ version: 'v1.0.0' })
 
-      await expect(check(client, [action])).rejects.toMatchObject({
-        name: 'GitHubRateLimitError',
-      })
+      let result = await check(client, [action])
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
+          latestVersion: 'v1.1.0',
+          hasUpdate: true,
+        }),
+      ])
+      expect(client.getReleaseByTag).not.toHaveBeenCalled()
+      expect(client.getTagSha).not.toHaveBeenCalled()
     })
   })
 
   describe('when the reference belongs to a tag family', () => {
-    it.each([
-      {
-        tagInfo: makeTag({
-          sha: '6e07ad1a3ad1fe82c33de2ab5a427e9a8d59b003',
-          date: new Date('2024-06-01T00:00:00Z'),
-          message: 'Release notes',
-          tag: 'actions-v0.1.2',
-        }),
-        latestSha: '6e07ad1a3ad1fe82c33de2ab5a427e9a8d59b003',
-        source: 'the tag metadata ahead of the listing',
-        publishedAt: new Date('2024-06-01T00:00:00Z'),
-      },
-      {
-        latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-        source: 'the listing when the tag has no metadata',
-        publishedAt: null,
-        tagInfo: null,
-      },
-      {
-        latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-        source: 'the listing when the network fails',
-        tagInfo: new TypeError('fetch failed'),
-        publishedAt: null,
-      },
-    ])(
-      'takes the latest commit from $source',
-      async ({ publishedAt, latestSha, tagInfo }) => {
-        let client = makeClient({
-          references: [
-            makeTag({
-              sha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
-              tag: 'actions-v0.1.2',
-            }),
-          ],
-          tagInfo: { 'actions-v0.1.2': tagInfo },
-        })
-        let action = makeAction({
-          name: 'owner/repo/deploy',
-          version: 'actions-v0.1.1',
-        })
-
-        let result = await check(client, [action])
-
-        expect(result).toEqual([
-          expectedUpdate(action, {
-            latestVersion: 'actions-v0.1.2',
-            hasUpdate: true,
-            publishedAt,
-            latestSha,
-          }),
-        ])
-      },
-    )
-
-    it('reports a rate limit hit while reading the tag metadata', async () => {
+    it('takes the latest commit of a lightweight tag from the listing, without looking up dates', async () => {
       let client = makeClient({
-        tagInfo: { 'actions-v0.1.2': makeRateLimitError() },
-        references: [makeTag({ tag: 'actions-v0.1.2' })],
+        references: [
+          makeTag({
+            sha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
+            tag: 'actions-v0.1.2',
+          }),
+        ],
+      })
+      let action = makeAction({
+        name: 'owner/repo/deploy',
+        version: 'actions-v0.1.1',
+      })
+
+      let result = await check(client, [action])
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
+          latestVersion: 'actions-v0.1.2',
+          hasUpdate: true,
+        }),
+      ])
+      expect(client.getReleaseByTag).not.toHaveBeenCalled()
+      expect(client.getTagSha).not.toHaveBeenCalled()
+    })
+
+    it('reports a rate limit hit while resolving the commit of an annotated tag', async () => {
+      let client = makeClient({
+        references: [makeTag({ tag: 'actions-v0.1.2', sha: null })],
+        tagShas: { 'actions-v0.1.2': makeRateLimitError() },
       })
       let action = makeAction({
         name: 'owner/repo/deploy',
@@ -1613,20 +1561,35 @@ describe('checkUpdates', () => {
       },
     )
 
+    it('looks up the commit of an annotated family tag from its tag reference', async () => {
+      let client = makeClient({
+        tagShas: {
+          'actions-v0.1.2': 'd2cb86e7743926b54a5fa968710b58031ada504c',
+        },
+        references: [makeTag({ tag: 'actions-v0.1.2', sha: null })],
+      })
+      let action = makeAction({
+        name: 'owner/repo/deploy',
+        version: 'actions-v0.1.1',
+      })
+
+      let result = await check(client, [action])
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          latestSha: 'd2cb86e7743926b54a5fa968710b58031ada504c',
+          latestVersion: 'actions-v0.1.2',
+          hasUpdate: true,
+        }),
+      ])
+    })
+
     it.each([
-      {
-        latestSha: 'd2cb86e7743926b54a5fa968710b58031ada504c',
-        tagSha: 'd2cb86e7743926b54a5fa968710b58031ada504c',
-        outcome: 'reports the commit it resolves to',
-      },
-      {
-        outcome: 'reports no commit when none is found',
-        latestSha: null,
-        tagSha: null,
-      },
+      ['points at no commit', null],
+      ['cannot be read', new TypeError('fetch failed')],
     ])(
-      'looks up the commit of an annotated family tag and $outcome',
-      async ({ latestSha, tagSha }) => {
+      'reports an annotated family tag whose reference %s as unresolved',
+      async (_case, tagSha) => {
         let client = makeClient({
           references: [makeTag({ tag: 'actions-v0.1.2', sha: null })],
           tagShas: { 'actions-v0.1.2': tagSha },
@@ -1641,8 +1604,8 @@ describe('checkUpdates', () => {
         expect(result).toEqual([
           expectedUpdate(action, {
             latestVersion: 'actions-v0.1.2',
-            hasUpdate: true,
-            latestSha,
+            skipReason: 'sha-unresolved',
+            status: 'skipped',
           }),
         ])
       },
@@ -1704,6 +1667,7 @@ describe('checkUpdates', () => {
         expectedUpdate(action, {
           latestSha: 'e6a3f534941270958cbe9af190dca480acf82422',
           publishedAt: release.publishedAt,
+          immutableRelease: false,
           latestVersion: 'v7.0.0',
           currentRefType: 'sha',
           hasUpdate: true,
@@ -1746,12 +1710,6 @@ describe('checkUpdates', () => {
         scenario: 'another commit needs an update',
         hasUpdate: true,
       },
-      {
-        scenario: 'an unknown latest commit needs an update',
-        pinned: '4e9a3448c1b2946987d6dca7f4672e2db482a2be',
-        hasUpdate: true,
-        latestSha: null,
-      },
     ])(
       'compares a SHA pin with the commit of the latest release: $scenario',
       async ({ hasUpdate, latestSha, pinned }) => {
@@ -1767,6 +1725,7 @@ describe('checkUpdates', () => {
         expect(result).toEqual([
           expectedUpdate(action, {
             publishedAt: release.publishedAt,
+            immutableRelease: false,
             latestVersion: 'v2.0.0',
             currentRefType: 'sha',
             hasUpdate,
@@ -1775,6 +1734,27 @@ describe('checkUpdates', () => {
         ])
       },
     )
+
+    it('reports a SHA pin as unresolved when the commit of the latest release is unknown', async () => {
+      let release = makeRelease({ version: 'v2.0.0' })
+      let client = makeClient({ latestRelease: release })
+      let action = makeAction({
+        version: '4e9a3448c1b2946987d6dca7f4672e2db482a2be',
+      })
+
+      let result = await check(client, [action])
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          publishedAt: release.publishedAt,
+          skipReason: 'sha-unresolved',
+          immutableRelease: false,
+          latestVersion: 'v2.0.0',
+          currentRefType: 'sha',
+          status: 'skipped',
+        }),
+      ])
+    })
 
     it.each([
       {
@@ -1848,6 +1828,7 @@ describe('checkUpdates', () => {
         expect(result).toEqual([
           expectedUpdate(action, {
             publishedAt: release.publishedAt,
+            immutableRelease: false,
             latestVersion: 'v1.0.0',
             latestSha: commit,
             hasUpdate,
@@ -1875,15 +1856,6 @@ describe('checkUpdates', () => {
         latest: 'v2.1.0',
         hasUpdate: true,
       },
-      {
-        styleName: 'the default style and no known commit',
-        outcome: 'an update for a newer minor',
-        isBreaking: false,
-        latest: 'v1.2.3',
-        hasUpdate: true,
-        commit: null,
-        options: {},
-      },
     ])(
       'reports $outcome of a major-only tag with $styleName',
       async ({ isBreaking, hasUpdate, options, latest, commit }) => {
@@ -1899,6 +1871,7 @@ describe('checkUpdates', () => {
         expect(result).toEqual([
           expectedUpdate(action, {
             publishedAt: release.publishedAt,
+            immutableRelease: false,
             latestVersion: latest,
             latestSha: commit,
             isBreaking,
@@ -1907,6 +1880,24 @@ describe('checkUpdates', () => {
         ])
       },
     )
+
+    it('reports an update of a major-only tag as unresolved when the commit of the newer minor is unknown', async () => {
+      let release = makeRelease({ version: 'v1.2.3' })
+      let client = makeClient({ latestRelease: release })
+      let action = makeAction({ version: 'v1' })
+
+      let result = await check(client, [action])
+
+      expect(result).toEqual([
+        expectedUpdate(action, {
+          publishedAt: release.publishedAt,
+          skipReason: 'sha-unresolved',
+          immutableRelease: false,
+          latestVersion: 'v1.2.3',
+          status: 'skipped',
+        }),
+      ])
+    })
 
     it.each([
       { scenario: 'another reference without a version', latest: 'latest' },
@@ -1934,6 +1925,7 @@ describe('checkUpdates', () => {
             latestSha: 'fc730bc4e3167d12a9fbc06b63469cf914c0dbb1',
             publishedAt: release.publishedAt,
             skipReason: 'not-comparable',
+            immutableRelease: false,
             latestVersion: latest,
             status: 'skipped',
           }),
@@ -2169,49 +2161,6 @@ describe('checkUpdates', () => {
       ])
     })
 
-    it('keeps the release commit when a custom client fails the tag lookup of the latest release', async () => {
-      let release = makeRelease({
-        sha: 'b13402ff6d5bf94ee34523e6422149f92689a931',
-        version: 'v5.1.0',
-      })
-      let client = makeClient({
-        tagShas: { 'v5.1.0': new Error('Custom client failure') },
-        latestRelease: release,
-      })
-      let action = makeAction({ version: 'v5.0.0' })
-
-      let result = await check(client, [action])
-
-      expect(result).toEqual([
-        expectedUpdate(action, {
-          latestSha: 'b13402ff6d5bf94ee34523e6422149f92689a931',
-          publishedAt: release.publishedAt,
-          latestVersion: 'v5.1.0',
-          hasUpdate: true,
-        }),
-      ])
-    })
-
-    it('leaves the commit of an annotated family tag unknown when a custom client fails its tag lookup', async () => {
-      let client = makeClient({
-        tagShas: { 'actions-v0.1.2': new Error('Custom client failure') },
-        references: [makeTag({ tag: 'actions-v0.1.2', sha: null })],
-      })
-      let action = makeAction({
-        name: 'owner/repo/deploy',
-        version: 'actions-v0.1.1',
-      })
-
-      let result = await check(client, [action])
-
-      expect(result).toEqual([
-        expectedUpdate(action, {
-          latestVersion: 'actions-v0.1.2',
-          hasUpdate: true,
-        }),
-      ])
-    })
-
     it('falls back to a generic rate limit message when the client error carries none', async () => {
       let client = makeClient({
         latestRelease: Object.assign(makeRateLimitError(), { message: '' }),
@@ -2232,10 +2181,7 @@ describe('checkUpdates', () => {
      * Open question: should a release without a tag name be skipped instead?
      */
     it('reports a latest release with an empty tag name as checked without resolving its commit', async () => {
-      let release = makeRelease({
-        sha: '9e48671c30ce53c99c5acf31261a2f73230149fc',
-        version: '',
-      })
+      let release = makeRelease({ version: '' })
       let client = makeClient({ latestRelease: release })
       let action = makeAction({ version: 'v0.1.0' })
 
@@ -2243,8 +2189,8 @@ describe('checkUpdates', () => {
 
       expect(result).toEqual([
         expectedUpdate(action, {
-          latestSha: '9e48671c30ce53c99c5acf31261a2f73230149fc',
           publishedAt: release.publishedAt,
+          immutableRelease: false,
           latestVersion: '',
         }),
       ])
@@ -2256,7 +2202,6 @@ describe('checkUpdates', () => {
      */
     it('offers the newest prerelease when the repository has no latest release', async () => {
       let prerelease = makeRelease({
-        sha: '8501747d7f1ab520c2a0d16fc9cad64c2336370f',
         version: 'v2.0.0-beta.1',
         isPrerelease: true,
       })
@@ -2268,6 +2213,9 @@ describe('checkUpdates', () => {
           }),
           makeTag({ tag: 'v1.0.0' }),
         ],
+        tagShas: {
+          'v2.0.0-beta.1': '8501747d7f1ab520c2a0d16fc9cad64c2336370f',
+        },
         releases: [prerelease],
       })
       let action = makeAction({ version: 'v1.0.0' })
@@ -2279,6 +2227,7 @@ describe('checkUpdates', () => {
           latestSha: '8501747d7f1ab520c2a0d16fc9cad64c2336370f',
           publishedAt: prerelease.publishedAt,
           latestVersion: 'v2.0.0-beta.1',
+          immutableRelease: false,
           isBreaking: true,
           hasUpdate: true,
         }),
@@ -2314,6 +2263,7 @@ describe('checkUpdates', () => {
             publishedAt: release.publishedAt,
             skipReason: 'not-comparable',
             currentRefType: 'unknown',
+            immutableRelease: false,
             latestVersion: 'v1.0.0',
             status: 'skipped',
             currentVersion,

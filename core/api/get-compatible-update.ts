@@ -1,69 +1,89 @@
+import type {
+  CandidateHoldReason,
+  CandidateAssessment,
+} from '../../types/candidate-assessment'
 import type { GitHubClient } from '../../types/github-client'
 import type { UpdateMode } from '../../types/update-mode'
+import type { Cooldown } from '../../types/cooldown'
 import type { TagInfo } from '../../types/tag-info'
 
 import { findCompatibleTags } from '../versions/find-compatible-tags'
 import { getFamilyPrefix } from '../versions/get-family-prefix'
-import { resolveTagMeta } from './resolve-tag-meta'
+import { assessCandidate } from '../trust/assess-candidate'
+
+/**
+ * Most distinct commits outside the history of the repository the walk steps
+ * past before it gives up on the repository.
+ *
+ * This is a policy, not a cost cap alone: tags of several versions pointing at
+ * commits no trusted branch holds mean a compromised repository rather than a
+ * mistake, as with the hijacked actions, which had dozens of tags moved, and no
+ * version of such a repository is offered until someone has looked at it.
+ */
+const MAX_UNTRUSTED_COMMITS = 3
 
 /**
  * Outcome of a compatible update lookup.
  */
-export type CompatibleUpdate =
-  | {
-      /**
-       * Newest tag that satisfies both the update mode and the cool-down.
-       */
-      update: {
-        /**
-         * Publication date of the selected tag. Null when the cool-down did not
-         * apply, or when the date could not be determined.
-         */
-        publishedAt: Date | null
+export interface CompatibleUpdate {
+  /**
+   * Newest candidate that passed every check, null when none did.
+   */
+  selected: { assessment: CandidateAssessment; version: string } | null
 
-        /**
-         * Commit SHA the selected tag points to, null when unresolved.
-         */
-        sha: string | null
+  /**
+   * Candidates the walk held back, newest first. A walk that stopped early ends
+   * with the candidate that stopped it. A tag at a commit already found outside
+   * the history of the repository is not repeated.
+   */
+  held: HeldCandidate[]
+}
 
-        /**
-         * Selected tag name.
-         */
-        version: string
-      }
+/**
+ * Candidate tag held back, with the verdict that held it back.
+ */
+export interface HeldCandidate {
+  /**
+   * Why the candidate cannot be written.
+   */
+  reason: CandidateHoldReason
 
-      /**
-       * No constraint held the lookup back.
-       */
-      reason: null
-    }
-  | {
-      /**
-       * Why no tag can be offered. `cool-down` means the mode allows one or
-       * more tags but every one of them is too young. `no-candidate` means no
-       * compatible tag was established: either the listing held nothing newer
-       * that the mode allows, or the listing could not be read.
-       */
-      reason: 'no-candidate' | 'cool-down'
+  /**
+   * Commit the tag points at, null when it could not be resolved.
+   */
+  sha: string | null
 
-      /**
-       * Nothing to offer.
-       */
-      update: null
-    }
+  /**
+   * Tag that was held back.
+   */
+  version: string
+}
 
 interface GetCompatibleUpdateParameters {
+  /**
+   * Newest version the caller already vetted, usually the release the update
+   * check settled on. The walk never rises above it, so a tag that was never
+   * released cannot be offered, and starts below it, since the caller already
+   * assessed it. Omit it to consider every compatible tag.
+   */
+  latestVersion?: string | null
+
   /**
    * Current action version used as compatibility baseline.
    */
   currentVersion: string | null
 
   /**
-   * Newest version the caller already vetted, usually the release the update
-   * check settled on. The walk never rises above it, so a tag that was never
-   * released cannot be offered. Omit it to consider every compatible tag.
+   * Cool-down to apply, null when it does not apply to the action.
    */
-  latestVersion?: string | null
+  cooldown: Cooldown | null
+
+  /**
+   * Candidates the caller already held back. A tag that points at a commit one
+   * of them found outside the history of the repository is held back with them
+   * instead of being offered under another name.
+   */
+  held?: HeldCandidate[]
 
   /**
    * Action name in `owner/repo` format (path suffix is allowed).
@@ -71,72 +91,75 @@ interface GetCompatibleUpdateParameters {
   actionName: string
 
   /**
-   * Cool-down in milliseconds. A tag published less recently than this is
-   * passed over. Zero, the default, disables the cool-down.
-   */
-  minAgeMs?: number
-
-  /**
    * Update mode that limits which tag can be selected.
    */
   mode: UpdateMode
-
-  /**
-   * Clock used to measure the cool-down, in milliseconds since the epoch.
-   * Defaults to the current time.
-   */
-  now?: number
 }
 
 /**
- * A candidate tag together with the metadata read while ranking it.
+ * State of the walk after a candidate.
  */
-interface SelectedCandidate {
+interface WalkState {
   /**
-   * Publication date and commit SHA, both null when they were not read.
+   * Candidate the walk settled on, null while it goes on.
    */
-  meta: { sha: string | null; date: Date | null }
+  selected: CompatibleUpdate['selected']
 
   /**
-   * The candidate itself.
+   * Candidates held back so far.
    */
-  candidate: TagInfo
+  held: HeldCandidate[]
+
+  /**
+   * Whether the walk stopped without a candidate.
+   */
+  stopped: boolean
 }
 
 /**
  * Resolve the newest compatible update for an action.
  *
- * Both the update mode and the release age cool-down are applied here, so a tag
- * held back by either one steps down to the newest tag that clears both instead
- * of dropping the action.
+ * The update mode limits the candidates, and each one, newest first, is
+ * assessed by `assessCandidate`, the same rules every version an update offers
+ * goes through. A candidate held back by the cool-down or by a trust check
+ * steps down to the next one, and so does a tag that points at no commit. A
+ * candidate whose date or commit could not be established stops the walk:
+ * nothing is known against it, and stepping past it would offer an older
+ * version for no reason while a failing API would cost a request per remaining
+ * candidate.
+ *
+ * The age of a candidate is the age of its commit, so a floating `v4.3` at the
+ * commit of a release `v4.3.1` inside the cool-down is held back with it unless
+ * that commit is proven older. A tag the listing names at a commit already
+ * found outside the history of the repository is skipped without a request, and
+ * a tag resolved to such a commit is not reported again.
  *
  * @param client - GitHub client instance.
  * @param parameters - Lookup parameters.
- * @returns The selected tag, or the reason no tag qualifies.
- * @throws GitHubRateLimitError - When a request the lookup needed, for the tag
- *   listing, a publication date or a commit SHA, was rate limited.
+ * @returns The selected tag, and the candidates held back on the way.
+ * @throws GitHubRateLimitError - When a request the lookup needed was rate
+ *   limited.
  */
 export async function getCompatibleUpdate(
   client: GitHubClient,
   parameters: GetCompatibleUpdateParameters,
 ): Promise<CompatibleUpdate> {
-  let { currentVersion, actionName, mode } = parameters
-  let minAgeMs = parameters.minAgeMs ?? 0
-  let now = parameters.now ?? Date.now()
+  let { currentVersion, latestVersion, actionName, mode } = parameters
+  let nothing: CompatibleUpdate = { selected: null, held: [] }
 
   let familyPrefix = getFamilyPrefix(currentVersion)
 
   if (familyPrefix === null) {
-    return { reason: 'no-candidate', update: null }
+    return nothing
   }
 
   let segments = actionName.split('/')
   if (segments.length < 2) {
-    return { reason: 'no-candidate', update: null }
+    return nothing
   }
   let [owner, repository] = segments
   if (!owner || !repository) {
-    return { reason: 'no-candidate', update: null }
+    return nothing
   }
 
   /**
@@ -158,106 +181,124 @@ export async function getCompatibleUpdate(
     if (isRateLimitError(error)) {
       throw error
     }
-    return { reason: 'no-candidate', update: null }
+    return nothing
   }
 
   let candidates = findCompatibleTags(tags, currentVersion, {
-    latestVersion: parameters.latestVersion,
+    latestVersion,
     mode,
+  }).filter(candidate => candidate.tag !== latestVersion)
+
+  return walkCandidates(client, {
+    cooldown: parameters.cooldown,
+    held: parameters.held ?? [],
+    repo: repository,
+    candidates,
+    owner,
   })
-  if (candidates.length === 0) {
-    return { reason: 'no-candidate', update: null }
-  }
-
-  let selected =
-    minAgeMs > 0 ?
-      await selectAgedCandidate(client, {
-        repo: repository,
-        candidates,
-        minAgeMs,
-        owner,
-        now,
-      })
-    : { meta: { date: null, sha: null }, candidate: candidates[0]! }
-
-  if (!selected) {
-    return { reason: 'cool-down', update: null }
-  }
-
-  let version = selected.candidate.tag
-  let sha =
-    selected.candidate.sha?.length ? selected.candidate.sha : selected.meta.sha
-
-  if (!sha) {
-    try {
-      sha = await client.getTagSha(owner, repository, version)
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        throw error
-      }
-      sha = null
-    }
-  }
-
-  return {
-    update: { publishedAt: selected.meta.date, version, sha },
-    reason: null,
-  }
 }
 
 /**
- * Take the newest candidate that clears the cool-down.
+ * Assess the candidates one after another until one passes or the walk stops.
  *
- * Tag listings carry no dates, so every candidate costs one lookup. The lookups
- * are chained rather than run together, so a step-down of a single release does
- * not pay for the whole tag history. A date that cannot be determined counts as
- * old enough, which matches how an unknown publication date is treated
- * elsewhere. A rate limit is the exception: it is reported rather than read as
- * an unknown date, because it can hide the date of every candidate at once.
+ * The lookups are chained rather than run together, so a step down by a single
+ * release does not pay for the whole tag history.
  *
  * @param client - GitHub client instance.
- * @param parameters - Candidates and the cool-down to apply.
+ * @param parameters - Candidates and what the walk starts from.
  * @param parameters.candidates - Compatible tags ordered newest first.
- * @param parameters.minAgeMs - Cool-down in milliseconds.
+ * @param parameters.cooldown - Cool-down to apply.
+ * @param parameters.held - Candidates the caller already held back.
  * @param parameters.owner - Repository owner.
  * @param parameters.repo - Repository name.
- * @param parameters.now - Clock used to measure the cool-down.
- * @returns The first old enough candidate, or null when none qualifies.
+ * @returns The selected tag, and the candidates held back on the way.
  * @throws GitHubRateLimitError - When a candidate lookup was rate limited.
  */
-async function selectAgedCandidate(
+async function walkCandidates(
   client: GitHubClient,
   parameters: {
+    cooldown: Cooldown | null
+    held: HeldCandidate[]
     candidates: TagInfo[]
-    minAgeMs: number
     owner: string
     repo: string
-    now: number
   },
-): Promise<SelectedCandidate | null> {
-  let { candidates, minAgeMs, owner, repo, now } = parameters
+): Promise<CompatibleUpdate> {
+  let { candidates, cooldown, owner, repo, held } = parameters
 
-  return candidates.reduce<Promise<SelectedCandidate | null>>(
+  /**
+   * Being outside the history of the repository is a property of the commit,
+   * unlike a moved tag, which is a property of the tag.
+   */
+  let untrustedCommits = new Set(
+    held
+      .filter(({ reason }) => reason === 'unreachable-commit')
+      .map(({ sha }) => sha),
+  )
+
+  let walk = await candidates.reduce<Promise<WalkState>>(
     async (pending, candidate) => {
-      let selected = await pending
-      if (selected) {
-        return selected
+      let state = await pending
+      if (state.selected || state.stopped) {
+        return state
       }
 
-      let meta = await resolveTagMeta(client, {
+      if (candidate.sha && untrustedCommits.has(candidate.sha)) {
+        return state
+      }
+
+      let assessment = await assessCandidate(client, {
+        sha: candidate.sha,
         tag: candidate.tag,
+        cooldown,
         owner,
         repo,
       })
 
-      if (meta.date && now - meta.date.getTime() < minAgeMs) {
-        return null
+      /**
+       * A tag that points at no commit is no candidate at all, such as one
+       * deleted since the listing or one that points at a tree.
+       */
+      if (assessment.reason === 'no-commit') {
+        return state
       }
 
-      return { candidate, meta }
+      if (!assessment.reason) {
+        return { ...state, selected: { version: candidate.tag, assessment } }
+      }
+
+      if (
+        assessment.reason === 'unreachable-commit' &&
+        untrustedCommits.has(assessment.sha)
+      ) {
+        return state
+      }
+
+      let nextHeld = [
+        ...state.held,
+        {
+          reason: assessment.reason,
+          version: candidate.tag,
+          sha: assessment.sha,
+        },
+      ]
+
+      if (assessment.reason === 'unreachable-commit') {
+        untrustedCommits.add(assessment.sha)
+      }
+
+      return {
+        stopped:
+          !canStepPast(assessment.reason) ||
+          untrustedCommits.size >= MAX_UNTRUSTED_COMMITS,
+        held: nextHeld,
+        selected: null,
+      }
     },
-    Promise.resolve(null),
+    Promise.resolve({ selected: null, stopped: false, held: [] }),
   )
+
+  return { selected: walk.selected, held: walk.held }
 }
 
 /**
@@ -268,4 +309,15 @@ async function selectAgedCandidate(
  */
 function isRateLimitError(error: unknown): error is Error {
   return error instanceof Error && error.name === 'GitHubRateLimitError'
+}
+
+/**
+ * Check whether the walk may step past a candidate held back for a reason.
+ *
+ * @param reason - Why the candidate was held back.
+ * @returns True for a commit too recent or outside the history, which judges
+ *   the candidate itself; false for an answer that could not be established.
+ */
+function canStepPast(reason: CandidateHoldReason): boolean {
+  return reason === 'cool-down' || reason === 'unreachable-commit'
 }

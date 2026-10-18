@@ -1,9 +1,15 @@
+import type {
+  CompatibleUpdate,
+  HeldCandidate,
+} from '../api/get-compatible-update'
+import type { CandidateAssessment } from '../../types/candidate-assessment'
 import type { UpdatePlanStatus, UpdatePlan } from '../../types/update-plan'
-import type { CompatibleUpdate } from '../api/get-compatible-update'
 import type { ActionUpdate } from '../../types/action-update'
 import type { UpdateStyle } from '../../types/update-style'
+import type { HoldReason } from '../../types/hold-reason'
 import type { ScanResult } from '../../types/scan-result'
 import type { UpdateMode } from '../../types/update-mode'
+import type { TrustHold } from '../../types/trust-hold'
 
 import { resolveTargetReference } from '../updates/resolve-target-reference'
 import { parseVersionComment } from '../versions/parse-version-comment'
@@ -12,7 +18,9 @@ import { matchesAnyPattern } from '../filters/matches-any-pattern'
 import { getCompatibleUpdate } from '../api/get-compatible-update'
 import { createGitHubClient } from '../api/create-github-client'
 import { getRunnerUpdate } from '../runners/get-runner-update'
+import { parseTagFamily } from '../versions/parse-tag-family'
 import { getUpdateLevel } from '../versions/get-update-level'
+import { assessCandidate } from '../trust/assess-candidate'
 import { shouldIgnore } from '../ignore/should-ignore'
 import { checkUpdates } from '../api/check-updates'
 import { isSha } from '../versions/is-sha'
@@ -63,15 +71,38 @@ interface CreateUpdatePlanOptions {
 }
 
 /**
+ * Where the decision on an outdated update puts it.
+ */
+interface Decision {
+  /**
+   * List the update lands in: written, held back by the update mode, the
+   * cool-down or a trust check, or skipped because a check could not run.
+   */
+  kind: 'eligible' | 'skipped' | 'trust' | 'mode' | 'age'
+
+  /**
+   * For an update that stepped down past versions whose commit failed a trust
+   * check, the same update held back for that reason. It takes the place of the
+   * update when the older version turns out to change nothing.
+   */
+  heldForTrust?: ActionUpdate
+
+  /**
+   * The update, carrying what the decision learned about it.
+   */
+  update: ActionUpdate
+}
+
+/**
  * Milliseconds in a day, the unit of `minAge`.
  */
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * Plan the updates of the scanned entries: check them against GitHub, apply the
- * ignore comments, the downgrade guard, the update mode, the cool-down and the
- * update style, and sort every entry into what can be written and what was left
- * out.
+ * ignore comments, the downgrade guard, the update mode, the cool-down, the
+ * trust checks and the update style, and sort every entry into what can be
+ * written and what was left out.
  *
  * @param scanResult - Actions and runners a scan found.
  * @param options - Policy to apply.
@@ -174,18 +205,31 @@ export async function createUpdatePlan(
   /**
    * Block downgrades of SHA-pinned actions detected via inline comments.
    */
-  let { blocked: blockedAsDowngrade, kept } = filterDowngradeUpdates(outdated)
+  let { blocked, kept } = filterDowngradeUpdates(outdated)
+  let blockedAsDowngrade = blocked.map(update =>
+    holdUpdate(update, { holdReason: 'downgrade' }),
+  )
   outdated = kept
 
   /**
-   * Resolve the update mode and the release age cool-down together. An action
-   * held back by either constraint steps down to the newest release that clears
-   * both, and is reported as blocked only when no release does. Actions matched
-   * by `--min-age-exclude` skip the cool-down but still follow the update
-   * mode.
+   * Resolve the update mode, the release age cool-down and the trust checks
+   * together. Every version an update would write goes through
+   * `assessCandidate`. An action held back by the mode, the cool-down or a
+   * trust check steps down to the newest release that passes them all, and is
+   * reported as held back only when no release does. Actions matched by
+   * `--min-age-exclude` skip the cool-down but still follow the update mode,
+   * and no action skips the trust checks.
    */
   let minAgeMs = options.minAge * DAY_MS
   let now = Date.now()
+
+  /**
+   * Deduplicate the assessment of the latest version per repository, tag and
+   * commit, so an action used by many workflows, or several actions of one
+   * repository, share it. Whether the cool-down applies is part of the key,
+   * because the exemption depends on the action name.
+   */
+  let assessmentCache = new Map<string, Promise<CandidateAssessment>>()
 
   /**
    * Deduplicate the compatible lookup per action and version. The same blocked
@@ -198,7 +242,7 @@ export async function createUpdatePlan(
   let compatibleCache = new Map<string, Promise<CompatibleUpdate>>()
 
   let decisions = await Promise.all(
-    outdated.map(async update => {
+    outdated.map(async (update): Promise<Decision> => {
       /**
        * A commit SHA names no version, so a SHA pin is measured from its
        * version comment. Without one the update level is unknown and the minor
@@ -218,74 +262,187 @@ export async function createUpdatePlan(
         : ['patch', 'none']
         ).includes(level)
       let isAgeExempt = matchesAnyPattern(update.action.name, minAgeExcludes)
-      let allowedByAge =
-        isAgeExempt ||
-        !update.publishedAt ||
-        now - update.publishedAt.getTime() >= minAgeMs
+      let cooldown = !isAgeExempt && minAgeMs > 0 ? { minAgeMs, now } : null
 
-      if (allowedByMode && allowedByAge) {
-        return { blockedBy: null, update }
+      /**
+       * An outdated entry always has a latest version, and the update check
+       * finds one only for an `owner/repo` name.
+       */
+      let latestVersion = update.latestVersion!
+      let [owner, repository] = update.action.name.split('/') as [
+        string,
+        string,
+      ]
+
+      /**
+       * A SHA pin whose version comment names the latest tag records the commit
+       * that tag pointed at when the pin was written, so the assessment can
+       * tell whether the tag moved since.
+       */
+      let pinnedVersion = parseVersionComment(update.action.comment)
+      let pinnedSha =
+        (
+          pinnedVersion === latestVersion &&
+          isSha(update.currentVersion) &&
+          parseTagFamily(pinnedVersion)?.specificity === 3
+        ) ?
+          update.currentVersion
+        : null
+
+      /**
+       * The latest version is assessed only when the mode would let it be
+       * written. A verdict that could not be established ends the decision
+       * here: nothing is known against the version, so stepping down would
+       * offer an older one for no reason.
+       */
+      let latestAssessment: CandidateAssessment | null = null
+      if (allowedByMode) {
+        let assessmentKey = [
+          owner,
+          repository,
+          latestVersion,
+          update.latestSha,
+          pinnedSha,
+          cooldown ? 'cool-down' : 'no-cool-down',
+        ].join('@')
+        let pendingAssessment = assessmentCache.get(assessmentKey)
+        if (!pendingAssessment) {
+          pendingAssessment = assessCandidate(githubClient, {
+            release:
+              update.publishedAt ?
+                {
+                  immutable: update.immutableRelease === true,
+                  publishedAt: update.publishedAt,
+                }
+              : undefined,
+            sha: update.latestSha,
+            tag: latestVersion,
+            repo: repository,
+            pinnedSha,
+            cooldown,
+            owner,
+          })
+          assessmentCache.set(assessmentKey, pendingAssessment)
+        }
+        latestAssessment = await pendingAssessment
+
+        if (!latestAssessment.reason) {
+          return {
+            update: applyCandidate(update, {
+              assessment: latestAssessment,
+              version: latestVersion,
+              trustHolds: [],
+            }),
+            kind: 'eligible',
+          }
+        }
+
+        if (
+          ['reachability-unknown', 'sha-unresolved', 'no-commit'].includes(
+            latestAssessment.reason,
+          )
+        ) {
+          return {
+            update: skipUpdate(
+              update,
+              latestAssessment.reason === 'reachability-unknown' ?
+                'reachability-unknown'
+              : 'sha-unresolved',
+            ),
+            kind: 'skipped',
+          }
+        }
+
+        if (latestAssessment.reason === 'age-unknown') {
+          return {
+            update: holdUpdate(update, {
+              assessment: latestAssessment,
+              holdReason: 'age-unknown',
+            }),
+            kind: 'age',
+          }
+        }
       }
+
+      let latestHold: HeldCandidate | null =
+        latestAssessment?.reason ?
+          {
+            reason: latestAssessment.reason,
+            sha: latestAssessment.sha,
+            version: latestVersion,
+          }
+        : null
 
       let compatibleKey = [
         update.action.name,
         effectiveCurrentVersion,
-        update.latestVersion,
+        latestVersion,
       ].join('@')
-      let pending = compatibleCache.get(compatibleKey)
-      if (!pending) {
-        pending = getCompatibleUpdate(githubClient, {
+      let pendingWalk = compatibleCache.get(compatibleKey)
+      if (!pendingWalk) {
+        pendingWalk = getCompatibleUpdate(githubClient, {
           currentVersion: effectiveCurrentVersion,
-          minAgeMs: isAgeExempt ? 0 : minAgeMs,
-          latestVersion: update.latestVersion,
+          held: latestHold ? [latestHold] : [],
           actionName: update.action.name,
+          latestVersion,
+          cooldown,
           mode,
-          now,
         })
-        compatibleCache.set(compatibleKey, pending)
+        compatibleCache.set(compatibleKey, pendingWalk)
       }
-      let compatible = await pending
+      let compatible = await pendingWalk
 
-      if (!compatible.update) {
-        /**
-         * The cool-down owns the outcome whenever the mode itself had a
-         * candidate to offer, so the notice names the constraint that actually
-         * held the action back.
-         */
-        let blockedBy: 'mode' | 'age' =
-          allowedByMode || compatible.reason === 'cool-down' ? 'age' : 'mode'
-        return { blockedBy, update }
+      let held = latestHold ? [latestHold, ...compatible.held] : compatible.held
+      let trustHolds = collectTrustHolds(held)
+
+      if (compatible.selected) {
+        return {
+          update: {
+            ...applyCandidate(update, { ...compatible.selected, trustHolds }),
+            isBreaking:
+              getUpdateLevel(
+                effectiveCurrentVersion,
+                compatible.selected.version,
+              ) === 'major',
+          },
+          heldForTrust:
+            trustHolds.length > 0 ?
+              holdUpdate(update, {
+                holdReason: trustHolds[0]!.reason,
+                assessment: latestAssessment,
+                trustHolds,
+              })
+            : undefined,
+          kind: 'eligible',
+        }
       }
 
-      return {
-        update: {
-          ...update,
-          isBreaking:
-            getUpdateLevel(
-              effectiveCurrentVersion,
-              compatible.update.version,
-            ) === 'major',
-          publishedAt: compatible.update.publishedAt,
-          latestVersion: compatible.update.version,
-          latestSha: compatible.update.sha,
-          hasUpdate: true,
-        },
-        blockedBy: null,
-      }
+      return decideHeldUpdate(update, {
+        assessment: latestAssessment,
+        walkHeld: compatible.held,
+        latestHold,
+        trustHolds,
+      })
     }),
   )
 
+  let blockedByTrust: ActionUpdate[] = []
   let blockedByAge: ActionUpdate[] = []
   let blockedByMode: ActionUpdate[] = []
-  let eligible: ActionUpdate[] = []
+  let eligible: Decision[] = []
+
+  let lists: Record<Exclude<Decision['kind'], 'eligible'>, ActionUpdate[]> = {
+    trust: blockedByTrust,
+    mode: blockedByMode,
+    age: blockedByAge,
+    skipped,
+  }
 
   for (let decision of decisions) {
-    if (decision.blockedBy === 'age') {
-      blockedByAge.push(decision.update)
-    } else if (decision.blockedBy === 'mode') {
-      blockedByMode.push(decision.update)
+    if (decision.kind === 'eligible') {
+      eligible.push(decision)
     } else {
-      eligible.push(decision.update)
+      lists[decision.kind].push(decision.update)
     }
   }
 
@@ -294,8 +451,8 @@ export async function createUpdatePlan(
    * across files share one resolution.
    */
   let resolutionCache = new Map<string, Promise<ActionUpdate>>()
-  outdated = await Promise.all(
-    eligible.map(async update => {
+  let resolvedDecisions = await Promise.all(
+    eligible.map(async ({ heldForTrust, update }) => {
       let resolutionKey = [
         update.action.name,
         update.currentVersion,
@@ -313,30 +470,39 @@ export async function createUpdatePlan(
       }
       let resolved = await resolution
       return {
-        ...update,
-        targetRefRateLimited: resolved.targetRefRateLimited,
-        targetRefStyle: resolved.targetRefStyle,
-        targetRef: resolved.targetRef,
+        update: {
+          ...update,
+          targetRefRateLimited: resolved.targetRefRateLimited,
+          targetRefStyle: resolved.targetRefStyle,
+          targetRef: resolved.targetRef,
+        },
+        heldForTrust,
       }
     }),
   )
 
   /**
-   * Drop no-op updates whose resolved target matches the current reference.
+   * An update whose resolved target matches the current reference is a no-op
+   * and is dropped, and one whose target the style cannot express is skipped.
+   * An update that stepped down past a version whose commit failed a trust
+   * check is reported as held back for it instead: the newest version is what
+   * the run was asked about, and the finding must not vanish with the no-op.
    */
-  outdated = outdated.filter(
-    update => update.targetRef !== update.action.version,
-  )
-  let unresolvedByStyle = outdated
-    .filter(update => !update.targetRef)
-    .map(update => ({
-      ...update,
-      skipReason: 'unsupported-style' as const,
-      status: 'skipped' as const,
-      hasUpdate: false,
-    }))
-  skipped.push(...unresolvedByStyle)
-  outdated = outdated.filter(update => update.targetRef)
+  outdated = []
+  for (let { heldForTrust, update } of resolvedDecisions) {
+    if (update.targetRef && update.targetRef !== update.action.version) {
+      outdated.push(update)
+    } else if (heldForTrust) {
+      blockedByTrust.push(heldForTrust)
+    } else if (!update.targetRef) {
+      skipped.push({
+        ...update,
+        skipReason: 'unsupported-style',
+        status: 'skipped',
+        hasUpdate: false,
+      })
+    }
+  }
 
   /**
    * Runners join once every ref-specific stage is done, so they reach the
@@ -350,7 +516,11 @@ export async function createUpdatePlan(
   if (mode === 'major') {
     runners = filteredRunners
   } else {
-    blockedByMode.push(...filteredRunners)
+    blockedByMode.push(
+      ...filteredRunners.map(runner =>
+        holdUpdate(runner, { holdReason: 'mode' }),
+      ),
+    )
   }
 
   return {
@@ -361,10 +531,153 @@ export async function createUpdatePlan(
     actionsChecked: actionsToCheck.length,
     blockedAsDowngrade,
     updates: outdated,
+    blockedByTrust,
     blockedByMode,
     blockedByAge,
     skipped,
     runners,
+  }
+}
+
+/**
+ * Decide where an update goes when neither its latest version nor any older one
+ * it could step down to passed every check.
+ *
+ * A commit that failed a trust check outranks everything else, since it means
+ * the repository needs a look before any version of it is taken. Then the
+ * cool-down of the latest version, then a check of an older version that could
+ * not run, then the cool-down of the older versions. Only an update none of
+ * that held back was held back by the mode alone.
+ *
+ * @param update - Outdated update.
+ * @param outcome - What the assessment of the latest version and the walk
+ *   found.
+ * @param outcome.assessment - Assessment of the latest version, null when the
+ *   mode did not allow it.
+ * @param outcome.latestHold - The latest version, when it was held back.
+ * @param outcome.walkHeld - Older versions held back, newest first, ending with
+ *   the one that stopped the walk.
+ * @param outcome.trustHolds - Versions whose commit failed a trust check.
+ * @returns The decision.
+ */
+function decideHeldUpdate(
+  update: ActionUpdate,
+  outcome: {
+    assessment: CandidateAssessment | null
+    latestHold: HeldCandidate | null
+    walkHeld: HeldCandidate[]
+    trustHolds: TrustHold[]
+  },
+): Decision {
+  let { assessment, latestHold, trustHolds, walkHeld } = outcome
+
+  if (trustHolds.length > 0) {
+    return {
+      update: holdUpdate(update, {
+        holdReason: trustHolds[0]!.reason,
+        assessment,
+        trustHolds,
+      }),
+      kind: 'trust',
+    }
+  }
+
+  if (latestHold) {
+    return {
+      update: holdUpdate(update, { holdReason: 'cool-down', assessment }),
+      kind: 'age',
+    }
+  }
+
+  let stop = walkHeld.at(-1)
+
+  if (
+    stop?.reason === 'sha-unresolved' ||
+    stop?.reason === 'reachability-unknown'
+  ) {
+    return { update: skipUpdate(update, stop.reason), kind: 'skipped' }
+  }
+
+  if (stop) {
+    return {
+      update: holdUpdate(update, {
+        holdReason: stop.reason === 'age-unknown' ? 'age-unknown' : 'cool-down',
+      }),
+      kind: 'age',
+    }
+  }
+
+  return { update: holdUpdate(update, { holdReason: 'mode' }), kind: 'mode' }
+}
+
+/**
+ * Mark an update as held back, with what was learned about its latest version.
+ *
+ * @param update - Update to hold back.
+ * @param hold - Why, and what is known.
+ * @param hold.holdReason - Why the update is held back.
+ * @param hold.assessment - Assessment of the latest version, when it was
+ *   assessed.
+ * @param hold.trustHolds - Versions whose commit failed a trust check.
+ * @returns The held-back update.
+ */
+function holdUpdate(
+  update: ActionUpdate,
+  hold: {
+    assessment?: CandidateAssessment | null
+    trustHolds?: TrustHold[]
+    holdReason: HoldReason
+  },
+): ActionUpdate {
+  let { assessment, trustHolds, holdReason } = hold
+  let held: ActionUpdate = { ...update, holdReason }
+
+  if (assessment) {
+    held.immutableRelease = assessment.immutableRelease ?? undefined
+    held.effectiveDate = assessment.effectiveDate
+    held.publishedAt = assessment.publishedAt
+    held.ageSource = assessment.ageSource
+  }
+
+  if (trustHolds) {
+    held.trustHolds = trustHolds
+  }
+
+  return held
+}
+
+/**
+ * Point an update at a version that passed every check, with what its
+ * assessment learned about it.
+ *
+ * @param update - Outdated update.
+ * @param candidate - The version and its assessment.
+ * @param candidate.assessment - Assessment that let the version through.
+ * @param candidate.version - Tag of the version.
+ * @param candidate.trustHolds - Newer versions passed over because their commit
+ *   failed a trust check.
+ * @returns The update aimed at the version.
+ */
+function applyCandidate(
+  update: ActionUpdate,
+  candidate: {
+    assessment: CandidateAssessment
+    trustHolds: TrustHold[]
+    version: string
+  },
+): ActionUpdate {
+  let { assessment, trustHolds, version } = candidate
+
+  return {
+    ...update,
+    immutableRelease: assessment.immutableRelease ?? undefined,
+    effectiveDate: assessment.effectiveDate,
+    publishedAt: assessment.publishedAt,
+    ageSource: assessment.ageSource,
+    latestSha: assessment.sha,
+    latestVersion: version,
+    hasUpdate: true,
+    trustHolds,
   }
 }
 
@@ -392,6 +705,24 @@ async function dropIgnoredUpdates(
 }
 
 /**
+ * Take the versions whose commit failed a trust check out of the held ones.
+ *
+ * @param held - Versions held back, newest first.
+ * @returns The trust holds, newest first.
+ */
+function collectTrustHolds(held: HeldCandidate[]): TrustHold[] {
+  let trustHolds: TrustHold[] = []
+
+  for (let { version, reason, sha } of held) {
+    if (sha && (reason === 'tag-moved' || reason === 'unreachable-commit')) {
+      trustHolds.push({ version, reason, sha })
+    }
+  }
+
+  return trustHolds
+}
+
+/**
  * Create a plan that holds no entries at all.
  *
  * @param status - Why the plan holds nothing.
@@ -400,6 +731,7 @@ async function dropIgnoredUpdates(
 function createEmptyPlan(status: UpdatePlanStatus): UpdatePlan {
   return {
     blockedAsDowngrade: [],
+    blockedByTrust: [],
     actionsChecked: 0,
     blockedByMode: [],
     blockedByAge: [],
@@ -408,4 +740,18 @@ function createEmptyPlan(status: UpdatePlanStatus): UpdatePlan {
     runners: [],
     status,
   }
+}
+
+/**
+ * Mark an update as skipped because a check it needed could not run.
+ *
+ * @param update - Update to skip.
+ * @param skipReason - Which check could not run.
+ * @returns The skipped update.
+ */
+function skipUpdate(
+  update: ActionUpdate,
+  skipReason: 'reachability-unknown' | 'sha-unresolved',
+): ActionUpdate {
+  return { ...update, status: 'skipped', hasUpdate: false, skipReason }
 }

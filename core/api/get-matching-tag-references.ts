@@ -9,17 +9,20 @@ import { makeRequest } from './make-request'
  *
  * Unlike the tags listing, this endpoint filters server-side and returns the
  * whole matching set in one response, so a tag family stays reachable in
- * repositories where it would otherwise fall outside the first page.
+ * repositories where it would otherwise fall outside the first page. The prefix
+ * is sent percent-encoded, since Git allows `#` and `%` in a tag name, which
+ * would end the path or turn into other characters on the way.
  *
  * An annotated tag reports the SHA of its tag object rather than of the commit
  * it points at, so those entries carry a null SHA and leave dereferencing to
  * the callers that already handle it.
  *
  * The endpoint answers an existing repository with an empty list when no tag
- * matches, so a 404 means the repository itself is missing or hidden from the
- * current credentials. Reading it as an empty family would report a missing
- * repository as a tag family without members, so it reaches the caller instead.
- * Any other failure is read as no matching tags.
+ * matches, so only a successful answer is read as the family. A 404 means the
+ * repository itself is missing or hidden from the current credentials, and any
+ * other failure leaves the family unknown. Both reach the caller instead of
+ * passing for a tag family without members, and only the 404 is remembered for
+ * the rest of the run, so a later lookup asks again after a server error.
  *
  * @param context - Client context.
  * @param parameters - Request parameters.
@@ -28,7 +31,8 @@ import { makeRequest } from './make-request'
  * @param parameters.prefix - Tag name prefix to match.
  * @returns Matching tags, or an empty array when nothing matches.
  * @throws GitHubRateLimitError - When the request was rate limited.
- * @throws Error - When the repository was not found, with status 404.
+ * @throws Error - When the request failed for any other reason; with status 404
+ *   when the repository was not found.
  */
 export async function getMatchingTagReferences(
   context: GitHubClientContext,
@@ -44,7 +48,7 @@ export async function getMatchingTagReferences(
   try {
     let response = await makeRequest(
       context,
-      `/repos/${owner}/${repo}/git/matching-refs/tags/${prefix}`,
+      `/repos/${owner}/${repo}/git/matching-refs/tags/${encodeURIComponent(prefix)}`,
     )
     let references = response.data as {
       object: { type: 'commit' | 'tag'; sha: string }
@@ -54,8 +58,6 @@ export async function getMatchingTagReferences(
     let tags = references.map(reference => ({
       sha: reference.object.type === 'commit' ? reference.object.sha : null,
       tag: reference.ref.replace(/^refs\/tags\//u, ''),
-      message: null,
-      date: null,
     }))
 
     context.caches.matchingReferences.set(cacheKey, tags)
@@ -64,15 +66,6 @@ export async function getMatchingTagReferences(
     if (error instanceof Error && error.message.includes('rate limit')) {
       throw new GitHubRateLimitError(context.rateLimitReset)
     }
-    if (
-      error &&
-      typeof error === 'object' &&
-      'status' in error &&
-      (error as { status: number }).status === 404
-    ) {
-      throw error
-    }
-    context.caches.matchingReferences.set(cacheKey, [])
-    return []
+    throw error
   }
 }

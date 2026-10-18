@@ -1,16 +1,24 @@
 import type { GitHubAction } from './github-action'
+import type { HoldReason } from './hold-reason'
+import type { AgeSource } from './age-source'
+import type { TrustHold } from './trust-hold'
 
 /**
  * Update information for a GitHub Action.
  */
 export interface ActionUpdate {
   /**
-   * Reason for skipping the update check.
+   * Reason for skipping the update check. `sha-unresolved` means the commit the
+   * tag of the latest version points at could not be read, and
+   * `reachability-unknown` that the history of its repository could not be
+   * checked; neither falls back to another commit.
    */
   skipReason?:
+    | 'reachability-unknown'
     | 'ref-type-unavailable'
     | 'unsupported-style'
     | 'not-comparable'
+    | 'sha-unresolved'
     | 'check-failed'
     | 'tag-family'
     | 'not-found'
@@ -39,9 +47,32 @@ export interface ActionUpdate {
   currentVersion: string | null
 
   /**
+   * Where `effectiveDate` came from: `release` for the publication of the
+   * release of the latest version, `branch` for the recorded history of the
+   * branch that holds its commit.
+   */
+  ageSource?: AgeSource | null
+
+  /**
    * Latest available version.
    */
   latestVersion: string | null
+
+  /**
+   * Moment from which GitHub's own records show the commit of the latest
+   * version public: the publication of its immutable release, or the update of
+   * the branch that holds the commit which left a tip containing it. For an
+   * update held back by a recent release, its publication date. Null when the
+   * cool-down did not apply or no such moment was established. The dates
+   * written into commits and tags are never used.
+   */
+  effectiveDate?: Date | null
+
+  /**
+   * Whether the latest version has an immutable release, whose tag cannot have
+   * been moved since it was published; absent when the release was not read.
+   */
+  immutableRelease?: boolean
 
   /**
    * Status of the check for this action.
@@ -54,14 +85,28 @@ export interface ActionUpdate {
   targetRef?: string | null
 
   /**
-   * SHA hash of the latest version.
+   * Tags held back because their commit failed a trust check, newest first: on
+   * an update held back for that reason, and on an update that stepped down
+   * past them to an older version.
+   */
+  trustHolds?: TrustHold[]
+
+  /**
+   * Commit the tag of the latest version points at, read from the tag
+   * reference.
    */
   latestSha: string | null
 
   /**
-   * Publication date of the latest version (null if unknown).
+   * Publication date of the release of the latest version, null when it has
+   * none or it was not looked up.
    */
   publishedAt: Date | null
+
+  /**
+   * Why the update was held back, on the updates a plan holds back.
+   */
+  holdReason?: HoldReason
 
   /**
    * The original action from scanning.

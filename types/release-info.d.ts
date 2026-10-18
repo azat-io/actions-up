@@ -8,19 +8,20 @@ export interface ReleaseInfo {
   description: string | null
 
   /**
+   * Publication date of the release, null when GitHub sent one that cannot be
+   * read.
+   */
+  publishedAt: Date | null
+
+  /**
    * True when the release is marked as prerelease.
    */
   isPrerelease: boolean
 
   /**
-   * Commit SHA associated with the release tag when known (may be provisional).
+   * True when the release is immutable, so its tag cannot be moved or deleted.
    */
-  sha: string | null
-
-  /**
-   * Publication date of the release.
-   */
-  publishedAt: Date
+  immutable: boolean
 
   /**
    * Tag name (e.g. V1.2.3).

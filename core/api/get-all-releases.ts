@@ -3,16 +3,15 @@ import type { GitHubReleasePayload } from './normalize-release'
 import type { ReleaseInfo } from '../../types/release-info'
 
 import { GitHubRateLimitError } from './internal-rate-limit-error'
-import { isCommitSha } from '../versions/is-commit-sha'
 import { normalizeRelease } from './normalize-release'
 import { makeRequest } from './make-request'
 
 /**
- * Fetch releases for a repository.
+ * Fetch the published releases of a repository.
  *
- * Resolves SHA only for the first returned release via target_commitish when it
- * looks like a SHA; callers can resolve the tag via git refs later when
- * pinning.
+ * A token with push access also sees draft releases. A draft has no publication
+ * date, and the cool-down has no date to measure it by, nor is it a release
+ * anyone can depend on yet, so drafts are left out.
  *
  * @param context - Client context.
  * @param parameters - Request parameters.
@@ -31,24 +30,17 @@ export async function getAllReleases(
       context,
       `/repos/${owner}/${repo}/releases?per_page=${limit}`,
     )
-    let releases = releasesResp.data as GitHubReleasePayload[]
+    let releases = releasesResp.data as (Omit<
+      GitHubReleasePayload,
+      'published_at'
+    > & { published_at: string | null })[]
 
-    let releaseInfos: ReleaseInfo[] = []
-    let i = 0
-    for (let release of releases) {
-      let sha: string | null = null
-      if (i === 0 && release.tag_name) {
-        sha =
-          isCommitSha(release.target_commitish) ?
-            release.target_commitish
-          : null
-      }
-
-      releaseInfos.push(normalizeRelease(release, sha))
-      i++
-    }
-
-    return releaseInfos
+    return releases
+      .filter(
+        (release): release is GitHubReleasePayload =>
+          release.published_at !== null,
+      )
+      .map(release => normalizeRelease(release))
   } catch (error) {
     if (error instanceof Error && error.message.includes('rate limit')) {
       throw new GitHubRateLimitError(context.rateLimitReset)

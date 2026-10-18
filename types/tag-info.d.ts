@@ -1,21 +1,13 @@
 /**
- * Normalized tag information (message/date) and the resolved commit SHA.
+ * Tag as a tag listing names it: its name and the commit it points at.
  */
 export interface TagInfo {
   /**
-   * Tag or commit message, null when absent.
-   */
-  message: string | null
-
-  /**
-   * Commit SHA the tag ultimately points to (may be null).
+   * Commit the tag points at, as GitHub derives it from the tag reference; null
+   * for an annotated tag listed by name prefix, which names its tag object
+   * instead.
    */
   sha: string | null
-
-  /**
-   * Date associated with the tag (from release, tagger or commit).
-   */
-  date: Date | null
 
   /**
    * Tag name (e.g. V1.2.3).

@@ -12,13 +12,20 @@ export interface UpdatePlan {
   blockedAsDowngrade: ActionUpdate[]
 
   /**
+   * Updates held back because the commit their tag points at failed a trust
+   * check, each with the tags in `trustHolds`.
+   */
+  blockedByTrust: ActionUpdate[]
+
+  /**
    * Updates the update mode held back. Outside the major mode this includes
    * every runner update, since moving to a newer image is a major change.
    */
   blockedByMode: ActionUpdate[]
 
   /**
-   * Updates the release age cool-down held back.
+   * Updates the release age cool-down held back, including those whose date
+   * could not be established.
    */
   blockedByAge: ActionUpdate[]
 

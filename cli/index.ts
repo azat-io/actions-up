@@ -16,6 +16,7 @@ import { scanRepository } from '../core/plan/scan-repository'
 import { printSkippedWarning } from './print-skipped-warning'
 import { printMinAgeWarning } from './print-min-age-warning'
 import { validateCliOptions } from './validate-cli-options'
+import { printTrustWarning } from './print-trust-warning'
 import { printModeWarning } from './print-mode-warning'
 import { colors } from '../core/interactive/colors'
 import { parseArguments } from './parse-arguments'
@@ -30,6 +31,11 @@ interface WriteJsonReportOptions {
    * Updates held back as downgrades of SHA pins.
    */
   blockedAsDowngrade?: ActionUpdate[]
+
+  /**
+   * Updates held back because their commit failed a trust check.
+   */
+  blockedByTrust?: ActionUpdate[]
 
   /**
    * Updates excluded by the selected update mode.
@@ -120,6 +126,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
      */
     function writeJsonReport({
       blockedAsDowngrade = [],
+      blockedByTrust = [],
       actionsToCheckCount,
       blockedByMode = [],
       blockedByAge = [],
@@ -137,6 +144,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             actionsToCheckCount,
             blockedAsDowngrade,
             includeBranches,
+            blockedByTrust,
             blockedByMode,
             blockedByAge,
             directories,
@@ -249,7 +257,13 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       return
     }
 
-    let { blockedAsDowngrade, blockedByMode, blockedByAge, skipped } = plan
+    let {
+      blockedAsDowngrade,
+      blockedByTrust,
+      blockedByMode,
+      blockedByAge,
+      skipped,
+    } = plan
 
     /**
      * Runners reach the preview, the prompt and the writer exactly like an
@@ -266,28 +280,39 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     )
 
     /**
+     * Entries carrying tags that failed a trust check: the ones held back for
+     * it, and the ones that stepped down past such a tag.
+     */
+    let trustEntries = [
+      ...blockedByTrust,
+      ...outdated.filter(update => update.trustHolds?.length),
+    ]
+
+    /**
      * Print a notice for every group of entries that was skipped, held back or
-     * pinned to a fallback reference, unless quiet output was requested.
+     * pinned to a fallback reference, unless quiet output was requested. Tags
+     * that failed a trust check are reported last and even then, since they
+     * call for a look at the repository before anything else.
      */
     function printWarnings(): void {
-      if (quiet) {
-        return
+      if (!quiet) {
+        if (skipped.length > 0) {
+          printSkippedWarning(skipped, includeBranches, style)
+        }
+        if (blockedByMode.length > 0) {
+          printModeWarning(blockedByMode, mode)
+        }
+        if (blockedByAge.length > 0) {
+          printMinAgeWarning(blockedByAge, options.minAge)
+        }
+        if (blockedAsDowngrade.length > 0) {
+          printDowngradeWarning(blockedAsDowngrade, preferTags)
+        }
+        if (rateLimitedFallbacks.length > 0) {
+          printRateLimitWarning(rateLimitedFallbacks)
+        }
       }
-      if (skipped.length > 0) {
-        printSkippedWarning(skipped, includeBranches, style)
-      }
-      if (blockedByMode.length > 0) {
-        printModeWarning(blockedByMode, mode)
-      }
-      if (blockedByAge.length > 0) {
-        printMinAgeWarning(blockedByAge, options.minAge)
-      }
-      if (blockedAsDowngrade.length > 0) {
-        printDowngradeWarning(blockedAsDowngrade, preferTags)
-      }
-      if (rateLimitedFallbacks.length > 0) {
-        printRateLimitWarning(rateLimitedFallbacks)
-      }
+      printTrustWarning(trustEntries)
     }
 
     if (outdated.length === 0) {
@@ -297,16 +322,20 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           actionsToCheckCount: plan.actionsChecked,
           status: 'up-to-date',
           blockedAsDowngrade,
+          blockedByTrust,
           blockedByMode,
           blockedByAge,
           skipped,
         })
+        printTrustWarning(trustEntries)
         return
       }
       printWarnings()
-      console.info(
-        colors.green('\n✨ Everything is already at the latest version!\n'),
-      )
+      if (trustEntries.length === 0) {
+        console.info(
+          colors.green('\n✨ Everything is already at the latest version!\n'),
+        )
+      }
       return
     }
 
@@ -329,11 +358,13 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         actionsToCheckCount: plan.actionsChecked,
         status: 'updates-available',
         blockedAsDowngrade,
+        blockedByTrust,
         blockedByMode,
         blockedByAge,
         outdated,
         skipped,
       })
+      printTrustWarning(trustEntries)
       return
     }
 
@@ -381,12 +412,13 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       requested = outdated
     } else {
       if (
-        !quiet &&
-        (skipped.length > 0 ||
-          blockedByMode.length > 0 ||
-          blockedByAge.length > 0 ||
-          blockedAsDowngrade.length > 0 ||
-          rateLimitedFallbacks.length > 0)
+        (!quiet &&
+          (skipped.length > 0 ||
+            blockedByMode.length > 0 ||
+            blockedByAge.length > 0 ||
+            blockedAsDowngrade.length > 0 ||
+            rateLimitedFallbacks.length > 0)) ||
+        trustEntries.length > 0
       ) {
         console.info('')
       }

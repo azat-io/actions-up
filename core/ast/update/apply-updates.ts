@@ -94,8 +94,8 @@ const AFTER_VALUE = /^(?<after>[\t ,\]{}]*)(?<comment>#[^\n\r]*)?/u
  * @param updates - Array of updates to apply.
  * @returns Updates that were meant to be written but were not, in the given
  *   order: the reference was no longer found where the scan reported it, or the
- *   update named no file or no valid target. Skipped entries are never written
- *   and never reported.
+ *   update named no file or no valid target. Skipped and held-back entries are
+ *   never written and never reported.
  */
 export async function applyUpdates(
   updates: ActionUpdate[],
@@ -107,9 +107,11 @@ export async function applyUpdates(
     /**
      * Skipped entries carry lookup data (including `latestSha`) that must never
      * be written back, so they are dropped before the fallback chain below can
-     * turn that data into a reference.
+     * turn that data into a reference. So are the entries a plan held back:
+     * their `latestSha` is the very commit they were held back for, such as the
+     * target of a moved tag.
      */
-    if (update.status === 'skipped') {
+    if (update.status === 'skipped' || update.holdReason !== undefined) {
       continue
     }
 

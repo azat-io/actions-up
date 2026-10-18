@@ -16,8 +16,6 @@ export function makeTagInfo(
 ): TagInfo {
   return {
     sha: '8f152de45cc393bb48ce5d89d36b731f54556e65',
-    message: null,
-    date: null,
     tag,
     ...overrides,
   }

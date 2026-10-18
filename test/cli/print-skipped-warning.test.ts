@@ -179,6 +179,30 @@ describe('printSkippedWarning', () => {
       description: 'failed update checks',
       style: 'sha' as const,
     },
+    {
+      expectedText:
+        '\n⚠️  Skipped 1 action whose tag could not be resolved to a commit (missing tag or failed GitHub API request)\n' +
+        '   • actions/setup-go@v5',
+      skipped: makeSkipped({
+        skipReason: 'sha-unresolved',
+        name: 'actions/setup-go',
+        version: 'v5',
+      }),
+      description: 'tags that could not be resolved to a commit',
+      style: 'sha' as const,
+    },
+    {
+      expectedText:
+        '\n⚠️  Skipped 1 action whose commit could not be checked against the repository history (failed GitHub API request or too many protected branches)\n' +
+        '   • actions/setup-go@v5',
+      skipped: makeSkipped({
+        skipReason: 'reachability-unknown',
+        name: 'actions/setup-go',
+        version: 'v5',
+      }),
+      description: 'commits that could not be checked against the history',
+      style: 'sha' as const,
+    },
   ])(
     'reports $description under a dedicated header',
     ({ expectedText, skipped, style }) => {

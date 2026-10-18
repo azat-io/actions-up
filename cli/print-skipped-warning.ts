@@ -41,6 +41,12 @@ export function printSkippedWarning(
   let checkFailedSkipped = skipped.filter(
     update => update.skipReason === 'check-failed',
   )
+  let shaUnresolvedSkipped = skipped.filter(
+    update => update.skipReason === 'sha-unresolved',
+  )
+  let reachabilityUnknownSkipped = skipped.filter(
+    update => update.skipReason === 'reachability-unknown',
+  )
 
   /**
    * Every reason without a dedicated group still has to reach the user, so a
@@ -48,9 +54,11 @@ export function printSkippedWarning(
    * disappearing from the output.
    */
   let groupedReasons = new Set([
+    'reachability-unknown',
     'ref-type-unavailable',
     'unsupported-style',
     'not-comparable',
+    'sha-unresolved',
     'check-failed',
     'tag-family',
     'not-found',
@@ -110,6 +118,20 @@ export function printSkippedWarning(
     printSkippedGroup(
       checkFailedSkipped,
       'whose update check failed (see warnings above)',
+    )
+  }
+
+  if (shaUnresolvedSkipped.length > 0) {
+    printSkippedGroup(
+      shaUnresolvedSkipped,
+      'whose tag could not be resolved to a commit (missing tag or failed GitHub API request)',
+    )
+  }
+
+  if (reachabilityUnknownSkipped.length > 0) {
+    printSkippedGroup(
+      reachabilityUnknownSkipped,
+      'whose commit could not be checked against the repository history (failed GitHub API request or too many protected branches)',
     )
   }
 

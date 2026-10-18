@@ -13,9 +13,14 @@ import type { GitHubClient } from '../../../types/github-client'
 import type { ReleaseInfo } from '../../../types/release-info'
 
 import {
+  makeComparisonPayload,
+  makeRepositoryPayload,
   makeReferencePayload,
   makeTagListingEntry,
   makeReleasePayload,
+  makeBranchPayload,
+  branchUpdatesPage,
+  makeBranchUpdate,
   rateLimitHeaders,
   routeFetch,
   ok,
@@ -61,8 +66,8 @@ function makeReleaseInfo(): ReleaseInfo {
     description: RELEASE_NOTES,
     isPrerelease: false,
     version: 'v4.2.2',
+    immutable: false,
     url: RELEASE_URL,
-    sha: COMMIT_SHA,
     name: 'v4.2.2',
   }
 }
@@ -178,7 +183,7 @@ describe('createGitHubClient', () => {
       },
       call: (client: GitHubClient) =>
         client.getAllTags('actions', 'checkout', 50),
-      expected: [{ sha: COMMIT_SHA, tag: 'v4.2.2', message: null, date: null }],
+      expected: [{ sha: COMMIT_SHA, tag: 'v4.2.2' }],
       method: 'getAllTags',
     },
     {
@@ -189,7 +194,7 @@ describe('createGitHubClient', () => {
       },
       call: (client: GitHubClient) =>
         client.getMatchingTagReferences('actions', 'checkout', 'v4.2'),
-      expected: [{ sha: COMMIT_SHA, tag: 'v4.2.2', message: null, date: null }],
+      expected: [{ sha: COMMIT_SHA, tag: 'v4.2.2' }],
       method: 'getMatchingTagReferences',
     },
     {
@@ -214,19 +219,68 @@ describe('createGitHubClient', () => {
       method: 'getTagSha',
     },
     {
-      expected: {
-        date: new Date('2024-10-23T14:46:00Z'),
-        message: RELEASE_NOTES,
-        sha: COMMIT_SHA,
-        tag: 'v4.2.2',
-      },
+      call: (client: GitHubClient) =>
+        client.getReleaseByTag('actions', 'checkout', 'v4.2.2'),
       routes: {
         '/repos/actions/checkout/releases/tags/v4.2.2': ok(makeRelease()),
-        [TAG_REFERENCE_PATH]: ok(makeTagReference()),
+      },
+      expected: makeReleaseInfo(),
+      method: 'getReleaseByTag',
+    },
+    {
+      routes: {
+        [`/repos/actions/checkout/compare/${encodeURIComponent('refs/heads/main')}...${COMMIT_SHA}`]:
+          ok(makeComparisonPayload('behind')),
       },
       call: (client: GitHubClient) =>
-        client.getTagInfo('actions', 'checkout', 'v4.2.2'),
-      method: 'getTagInfo',
+        client.compareCommits('actions', 'checkout', {
+          base: 'refs/heads/main',
+          head: COMMIT_SHA,
+        }),
+      method: 'compareCommits',
+      expected: 'behind',
+    },
+    {
+      routes: {
+        [`/repos/actions/checkout/activity?ref=${encodeURIComponent('refs/heads/main')}&direction=desc&per_page=100`]:
+          branchUpdatesPage([
+            makeBranchUpdate({
+              timestamp: '2024-10-23T14:30:00Z',
+              before: 'a'.repeat(40),
+              after: COMMIT_SHA,
+            }),
+          ]),
+      },
+      call: (client: GitHubClient) =>
+        client.getBranchTipAt('actions', 'checkout', {
+          at: new Date('2024-10-24T00:00:00Z'),
+          branch: 'main',
+        }),
+      expected: {
+        since: new Date('2024-10-23T14:30:00Z'),
+        sha: COMMIT_SHA,
+      },
+      method: 'getBranchTipAt',
+    },
+    {
+      routes: {
+        '/repos/actions/checkout/branches?protected=true&per_page=100': ok([
+          makeBranchPayload('main', COMMIT_SHA),
+        ]),
+      },
+      call: (client: GitHubClient) =>
+        client.getProtectedBranches('actions', 'checkout'),
+      expected: [{ sha: COMMIT_SHA, name: 'main' }],
+      method: 'getProtectedBranches',
+    },
+    {
+      routes: {
+        '/repos/actions/checkout': ok(makeRepositoryPayload('main')),
+      },
+      call: (client: GitHubClient) =>
+        client.getDefaultBranch('actions', 'checkout'),
+      method: 'getDefaultBranch',
+      expected: 'main',
     },
   ])(
     'answers $method from the GitHub API',

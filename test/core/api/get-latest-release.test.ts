@@ -23,7 +23,7 @@ describe('getLatestRelease', () => {
     vi.restoreAllMocks()
   })
 
-  it('returns the latest release normalized, with the commit SHA it was cut from', async () => {
+  it('returns the latest release normalized, without a commit from its target', async () => {
     routeFetch({
       [LATEST_RELEASE_PATH]: ok(
         makeReleasePayload({
@@ -34,6 +34,7 @@ describe('getLatestRelease', () => {
           name: 'Release v4.2.2',
           tag_name: 'v4.2.2',
           prerelease: false,
+          immutable: true,
         }),
       ),
     })
@@ -51,24 +52,8 @@ describe('getLatestRelease', () => {
       name: 'Release v4.2.2',
       isPrerelease: false,
       version: 'v4.2.2',
-      sha: TARGET_SHA,
+      immutable: true,
     })
-  })
-
-  it('does not mistake a v-prefixed, digit-only release target for a commit SHA', async () => {
-    routeFetch({
-      [LATEST_RELEASE_PATH]: ok(
-        makeReleasePayload({ target_commitish: 'v20240101' }),
-      ),
-    })
-
-    let release = await getLatestRelease(
-      createClientContext(),
-      'actions',
-      'checkout',
-    )
-
-    expect(release?.sha).toBeNull()
   })
 
   it('returns null when the repository has no latest release', async () => {

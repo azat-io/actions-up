@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ActionUpdate } from '../../../types/action-update'
 import type { GitHubAction } from '../../../types/github-action'
+import type { GitHubClient } from '../../../types/github-client'
 import type { ScanResult } from '../../../types/scan-result'
 
 import { createGitHubClient } from '../../../core/api/create-github-client'
@@ -34,6 +35,8 @@ const RELEASED_LONG_AGO = '2026-08-01T00:00:00.000Z'
 const RELEASED_AN_HOUR_AGO = '2026-10-03T11:00:00.000Z'
 
 const LATEST_SHA = 'b4ffde65f46336ab88eb53be808477a3936bae11'
+
+const ON_BRANCH_SINCE = '2026-07-15T00:00:00.000Z'
 
 const WORKFLOW_FILE = '/repo/.github/workflows/ci.yml'
 
@@ -86,6 +89,24 @@ function makeUpdate(
 }
 
 /**
+ * Client of repositories whose default branch holds every commit, and held it
+ * long before any cool-down of the tests started.
+ *
+ * @returns Mocked client.
+ */
+function createClientOfReachableCommits(): GitHubClient {
+  return createMockClient({
+    getBranchTipAt: vi.fn<GitHubClient['getBranchTipAt']>().mockResolvedValue({
+      sha: 'f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a',
+      since: new Date(ON_BRANCH_SINCE),
+    }),
+    compareCommits: vi
+      .fn<GitHubClient['compareCommits']>()
+      .mockResolvedValue('behind'),
+  })
+}
+
+/**
  * Action reference as the scanner reports it.
  *
  * @param overrides - Fields to replace.
@@ -124,7 +145,9 @@ describe('planUpdates', () => {
     vi.spyOn(process, 'cwd').mockReturnValue('/repo')
     vi.mocked(findRepositoryRoot).mockResolvedValue('/repo')
     vi.mocked(shouldIgnore).mockResolvedValue(false)
-    vi.mocked(createGitHubClient).mockReturnValue(createMockClient())
+    vi.mocked(createGitHubClient).mockReturnValue(
+      createClientOfReachableCommits(),
+    )
   })
 
   afterEach(() => {
@@ -142,13 +165,18 @@ describe('planUpdates', () => {
       updates: [
         {
           ...makeUpdate(action),
+          effectiveDate: new Date(ON_BRANCH_SINCE),
           targetRefRateLimited: undefined,
+          immutableRelease: false,
           targetRefStyle: 'sha',
           targetRef: LATEST_SHA,
+          ageSource: 'branch',
+          trustHolds: [],
         },
       ],
       status: 'updates-available',
       blockedAsDowngrade: [],
+      blockedByTrust: [],
       blockedByMode: [],
       actionsChecked: 1,
       blockedByAge: [],
@@ -177,7 +205,7 @@ describe('planUpdates', () => {
     let plan = await planUpdates()
 
     expect(plan).toMatchObject({
-      blockedByAge: [update],
+      blockedByAge: [{ ...update, holdReason: 'cool-down' }],
       status: 'up-to-date',
       updates: [],
     })
@@ -284,6 +312,7 @@ describe('planUpdates', () => {
     expect(plan).toStrictEqual({
       status: 'no-actions-found',
       blockedAsDowngrade: [],
+      blockedByTrust: [],
       blockedByMode: [],
       actionsChecked: 0,
       blockedByAge: [],

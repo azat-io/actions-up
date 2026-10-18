@@ -672,6 +672,24 @@ describe('applyUpdates', () => {
     expect(unwritten).toStrictEqual([update])
   })
 
+  it.each([
+    'tag-moved',
+    'unreachable-commit',
+    'cool-down',
+    'age-unknown',
+  ] as const)(
+    'never writes an update a plan held back as %s, nor reports it',
+    async holdReason => {
+      let original = workflowWithStep('      - uses: actions/checkout@v3')
+      let fileSystem = installFiles({ [workflowPath]: original })
+
+      let unwritten = await applyUpdates([createUpdate({ holdReason })])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(original)
+      expect(unwritten).toStrictEqual([])
+    },
+  )
+
   it('reports no skipped update, even one that records no file', async () => {
     let unwritten = await applyUpdates([
       createUpdate({ action: { file: undefined }, status: 'skipped' }),

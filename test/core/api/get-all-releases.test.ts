@@ -24,7 +24,7 @@ describe('getAllReleases', () => {
     vi.restoreAllMocks()
   })
 
-  it('returns the releases normalized, with the commit SHA of the newest one only', async () => {
+  it('returns the releases normalized, without commits from their targets', async () => {
     routeFetch({
       [RELEASES_PATH]: ok([
         makeReleasePayload({
@@ -59,9 +59,9 @@ describe('getAllReleases', () => {
         url: 'https://github.com/actions/checkout/releases/tag/v4.2.2',
         publishedAt: new Date('2024-10-23T14:46:00Z'),
         description: '* Fix checkout of tags',
-        sha: NEWEST_TARGET_SHA,
         isPrerelease: false,
         version: 'v4.2.2',
+        immutable: false,
         name: 'v4.2.2',
       },
       {
@@ -70,16 +70,17 @@ describe('getAllReleases', () => {
         isPrerelease: false,
         description: null,
         version: 'v4.2.1',
+        immutable: false,
         name: 'v4.2.1',
-        sha: null,
       },
     ])
   })
 
-  it('does not mistake a v-prefixed, digit-only target of the newest release for a commit SHA', async () => {
+  it('leaves out a draft release, which has no publication date yet', async () => {
     routeFetch({
       [RELEASES_PATH]: ok([
-        makeReleasePayload({ target_commitish: 'v20240101' }),
+        makeReleasePayload({ published_at: null, tag_name: 'v4.3.0' }),
+        makeReleasePayload({ tag_name: 'v4.2.2' }),
       ]),
     })
 
@@ -89,7 +90,7 @@ describe('getAllReleases', () => {
       limit: 2,
     })
 
-    expect(releases[0]?.sha).toBeNull()
+    expect(releases.map(release => release.version)).toStrictEqual(['v4.2.2'])
   })
 
   it('requests as many releases as the limit asks for', async () => {
