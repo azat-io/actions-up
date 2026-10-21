@@ -1,5 +1,68 @@
 # Changelog
 
+## v2.0.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v1.21.0...v2.0.0)
+
+### 🚀 Features
+
+- Replace picocolors with an internal colors module
+  ([b9da1c0](https://github.com/azat-io/actions-up/commit/b9da1c0))
+- Replace nanospinner with an internal spinner
+  ([2414951](https://github.com/azat-io/actions-up/commit/2414951))
+- Replace enquirer with an internal prompt
+  ([4f083e4](https://github.com/azat-io/actions-up/commit/4f083e4))
+- ⚠️ Require node 22.12 or newer
+  ([bcb1e14](https://github.com/azat-io/actions-up/commit/bcb1e14))
+- ⚠️ Share update policy between cli and programmatic api
+  ([131faf7](https://github.com/azat-io/actions-up/commit/131faf7))
+- ⚠️ Check the commit behind a tag before writing an update
+  ([9bc1593](https://github.com/azat-io/actions-up/commit/9bc1593))
+- Skip updates pinned by a workflow lockfile
+  ([a691479](https://github.com/azat-io/actions-up/commit/a691479))
+
+### 🐞 Bug Fixes
+
+- Pre-select safe updates and close the prompt on cancel
+  ([34c193b](https://github.com/azat-io/actions-up/commit/34c193b))
+- Hold back sha pins without a version comment in minor and patch modes
+  ([1a8e157](https://github.com/azat-io/actions-up/commit/1a8e157))
+- Keep commas inside regex patterns and reject an empty minimum age
+  ([cb785f2](https://github.com/azat-io/actions-up/commit/cb785f2))
+- Keep glued prerelease numbers on the tag version
+  ([d49c795](https://github.com/azat-io/actions-up/commit/d49c795))
+- Follow same-repo composite actions of repositories with dots in the name
+  ([9c1af87](https://github.com/azat-io/actions-up/commit/9c1af87))
+- Drop the trailing space left after a removed version comment
+  ([2816888](https://github.com/azat-io/actions-up/commit/2816888))
+- Update anchored action references and follow yaml aliases
+  ([b13d9a3](https://github.com/azat-io/actions-up/commit/b13d9a3))
+- Fill in action references in the json report
+  ([eb303b7](https://github.com/azat-io/actions-up/commit/eb303b7))
+- Keep updates in scan order after reading ignore comments
+  ([61dcf75](https://github.com/azat-io/actions-up/commit/61dcf75))
+- Accept tags containing @ in reusable workflow references
+  ([187b133](https://github.com/azat-io/actions-up/commit/187b133))
+- Ignore digits in the tag family name when comparing versions
+  ([188a62a](https://github.com/azat-io/actions-up/commit/188a62a))
+- Report actions whose repository was not found
+  ([c446c2c](https://github.com/azat-io/actions-up/commit/c446c2c))
+- Hold back moved tags of sha pins without the cool-down
+  ([30c6eff](https://github.com/azat-io/actions-up/commit/30c6eff))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️ Require node 22.12 or newer
+  ([bcb1e14](https://github.com/azat-io/actions-up/commit/bcb1e14))
+- ⚠️ Share update policy between cli and programmatic api
+  ([131faf7](https://github.com/azat-io/actions-up/commit/131faf7))
+- ⚠️ Check the commit behind a tag before writing an update
+  ([9bc1593](https://github.com/azat-io/actions-up/commit/9bc1593))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v1.21.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.20.1...v1.21.0)
