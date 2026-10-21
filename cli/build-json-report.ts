@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path'
 
+import type { WorkflowLockfile } from '../types/workflow-lockfile'
 import type { UpdatePlanStatus } from '../types/update-plan'
 import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
@@ -132,6 +133,11 @@ interface BuildJsonReportOptions {
    * Updates held back because their commit failed a trust check.
    */
   blockedByTrust: ActionUpdate[]
+
+  /**
+   * Workflow lockfiles that may pin what the scanned files run.
+   */
+  lockfiles: WorkflowLockfile[]
 
   /**
    * Updates excluded by the selected update mode.
@@ -319,6 +325,11 @@ interface JsonReport {
   blockedByAge: JsonReportUpdate[]
 
   /**
+   * Workflow lockfiles that may pin what the scanned files run.
+   */
+  lockfiles: JsonReportLockfile[]
+
+  /**
    * Entries skipped during update checks.
    */
   skipped: JsonReportUpdate[]
@@ -464,6 +475,33 @@ interface JsonReportAction {
 }
 
 /**
+ * Workflow lockfile, as the report describes it.
+ */
+interface JsonReportLockfile {
+  /**
+   * Workflows treated as onboarded: the ones the lockfile names or, when
+   * `error` says it cannot be read, every workflow next to it; null when those
+   * cannot be listed either.
+   */
+  onboardedWorkflows: string[] | null
+
+  /**
+   * Schema version the lockfile names, null when it names none.
+   */
+  version: string | null
+
+  /**
+   * Why the lockfile cannot be read, null when it can.
+   */
+  error: string | null
+
+  /**
+   * Path of the lockfile.
+   */
+  path: string
+}
+
+/**
  * Machine-readable report emitted by `--json` when the run fails.
  */
 interface JsonErrorReport {
@@ -549,6 +587,16 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       reportOnly: true,
       json: true,
     },
+    lockfiles: options.lockfiles.map(lockfile => ({
+      onboardedWorkflows:
+        lockfile.workflows &&
+        [...lockfile.workflows]
+          .map(workflow => serializePath(workflow, cwd)!)
+          .toSorted(),
+      path: serializePath(lockfile.path, cwd)!,
+      error: lockfile.error ?? null,
+      version: lockfile.version,
+    })),
     blockedAsDowngrade: options.blockedAsDowngrade.map(update =>
       serializeUpdate(update, cwd),
     ),
@@ -638,14 +686,11 @@ function serializeUpdate(update: ActionUpdate, cwd: string): JsonReportUpdate {
  *
  * @param pathValue - Path to normalize.
  * @param cwd - Base directory used to relativize absolute paths.
- * @param emptyFallback - Fallback value when the path resolves exactly to
- *   `cwd`.
  * @returns Normalized path string or `null`.
  */
 function serializePath(
   pathValue: undefined | string,
   cwd: string,
-  emptyFallback: string | null = null,
 ): string | null {
   if (!pathValue) {
     return null
@@ -656,11 +701,11 @@ function serializePath(
   }
 
   let relativePath = relative(cwd, pathValue)
-  if (relativePath === '') {
-    return emptyFallback ?? pathValue
-  }
-
-  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+  if (
+    relativePath === '' ||
+    relativePath.startsWith('..') ||
+    isAbsolute(relativePath)
+  ) {
     return pathValue
   }
 

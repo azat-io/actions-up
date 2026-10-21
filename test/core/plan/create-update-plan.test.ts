@@ -288,6 +288,132 @@ describe('createUpdatePlan', () => {
     ])
   })
 
+  describe('with a reference a workflow lockfile pins', () => {
+    it('skips its update, which would leave the lockfile stale, and writes the others', async () => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+      })
+      let locked = makeAction({ locked: true })
+      let other = makeAction({
+        file: '/repo/.github/workflows/release.yml',
+        line: 6,
+      })
+
+      let result = await plan([locked, other])
+
+      expect(result).toMatchObject({
+        skipped: [
+          {
+            targetRef: RELEASE_SHA,
+            skipReason: 'lockfile',
+            status: 'skipped',
+            hasUpdate: false,
+            action: locked,
+          },
+        ],
+        updates: [{ targetRef: RELEASE_SHA, action: other }],
+      })
+    })
+
+    it('reports a tag that already names the latest version as unchecked, since the lockfile may pin an older commit of it', async () => {
+      let api = routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+        [`${REPOSITORY}/git/ref/tags/v4`]: ok(
+          makeReferencePayload('refs/tags/v4', {
+            sha: RELEASE_SHA,
+            type: 'commit',
+          }),
+        ),
+      })
+      let locked = makeAction({ version: 'v4', locked: true })
+
+      let result = await plan(
+        [locked, makeAction({ version: 'v4', line: 20 })],
+        {
+          style: 'semver',
+        },
+      )
+
+      expect(result).toMatchObject({
+        skipped: [
+          {
+            skipReason: 'lockfile-unchecked',
+            status: 'skipped',
+            hasUpdate: false,
+            targetRef: 'v4',
+            action: locked,
+          },
+        ],
+        blockedByTrust: [],
+        updates: [],
+      })
+      expect(api.paths).toContain(`${REPOSITORY}/git/ref/tags/v4`)
+    })
+
+    it('drops a commit pin that changes nothing, since the lockfile pins that very commit', async () => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+      })
+
+      let result = await plan([
+        makeAction({ version: RELEASE_SHA, comment: ' v4.2.1', locked: true }),
+      ])
+
+      expect(result).toMatchObject({
+        blockedByTrust: [],
+        updates: [],
+        skipped: [],
+      })
+    })
+
+    it('reports an update that stepped past a tag that failed a trust check as held back for that tag', async () => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: MALICIOUS_SHA,
+        }),
+        ...mainHistoryRoutes({
+          [OLDER_SHA]: { atCutoff: behind() },
+          [MALICIOUS_SHA]: undefined,
+        }),
+        ...walkListing([
+          ['v4.2.2', MALICIOUS_SHA],
+          ['v4.2.1', OLDER_SHA],
+        ]),
+        [`${REPOSITORY}/releases/tags/v4.2.1`]: ok(
+          makeTagRelease('v4.2.1', '2024-09-01T12:00:00Z'),
+        ),
+        [PROTECTED_BRANCHES_PATH]: ok([]),
+      })
+
+      let result = await plan([makeAction({ locked: true })])
+
+      expect(result).toMatchObject({
+        blockedByTrust: [
+          {
+            holdReason: 'unreachable-commit',
+            latestSha: MALICIOUS_SHA,
+            latestVersion: 'v4.2.2',
+          },
+        ],
+        updates: [],
+        skipped: [],
+      })
+    })
+  })
+
   it('checks a commit shared by actions of one repository once', async () => {
     let api = routeFetch({
       ...latestReleaseRoutes({ publishedAt: TWO_YEARS_AGO, sha: RELEASE_SHA }),

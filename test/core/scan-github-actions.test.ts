@@ -1174,6 +1174,66 @@ describe('scanGitHubActions', () => {
     ])
   })
 
+  it('follows a $/ composite action without knowing the repository it belongs to', async () => {
+    installFileSystem({
+      '/repo/tools/setup/action.yml': makeCompositeActionText(
+        'actions/setup-node@v4',
+        '$/tools/cache',
+      ),
+      '/repo/tools/cache/action.yml':
+        makeCompositeActionText('actions/cache@v4'),
+      '/repo/.github/workflows/ci.yml': makeWorkflowText('$/tools/setup'),
+    })
+
+    let result = await scanGitHubActions('/repo')
+
+    expect(result.actions).toStrictEqual([
+      {
+        file: '/repo/.github/workflows/ci.yml',
+        uses: '$/tools/setup',
+        name: '$/tools/setup',
+        version: undefined,
+        type: 'local',
+        job: 'build',
+        line: 7,
+      },
+      makeSharedSetupStep(),
+      {
+        file: '/repo/tools/setup/action.yml',
+        uses: '$/tools/cache',
+        name: '$/tools/cache',
+        version: undefined,
+        type: 'local',
+        line: 7,
+      },
+      {
+        file: '/repo/tools/cache/action.yml',
+        uses: 'actions/cache@v4',
+        ref: 'actions/cache@v4',
+        name: 'actions/cache',
+        type: 'external',
+        version: 'v4',
+        line: 6,
+      },
+    ])
+  })
+
+  it('does not follow a $/ reference that leaves the repository or names its root', async () => {
+    installFileSystem({
+      '/outside/action.yml': makeCompositeActionText(
+        'actions/upload-artifact@v4',
+      ),
+      '/repo/.github/workflows/ci.yml': makeWorkflowText('$/../outside', '$/'),
+    })
+
+    let result = await scanGitHubActions('/repo')
+
+    expect(result.actions.map(action => action.name)).toStrictEqual([
+      '$/../outside',
+      '$/',
+    ])
+  })
+
   it('does not follow composite actions of another repository or outside the repository', async () => {
     vi.stubEnv('GITHUB_REPOSITORY', 'acme/demo')
     installFileSystem({

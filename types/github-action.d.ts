@@ -38,6 +38,18 @@ export interface GitHubAction {
   comment?: string
 
   /**
+   * Whether a workflow lockfile, `.github/workflows/actions.lock`, pins or may
+   * pin the commit this reference runs, so that GitHub runs that commit
+   * whatever the reference names. Set on the actions of the steps of a workflow
+   * the lockfile tracks, and of an action of its repository such a workflow
+   * runs. When the lockfile cannot be read, every workflow next to it counts as
+   * tracked, and when the actions its workflows run cannot be traced, every
+   * action of the repository counts. Writing the reference would leave the
+   * lockfile stale.
+   */
+  locked?: boolean
+
+  /**
    * Line number where the action is used in the file.
    */
   line?: number

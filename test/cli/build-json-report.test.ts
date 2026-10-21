@@ -10,6 +10,7 @@ import {
 } from '../../cli/build-json-report'
 import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { scanWorkflowAst } from '../../core/ast/scanners/scan-workflow-ast'
+import { makeWorkflowLockfile } from '../helpers/make-workflow-lockfile'
 
 /**
  * Options the CLI passes to the report builder.
@@ -43,6 +44,7 @@ function makeReportOptions(
     preferTags: false,
     blockedByAge: [],
     recursive: false,
+    lockfiles: [],
     mode: 'major',
     outdated: [],
     style: 'sha',
@@ -562,7 +564,61 @@ describe('buildJsonReport', () => {
       },
       status: 'updates-available',
       schemaVersion: 2,
+      lockfiles: [],
     })
+  })
+
+  it('describes the workflow lockfiles found, with paths relative to the working directory when they are inside it', () => {
+    let report = buildJsonReport(
+      makeReportOptions({
+        lockfiles: [
+          makeWorkflowLockfile({
+            workflows: new Set([
+              '/repo/.github/workflows/release.yml',
+              '/repo/.github/workflows/ci.yml',
+            ]),
+          }),
+          makeWorkflowLockfile({
+            workflows: new Set(['/other/.github/workflows/ci.yml']),
+            path: '/other/.github/workflows/actions.lock',
+            error: 'unsupported schema version v0.0.4',
+            version: 'v0.0.4',
+            root: '/other',
+          }),
+          makeWorkflowLockfile({
+            path: '/locked/.github/workflows/actions.lock',
+            error: 'unreadable file',
+            root: '/locked',
+            workflows: null,
+            version: null,
+          }),
+        ],
+      }),
+    )
+
+    expect(report.lockfiles).toStrictEqual([
+      {
+        onboardedWorkflows: [
+          '.github/workflows/ci.yml',
+          '.github/workflows/release.yml',
+        ],
+        path: '.github/workflows/actions.lock',
+        version: 'v0.0.3',
+        error: null,
+      },
+      {
+        onboardedWorkflows: ['/other/.github/workflows/ci.yml'],
+        path: '/other/.github/workflows/actions.lock',
+        error: 'unsupported schema version v0.0.4',
+        version: 'v0.0.4',
+      },
+      {
+        path: '/locked/.github/workflows/actions.lock',
+        error: 'unreadable file',
+        onboardedWorkflows: null,
+        version: null,
+      },
+    ])
   })
 
   it('reports the uses value and repository ref of scanned references', () => {

@@ -2,6 +2,7 @@ import type { MockInstance, Mock } from 'vitest'
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { WorkflowLockfile } from '../../types/workflow-lockfile'
 import type { buildJsonReport } from '../../cli/build-json-report'
 import type { GitHubAction } from '../../types/github-action'
 import type { ActionUpdate } from '../../types/action-update'
@@ -10,8 +11,10 @@ import type { ScanResult } from '../../types/scan-result'
 import type { Spinner } from '../../cli/create-spinner'
 
 import { promptUpdateSelection } from '../../core/interactive/prompt-update-selection'
+import { readEnclosingLockfiles } from '../../core/lockfile/read-enclosing-lockfiles'
 import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
 import { createGitHubClient } from '../../core/api/create-github-client'
+import { makeWorkflowLockfile } from '../helpers/make-workflow-lockfile'
 import { findRepositoryRoot } from '../../core/fs/find-repository-root'
 import { applyUpdates } from '../../core/ast/update/apply-updates'
 import { scanGitHubActions } from '../../core/scan-github-actions'
@@ -134,6 +137,7 @@ vi.mock(import('../../core/runners/known-runner-labels'), () => ({
   },
 }))
 vi.mock(import('../../core/interactive/prompt-update-selection'))
+vi.mock(import('../../core/lockfile/read-enclosing-lockfiles'))
 vi.mock(import('../../core/api/create-github-client'))
 vi.mock(import('../../core/ast/update/apply-updates'))
 vi.mock(import('../../core/ignore/should-ignore'))
@@ -555,6 +559,7 @@ describe('run', () => {
     vi.mocked(checkUpdates).mockResolvedValue([])
     vi.mocked(promptUpdateSelection).mockResolvedValue([])
     vi.mocked(applyUpdates).mockResolvedValue([])
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -2526,6 +2531,119 @@ describe('run', () => {
         expect(printedLines()).toStrictEqual([BANNER, 'No updates applied'])
       },
     )
+  })
+
+  describe('workflow lockfile', () => {
+    let LOCKFILE_NOTICE =
+      '⚠️  Skipped 1 action pinned by a workflow lockfile (update them and regenerate .github/workflows/actions.lock with gh actions-lock)'
+
+    /**
+     * Lets a workflow lockfile of `/repo` track the CI workflow.
+     *
+     * @param overrides - Fields of the lockfile to replace.
+     */
+    function arrangeLockfile(overrides: Partial<WorkflowLockfile> = {}): void {
+      vi.mocked(readEnclosingLockfiles).mockResolvedValue([
+        makeWorkflowLockfile({
+          workflows: new Set([WORKFLOW_FILE]),
+          ...overrides,
+        }),
+      ])
+    }
+
+    it('skips an update to a workflow the lockfile tracks, says why, and writes the others', async () => {
+      let tracked = makeUpdate(makeAction())
+      let other = makeUpdate(
+        makeAction({
+          file: RELEASE_WORKFLOW_FILE,
+          name: 'actions/setup-node',
+          line: 9,
+        }),
+      )
+      arrangeRun({ updates: [tracked, other] })
+      arrangeLockfile()
+
+      await runCli('--yes')
+
+      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+        expect.objectContaining({ action: other.action }),
+      ])
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        LOCKFILE_NOTICE,
+        '   • actions/checkout@v3',
+        '🔄 Updating 1 entry...',
+        '✓ Updates applied successfully!',
+      ])
+    })
+
+    it.each([
+      { argv: ['--yes'], run: 'a run' },
+      { argv: ['--quiet', '--yes'], run: 'a quiet run' },
+    ])(
+      'warns on stderr about a lockfile that cannot be read in $run',
+      async ({ argv }) => {
+        arrangeRun({ updates: [makeUpdate(makeAction())] })
+        arrangeLockfile({
+          error: 'unsupported schema version v0.0.4',
+          version: 'v0.0.4',
+        })
+
+        await runCli(...argv)
+
+        expect(printedWarnings()).toStrictEqual([
+          '⚠️  .github/workflows/actions.lock cannot be read (unsupported schema version v0.0.4), so the updates of every workflow next to it and of the actions they run are skipped',
+        ])
+        expect(applyUpdates).not.toHaveBeenCalled()
+      },
+    )
+
+    it('says that the commit the lockfile pins for a tag that already names the latest version was not checked', async () => {
+      arrangeRun({
+        updates: [
+          makeUpdate(makeAction({ version: 'v4' }), { isBreaking: false }),
+        ],
+      })
+      arrangeLockfile()
+      vi.mocked(createGitHubClient).mockReturnValue(
+        createRepositoryClient({
+          getTagSha: vi
+            .fn<GitHubClient['getTagSha']>()
+            .mockResolvedValue(LATEST_SHA),
+        }),
+      )
+
+      await runCli('--style', 'semver', '--yes')
+
+      expect(applyUpdates).not.toHaveBeenCalled()
+      expect(printedLines()).toStrictEqual([
+        BANNER,
+        '⚠️  Skipped 1 action pinned by a workflow lockfile to a commit that was not compared with the latest version (gh actions-lock --relock moves such pins forward)',
+        '   • actions/checkout@v4',
+        UP_TO_DATE,
+      ])
+    })
+
+    it('describes the lockfiles and the skipped update in the JSON report only', async () => {
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+      arrangeLockfile({ error: 'invalid YAML', version: null })
+
+      await runCli('--json')
+
+      expect(readJsonReport()).toMatchObject({
+        lockfiles: [
+          {
+            onboardedWorkflows: ['.github/workflows/ci.yml'],
+            path: '.github/workflows/actions.lock',
+            error: 'invalid YAML',
+            version: null,
+          },
+        ],
+        skipped: [{ skipReason: 'lockfile', status: 'skipped' }],
+        updates: [],
+      })
+      expect(printedWarnings()).toStrictEqual([])
+    })
   })
 
   describe('failures', () => {

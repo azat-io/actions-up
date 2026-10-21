@@ -490,13 +490,21 @@ export async function createUpdatePlan(
   /**
    * An update whose resolved target matches the current reference is a no-op
    * and is dropped, and one whose target the style cannot express is skipped.
-   * An update that stepped down past a version whose commit failed a trust
-   * check is reported as held back for it instead: the newest version is what
-   * the run was asked about, and the finding must not vanish with the no-op.
+   * So is one to a reference whose commit a workflow lockfile pins: writing it
+   * would leave the lockfile stale, and Actions Up does not regenerate it. A
+   * no-op of such a reference is skipped as well when it names a tag rather
+   * than a commit, because the lockfile may pin an older commit of that tag,
+   * and Actions Up does not read which. An update that stepped down past a
+   * version whose commit failed a trust check is reported as held back for it
+   * instead of the no-op or the skip: the newest version is what the run was
+   * asked about, and the finding must not vanish with the update.
    */
   outdated = []
   for (let { heldForTrust, update } of resolvedDecisions) {
-    if (update.targetRef && update.targetRef !== update.action.version) {
+    let changed =
+      Boolean(update.targetRef) && update.targetRef !== update.action.version
+
+    if (changed && !update.action.locked) {
       outdated.push(update)
     } else if (heldForTrust) {
       blockedByTrust.push(heldForTrust)
@@ -504,6 +512,20 @@ export async function createUpdatePlan(
       skipped.push({
         ...update,
         skipReason: 'unsupported-style',
+        status: 'skipped',
+        hasUpdate: false,
+      })
+    } else if (changed) {
+      skipped.push({
+        ...update,
+        skipReason: 'lockfile',
+        status: 'skipped',
+        hasUpdate: false,
+      })
+    } else if (update.action.locked && !isSha(update.currentVersion)) {
+      skipped.push({
+        ...update,
+        skipReason: 'lockfile-unchecked',
         status: 'skipped',
         hasUpdate: false,
       })

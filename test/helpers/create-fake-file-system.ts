@@ -32,6 +32,11 @@ export interface FakeFileSystem {
   readdir(path: PathLike): Promise<string[]>
 
   /**
+   * Path the entry is reached at once a symbolic link at it is followed.
+   */
+  realpath(path: PathLike): Promise<string>
+
+  /**
    * Entry kind without following symbolic links.
    */
   lstat(path: PathLike): Promise<Stats>
@@ -194,6 +199,7 @@ export function createFakeFileSystem(
       }),
     stat: path => settle(() => describeEntry(follow(path, 'stat').kind)),
     lstat: path => settle(() => describeEntry(find(path, 'lstat').kind)),
+    realpath: path => settle(() => realPath(path, 'realpath')),
     readdir: path => settle(() => listDirectory(path)),
   }
 }

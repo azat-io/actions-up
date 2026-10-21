@@ -215,6 +215,30 @@ describe('printSkippedWarning', () => {
       description: 'moved pins whose release could not be read',
       style: 'sha' as const,
     },
+    {
+      expectedText:
+        '\n⚠️  Skipped 1 action pinned by a workflow lockfile (update them and regenerate .github/workflows/actions.lock with gh actions-lock)\n' +
+        '   • actions/checkout@v4',
+      skipped: makeSkipped({
+        name: 'actions/checkout',
+        skipReason: 'lockfile',
+        version: 'v4',
+      }),
+      description: 'references a workflow lockfile pins',
+      style: 'sha' as const,
+    },
+    {
+      expectedText:
+        '\n⚠️  Skipped 1 action pinned by a workflow lockfile to a commit that was not compared with the latest version (gh actions-lock --relock moves such pins forward)\n' +
+        '   • actions/checkout@v4',
+      skipped: makeSkipped({
+        skipReason: 'lockfile-unchecked',
+        name: 'actions/checkout',
+        version: 'v4',
+      }),
+      description: 'tags whose commit a workflow lockfile pins unchecked',
+      style: 'semver' as const,
+    },
   ])(
     'reports $description under a dedicated header',
     ({ expectedText, skipped, style }) => {

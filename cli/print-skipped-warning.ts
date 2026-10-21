@@ -50,6 +50,12 @@ export function printSkippedWarning(
   let releaseUnresolvedSkipped = skipped.filter(
     update => update.skipReason === 'release-unresolved',
   )
+  let lockfileSkipped = skipped.filter(
+    update => update.skipReason === 'lockfile',
+  )
+  let lockfileUncheckedSkipped = skipped.filter(
+    update => update.skipReason === 'lockfile-unchecked',
+  )
 
   /**
    * Every reason without a dedicated group still has to reach the user, so a
@@ -60,12 +66,14 @@ export function printSkippedWarning(
     'reachability-unknown',
     'ref-type-unavailable',
     'release-unresolved',
+    'lockfile-unchecked',
     'unsupported-style',
     'not-comparable',
     'sha-unresolved',
     'check-failed',
     'tag-family',
     'not-found',
+    'lockfile',
     'branch',
   ])
   let otherSkipped = skipped.filter(
@@ -143,6 +151,20 @@ export function printSkippedWarning(
     printSkippedGroup(
       releaseUnresolvedSkipped,
       'whose tag now points at another commit than the pin and whose release could not be read (failed GitHub API request)',
+    )
+  }
+
+  if (lockfileSkipped.length > 0) {
+    printSkippedGroup(
+      lockfileSkipped,
+      'pinned by a workflow lockfile (update them and regenerate .github/workflows/actions.lock with gh actions-lock)',
+    )
+  }
+
+  if (lockfileUncheckedSkipped.length > 0) {
+    printSkippedGroup(
+      lockfileUncheckedSkipped,
+      'pinned by a workflow lockfile to a commit that was not compared with the latest version (gh actions-lock --relock moves such pins forward)',
     )
   }
 

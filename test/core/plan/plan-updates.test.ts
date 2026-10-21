@@ -5,7 +5,9 @@ import type { GitHubAction } from '../../../types/github-action'
 import type { GitHubClient } from '../../../types/github-client'
 import type { ScanResult } from '../../../types/scan-result'
 
+import { readEnclosingLockfiles } from '../../../core/lockfile/read-enclosing-lockfiles'
 import { createGitHubClient } from '../../../core/api/create-github-client'
+import { makeWorkflowLockfile } from '../../helpers/make-workflow-lockfile'
 import { findRepositoryRoot } from '../../../core/fs/find-repository-root'
 import { scanGitHubActions } from '../../../core/scan-github-actions'
 import { createMockClient } from '../../helpers/create-mock-client'
@@ -21,6 +23,7 @@ vi.mock(import('../../../core/runners/known-runner-labels'), () => ({
     macos: [{ version: '15' }],
   },
 }))
+vi.mock(import('../../../core/lockfile/read-enclosing-lockfiles'))
 vi.mock(import('../../../core/api/create-github-client'))
 vi.mock(import('../../../core/fs/find-repository-root'))
 vi.mock(import('../../../core/ignore/should-ignore'))
@@ -148,6 +151,7 @@ describe('planUpdates', () => {
     vi.mocked(createGitHubClient).mockReturnValue(
       createClientOfReachableCommits(),
     )
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -192,6 +196,22 @@ describe('planUpdates', () => {
       includeBranches: false,
       preferTags: false,
       style: 'sha',
+    })
+  })
+
+  it('skips an update to a workflow a lockfile tracks, which writing would leave stale', async () => {
+    let action = makeAction()
+    arrangeRun([makeUpdate(action)])
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([
+      makeWorkflowLockfile({ workflows: new Set([WORKFLOW_FILE]) }),
+    ])
+
+    let plan = await planUpdates()
+
+    expect(plan).toMatchObject({
+      skipped: [{ action: { locked: true }, skipReason: 'lockfile' }],
+      status: 'up-to-date',
+      updates: [],
     })
   })
 

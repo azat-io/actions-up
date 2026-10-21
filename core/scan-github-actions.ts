@@ -260,118 +260,131 @@ export async function scanGitHubActions(
   }
 
   /**
-   * Follow same-repo external composite actions with path, e.g.
-   * Owner/repo/path@ref where owner/repo matches the current repository. We
-   * resolve `path` to a local directory and scan its action.yml(yaml) for
-   * nested uses.
+   * Follow same-repo composite actions: external ones with a path, e.g.
+   * Owner/repo/path@ref where owner/repo matches the current repository, and
+   * `$/path` ones, which name an action of the same repository by its path from
+   * the root. We resolve `path` to a local directory and scan its
+   * action.yml(yaml) for nested uses.
    */
   try {
     let repositorySlug = await getCurrentRepositorySlug(normalizedRoot)
 
-    if (repositorySlug) {
-      /**
-       * Test-only branch to exercise outer catch during coverage runs.
-       */
-      if (process.env['ACTIONS_UP_TEST_THROW'] === '1') {
-        throw new Error('test')
+    /**
+     * Test-only branch to exercise outer catch during coverage runs.
+     */
+    if (process.env['ACTIONS_UP_TEST_THROW'] === '1') {
+      throw new Error('test')
+    }
+
+    let seenCompositeDirectories = new Set<string>()
+
+    /**
+     * Path of a same-repo composite action from the repository root.
+     *
+     * @param action - Action to inspect.
+     * @returns Segments of the path, or null when the action is not a composite
+     *   action of the current repository.
+     */
+    function getSameRepositoryPath(action: GitHubAction): string[] | null {
+      if (action.type === 'local' && action.name.startsWith('$/')) {
+        return [action.name.slice(2)]
       }
-
-      let seenCompositeDirectories = new Set<string>()
-
-      /**
-       * Collect local directories of same-repo composite actions referenced by
-       * the given actions, skipping directories that were already seen.
-       *
-       * @param actions - Actions to inspect.
-       * @returns Newly seen composite action directories.
-       */
-      function collectCompositeDirectories(actions: GitHubAction[]): string[] {
-        let directories: string[] = []
-        for (let action of actions) {
-          if (action.type !== 'external') {
-            continue
-          }
-          let segs = action.name.split('/')
-          if (segs.length < 3) {
-            continue
-          }
-          let candidateSlug = `${segs[0]}/${segs[1]}`
-          if (candidateSlug !== repositorySlug) {
-            continue
-          }
-
-          let compositeDirectory = join(normalizedRoot, ...segs.slice(2))
-          if (!isWithin(normalizedRoot, compositeDirectory)) {
-            continue
-          }
-          if (seenCompositeDirectories.has(compositeDirectory)) {
-            continue
-          }
-          seenCompositeDirectories.add(compositeDirectory)
-          directories.push(compositeDirectory)
-        }
-        return directories
+      if (action.type !== 'external') {
+        return null
       }
+      let segs = action.name.split('/')
+      if (segs.length < 3 || `${segs[0]}/${segs[1]}` !== repositorySlug) {
+        return null
+      }
+      return segs.slice(2)
+    }
 
-      /**
-       * Seed queue with composite paths referenced in discovered actions.
-       */
-      let queue = collectCompositeDirectories(result.actions)
-
-      /**
-       * Breadth-first follow to collect nested actions without awaiting inside
-       * loops.
-       */
-      async function processQueue(): Promise<void> {
-        if (queue.length === 0) {
-          return
+    /**
+     * Collect local directories of same-repo composite actions referenced by
+     * the given actions, skipping directories that were already seen.
+     *
+     * @param actions - Actions to inspect.
+     * @returns Newly seen composite action directories.
+     */
+    function collectCompositeDirectories(actions: GitHubAction[]): string[] {
+      let directories: string[] = []
+      for (let action of actions) {
+        let path = getSameRepositoryPath(action)
+        if (!path) {
+          continue
         }
 
-        let batch = [...queue]
-        queue.length = 0
-        let discoveredNext = await Promise.all(
-          batch.map(async directory => {
+        let compositeDirectory = join(normalizedRoot, ...path)
+        if (!isWithin(normalizedRoot, compositeDirectory)) {
+          continue
+        }
+        if (seenCompositeDirectories.has(compositeDirectory)) {
+          continue
+        }
+        seenCompositeDirectories.add(compositeDirectory)
+        directories.push(compositeDirectory)
+      }
+      return directories
+    }
+
+    /**
+     * Seed queue with composite paths referenced in discovered actions.
+     */
+    let queue = collectCompositeDirectories(result.actions)
+
+    /**
+     * Breadth-first follow to collect nested actions without awaiting inside
+     * loops.
+     */
+    async function processQueue(): Promise<void> {
+      if (queue.length === 0) {
+        return
+      }
+
+      let batch = [...queue]
+      queue.length = 0
+      let discoveredNext = await Promise.all(
+        batch.map(async directory => {
+          try {
+            let ymlPath = join(directory, 'action.yml')
+            let yamlPath = join(directory, 'action.yaml')
+
+            let filePath = ymlPath
             try {
-              let ymlPath = join(directory, 'action.yml')
-              let yamlPath = join(directory, 'action.yaml')
-
-              let filePath = ymlPath
-              try {
-                let fileInfo = await stat(ymlPath)
-                if (!fileInfo.isFile()) {
-                  throw new Error('not a file')
-                }
-              } catch {
-                let yamlInfo = await stat(yamlPath)
-                if (!yamlInfo.isFile()) {
-                  throw new Error('not a file')
-                }
-                filePath = yamlPath
+              let fileInfo = await stat(ymlPath)
+              if (!fileInfo.isFile()) {
+                throw new Error('not a file')
               }
-
-              let nestedActions = await scanActionFile(filePath)
-              if (nestedActions.length > 0) {
-                result.actions.push(...nestedActions)
-              }
-
-              return collectCompositeDirectories(nestedActions)
             } catch {
-              return [] as string[]
+              let yamlInfo = await stat(yamlPath)
+              if (!yamlInfo.isFile()) {
+                throw new Error('not a file')
+              }
+              filePath = yamlPath
             }
-          }),
-        )
 
-        for (let list of discoveredNext) {
-          for (let directory of list) {
-            queue.push(directory)
+            let nestedActions = await scanActionFile(filePath)
+            if (nestedActions.length > 0) {
+              result.actions.push(...nestedActions)
+            }
+
+            return collectCompositeDirectories(nestedActions)
+          } catch {
+            return [] as string[]
           }
-        }
+        }),
+      )
 
-        await processQueue()
+      for (let list of discoveredNext) {
+        for (let directory of list) {
+          queue.push(directory)
+        }
       }
 
       await processQueue()
     }
+
+    await processQueue()
   } catch {
     /**
      * Ignore repo detection errors.

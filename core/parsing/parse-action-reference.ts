@@ -29,7 +29,9 @@ import type { GitHubAction } from '../../types/github-action'
  *   - External action: "owner/repo@version" (e.g., "actions/checkout@v3")
  *   - Reusable workflow: "owner/repo/path/to/workflow.yml@version", where the
  *       version may itself contain `@` (e.g., "ci@v1.0.0")
- *   - Local action: "./path/to/action" or "../path/to/action"
+ *   - Local action: "./path/to/action", "../path/to/action" or "$/path/to/action",
+ *       the form workflow lockfiles use for an action of the same repository,
+ *       read from its root at the commit being run
  *   - Docker action: "docker://image:tag".
  *
  * @param file - The file path where this action reference was found.
@@ -60,9 +62,14 @@ export function parseActionReference(
   }
 
   /**
-   * Handle local actions.
+   * Handle local actions. A `$/` reference names no ref, so it must be told
+   * apart before the reference is split at its `@`.
    */
-  if (reference.startsWith('./') || reference.startsWith('../')) {
+  if (
+    reference.startsWith('./') ||
+    reference.startsWith('../') ||
+    reference.startsWith('$/')
+  ) {
     return {
       version: undefined,
       uses: reference,

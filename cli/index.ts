@@ -1,3 +1,5 @@
+import { relative } from 'node:path'
+
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
 import type { CLIOptions } from './parse-arguments'
@@ -12,6 +14,7 @@ import { printUnwrittenWarning } from './print-unwritten-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
 import { normalizePatternList } from './normalize-pattern-list'
 import { applyUpdates } from '../core/ast/update/apply-updates'
+import { printLockfileWarning } from './print-lockfile-warning'
 import { scanRepository } from '../core/plan/scan-repository'
 import { printSkippedWarning } from './print-skipped-warning'
 import { printMinAgeWarning } from './print-min-age-warning'
@@ -113,7 +116,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * Scan for GitHub Actions in the repository.
      */
-    let { directories, scanResult } = await scanRepository({
+    let { directories, scanResult, lockfiles } = await scanRepository({
       recursive: options.recursive,
       directories: options.dir,
       cwd: process.cwd(),
@@ -150,6 +153,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             directories,
             preferTags,
             scanResult,
+            lockfiles,
             outdated,
             skipped,
             status,
@@ -192,6 +196,17 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         'actions',
       )}`,
     )
+
+    if (!json) {
+      for (let lockfile of lockfiles) {
+        if (lockfile.error) {
+          printLockfileWarning(
+            relative(process.cwd(), lockfile.path),
+            lockfile.error,
+          )
+        }
+      }
+    }
 
     if (totalActions === 0 && totalRunners === 0) {
       if (json) {

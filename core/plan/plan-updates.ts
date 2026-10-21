@@ -16,7 +16,12 @@ import { scanRepository } from './scan-repository'
  * of the commit behind each tag and the update style. Each option defaults to
  * the default of the matching CLI flag. Updates whose tag was moved or whose
  * commit is outside the history of its repository are listed in
- * `blockedByTrust`.
+ * `blockedByTrust`. Updates to references whose commit a workflow lockfile,
+ * `.github/workflows/actions.lock`, pins are listed in `skipped` with the
+ * reason `lockfile`, since writing them would leave the lockfile stale. A tag
+ * such a lockfile pins that already names the latest version is listed with the
+ * reason `lockfile-unchecked`, since the lockfile may pin an older commit of
+ * it.
  *
  * Nothing is written. Pass the planned `updates` and `runners`, or a selection
  * of them, to `applyUpdates` to write them; it never writes an entry the plan

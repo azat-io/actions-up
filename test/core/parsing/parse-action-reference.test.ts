@@ -53,21 +53,22 @@ describe('parseActionReference', () => {
     })
   })
 
-  it.each(['./.github/actions/build', '../shared/actions/build'])(
-    'parses the local action %s',
-    reference => {
-      let result = parseActionReference(reference, 'workflow.yml', 20)
+  it.each([
+    './.github/actions/build',
+    '../shared/actions/build',
+    '$/.github/actions/build',
+  ])('parses the local action %s', reference => {
+    let result = parseActionReference(reference, 'workflow.yml', 20)
 
-      expect(result).toEqual({
-        file: 'workflow.yml',
-        version: undefined,
-        uses: reference,
-        name: reference,
-        type: 'local',
-        line: 20,
-      })
-    },
-  )
+    expect(result).toEqual({
+      file: 'workflow.yml',
+      version: undefined,
+      uses: reference,
+      name: reference,
+      type: 'local',
+      line: 20,
+    })
+  })
 
   it('parses external action with subpath', () => {
     let result = parseActionReference(

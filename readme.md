@@ -303,6 +303,13 @@ the publisher does not provide the preferred floating tag, the closest existing
 tag is used, falling back to the exact version. SHA-pinned references keep
 updating to the latest resolved SHA and are never converted to tags.
 
+### Workflow Lockfile
+
+Actions Up skips updates pinned by a
+[workflow lockfile](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles),
+since it does not regenerate it. Update them with
+[gh actions-lock](https://github.com/github/gh-actions-lock).
+
 ### Prefer Tags
 
 Some repositories stop publishing GitHub Releases but keep tagging new versions

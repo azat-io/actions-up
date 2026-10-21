@@ -13,18 +13,24 @@ export interface ActionUpdate {
    * `reachability-unknown` that the history of its repository could not be
    * checked, and `release-unresolved` that the release which tells a moved tag
    * from a pin written by hand could not be read; none falls back to another
-   * commit.
+   * commit. `lockfile` means a workflow lockfile pins, or may pin, the commit
+   * the reference runs (see `GitHubAction.locked`), so writing the update would
+   * leave the lockfile stale. `lockfile-unchecked` means the tag the reference
+   * names already points at the latest version, but the lockfile may pin an
+   * older commit of it, which Actions Up does not read.
    */
   skipReason?:
     | 'reachability-unknown'
     | 'ref-type-unavailable'
     | 'release-unresolved'
+    | 'lockfile-unchecked'
     | 'unsupported-style'
     | 'not-comparable'
     | 'sha-unresolved'
     | 'check-failed'
     | 'tag-family'
     | 'not-found'
+    | 'lockfile'
     | 'unknown'
     | 'branch'
 
