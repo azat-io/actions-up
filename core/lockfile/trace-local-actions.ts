@@ -32,84 +32,152 @@ const ACTION_MANIFESTS = ['action.yml', 'action.yaml']
 const LOCAL_PREFIXES = ['./', '../', '$/']
 
 /**
- * Find the actions of the repository that tracked workflows run.
+ * Prefix of a reference to an action of the same repository at the commit of
+ * the workflow, which gh-actions-lock follows.
+ */
+const SELF_PREFIX = '$/'
+
+/**
+ * Prefix of a reference to a Docker image, which the lockfile does not pin.
+ */
+const DOCKER_PREFIX = 'docker://'
+
+/**
+ * Find the actions of the repository that tracked workflows run, and for each
+ * workflow that runs one whether the lockfile records what it runs.
  *
- * The lockfile records the remote actions an action of the repository uses as
- * dependencies of each tracked workflow that runs it through a local reference
- * (`./` or `$/`), so a change to its definition leaves the lockfile stale too.
- * They are traced from the workflows the lockfile tracks, whatever part of the
- * repository the run scans, and each definition is read once. Workflows and
- * definitions are read as data, the way GitHub reads them, so a reference
- * written through a YAML alias counts, and so does one in a group of steps,
- * such as `parallel`, that the scan of the repository does not look into. A
- * workflow or a definition that cannot be read may run any action, and a
- * workflow that no longer exists runs none.
+ * GitHub checks the remote actions an action of the repository runs against the
+ * lockfile as well, so a change to its definition may leave the lockfile stale,
+ * whether a workflow runs it through `$/` or from the workspace through `./`.
+ * Gh-actions-lock records them only for an action reached through `$/`
+ * references alone, as dependencies of each workflow that runs it so; it never
+ * follows a `./` reference, since the workspace may hold anything. So a
+ * workflow records what an action runs once any of its paths to the action
+ * takes `$/` references alone. A workflow that runs an action only through `./`
+ * is listed for it only when the action runs remote actions: their pins may be
+ * the ones of the same references the workflow runs itself, which a relock of
+ * the workflow drops once it no longer does. The actions are traced from the
+ * workflows the lockfile tracks, whatever part of the repository the run scans,
+ * and each definition is read once. Workflows and definitions are read as data,
+ * the way GitHub reads them, so a reference written through a YAML alias
+ * counts, and so does one in a group of steps, such as `parallel`, that the
+ * scan of the repository does not look into. A workflow or a definition that
+ * cannot be read may run any action, and a workflow that no longer exists runs
+ * none.
  *
  * @param root - Root of the repository.
- * @param workflows - Absolute paths of the tracked workflows.
- * @returns Real paths of the definitions the workflows reach, or null when a
- *   workflow or a definition could not be read.
+ * @param workflows - Absolute real paths of the tracked workflows.
+ * @returns Real paths of the definitions the workflows reach, each with the
+ *   workflows that reach it and whether the lockfile records what it runs under
+ *   each of them, or null when a workflow or a definition could not be read. A
+ *   definition that runs no remote action is listed only for the workflows that
+ *   reach it through `$/` references alone.
  */
 export async function traceLocalActions(
   root: string,
   workflows: Set<string>,
-): Promise<Set<string> | null> {
-  let reached = new Set<string>()
-  let visited = new Set<string>()
+): Promise<Map<string, Map<string, boolean>> | null> {
+  let manifests = new Map<string, Promise<Manifest | null>>()
+  let reached = new Map<string, Map<string, boolean>>()
 
   /**
-   * Directories of the actions of the repository the given references run.
+   * Directories of the actions of the repository the given references run, each
+   * with whether the lockfile records what it runs.
    *
    * @param references - References of a workflow or of an action.
+   * @param recorded - Whether the lockfile records what the workflow or the
+   *   action that holds the references runs.
    * @returns Absolute paths of the directories inside the repository, its root
    *   included.
    */
-  function localDirectories(references: string[]): Set<string> {
-    let directories = new Set<string>()
+  function localSteps(
+    references: string[],
+    recorded: boolean,
+  ): Map<string, boolean> {
+    let steps = new Map<string, boolean>()
     for (let reference of references) {
       if (LOCAL_PREFIXES.some(prefix => reference.startsWith(prefix))) {
         let directory = resolve(root, reference.replace(/^\$\//u, ''))
         let path = relative(root, directory)
         if (!path.startsWith('..') && !isAbsolute(path)) {
-          directories.add(directory)
+          let followed = recorded && reference.startsWith(SELF_PREFIX)
+          steps.set(directory, steps.get(directory) === true || followed)
         }
       }
     }
-    return directories
+    return steps
   }
 
   /**
-   * Follow local references from action to action, reading each directory once,
-   * whichever workflow reaches it first.
+   * Read the definition in a directory, once for every workflow.
    *
-   * @param directories - Directories of the actions to read next.
+   * @param directory - Directory a local reference names.
+   * @returns The definition, or null when the directory holds none.
+   */
+  function readManifest(directory: string): Promise<Manifest | null> {
+    let manifest = manifests.get(directory) ?? findManifest(directory)
+    manifests.set(directory, manifest)
+    return manifest
+  }
+
+  /**
+   * Follow the local references of a workflow from action to action. A
+   * directory is read again only when it is reached through `$/` references
+   * alone after it was reached otherwise.
+   *
+   * @param workflow - Workflow the references come from.
+   * @param steps - Directories of the actions to read next, each with whether
+   *   the lockfile records what it runs for the workflow.
+   * @param visited - Directories read for the workflow, each with whether the
+   *   lockfile records what it runs.
    * @returns False when a definition could not be read.
    */
-  async function follow(directories: Set<string>): Promise<boolean> {
-    let fresh = directories.difference(visited)
-    if (fresh.size === 0) {
+  async function follow(
+    workflow: string,
+    steps: Map<string, boolean>,
+    visited: Map<string, boolean>,
+  ): Promise<boolean> {
+    let fresh = [...steps].filter(
+      ([directory, recorded]) =>
+        !visited.has(directory) || (recorded && !visited.get(directory)),
+    )
+    if (fresh.length === 0) {
       return true
     }
-    for (let directory of fresh) {
-      visited.add(directory)
+    for (let [directory, recorded] of fresh) {
+      visited.set(directory, recorded)
     }
 
-    let found = await Promise.all([...fresh].map(findManifest))
-    let next = new Set<string>()
+    let found = await Promise.all(
+      fresh.map(
+        async ([directory, recorded]) =>
+          [await readManifest(directory), recorded] as const,
+      ),
+    )
+    let next = new Map<string, boolean>()
     let complete = true
 
-    for (let manifest of found) {
+    for (let [manifest, recorded] of found) {
       if (manifest) {
-        reached.add(manifest.path)
+        if (recorded || runsRemoteActions(manifest)) {
+          let runs = reached.get(manifest.path) ?? new Map<string, boolean>()
+          reached.set(manifest.path, runs)
+          runs.set(workflow, runs.get(workflow) === true || recorded)
+        }
         if (manifest.references) {
-          next = next.union(localDirectories(manifest.references))
+          for (let [directory, followed] of localSteps(
+            manifest.references,
+            recorded,
+          )) {
+            next.set(directory, next.get(directory) === true || followed)
+          }
         } else {
           complete = false
         }
       }
     }
 
-    return (await follow(next)) && complete
+    return (await follow(workflow, next, visited)) && complete
   }
 
   let traced = await Promise.all(
@@ -120,7 +188,10 @@ export async function traceLocalActions(
       } catch (error) {
         return isMissingFileError(error)
       }
-      return references !== null && follow(localDirectories(references))
+      return (
+        references !== null &&
+        follow(workflow, localSteps(references, true), new Map())
+      )
     }),
   )
 
@@ -204,6 +275,21 @@ async function readReferences(path: string): Promise<string[] | null> {
   }
 
   return collectReferences(data)
+}
+
+/**
+ * Tell whether the definition of an action of the repository runs a remote
+ * action, one the lockfile would pin.
+ *
+ * @param manifest - Definition of the action.
+ * @returns True when one of its references is neither local nor a Docker image.
+ */
+function runsRemoteActions(manifest: Manifest): boolean {
+  return (manifest.references ?? []).some(
+    reference =>
+      LOCAL_PREFIXES.every(prefix => !reference.startsWith(prefix)) &&
+      !reference.startsWith(DOCKER_PREFIX),
+  )
 }
 
 /**

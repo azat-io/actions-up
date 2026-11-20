@@ -2,9 +2,13 @@ import { relative } from 'node:path'
 
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
+import type { GitHubAction } from '../types/github-action'
+import type { HeldSignals } from '../types/held-signals'
 import type { CLIOptions } from './parse-arguments'
+import type { LockTool } from '../types/lock-tool'
 
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
+import { findRelockBlockers, planRelocks } from '../core/lockfile/plan-relocks'
 import { buildJsonErrorReport, buildJsonReport } from './build-json-report'
 import { normalizeUpdateStyle } from '../core/plan/normalize-update-style'
 import { normalizeUpdateMode } from '../core/plan/normalize-update-mode'
@@ -13,14 +17,17 @@ import { printRateLimitWarning } from './print-rate-limit-warning'
 import { printUnwrittenWarning } from './print-unwritten-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
 import { normalizePatternList } from './normalize-pattern-list'
-import { applyUpdates } from '../core/ast/update/apply-updates'
+import { writeUpdates } from '../core/ast/update/apply-updates'
 import { printLockfileWarning } from './print-lockfile-warning'
+import { findLockTool } from '../core/lockfile/find-lock-tool'
 import { scanRepository } from '../core/plan/scan-repository'
 import { printSkippedWarning } from './print-skipped-warning'
+import { regenerateLockfiles } from './regenerate-lockfiles'
 import { printMinAgeWarning } from './print-min-age-warning'
 import { validateCliOptions } from './validate-cli-options'
 import { printTrustWarning } from './print-trust-warning'
 import { printModeWarning } from './print-mode-warning'
+import { holdStopSignals } from './hold-stop-signals'
 import { colors } from '../core/interactive/colors'
 import { parseArguments } from './parse-arguments'
 import { createSpinner } from './create-spinner'
@@ -54,6 +61,12 @@ interface WriteJsonReportOptions {
    * Number of actions checked after excludes.
    */
   actionsToCheckCount: number
+
+  /**
+   * Whether gh-actions-lock can regenerate the lockfiles that pin scanned
+   * entries, and why not; null when the run did not look for it.
+   */
+  lockTool?: LockTool | null
 
   /**
    * Actionable updates to serialize.
@@ -97,6 +110,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
   let json = options.json ?? false
   let quiet = options.quiet ?? false
   let spinner: ReturnType<typeof createSpinner> | null = null
+  let signals: HeldSignals | null = null
 
   try {
     let includeBranches = options.includeBranches ?? false
@@ -116,11 +130,18 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * Scan for GitHub Actions in the repository.
      */
-    let { directories, scanResult, lockfiles } = await scanRepository({
-      recursive: options.recursive,
-      directories: options.dir,
-      cwd: process.cwd(),
-    })
+    let { lockedFiles, directories, scanResult, lockfiles } =
+      await scanRepository({
+        recursive: options.recursive,
+        directories: options.dir,
+        cwd: process.cwd(),
+      })
+
+    /**
+     * Entries a workflow lockfile pins are updated only when gh-actions-lock
+     * can regenerate the one lockfile that pins them once they are written.
+     */
+    let relockBlockers = findRelockBlockers(lockedFiles)
 
     /**
      * Write the current CLI state as a machine-readable JSON report.
@@ -133,6 +154,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       actionsToCheckCount,
       blockedByMode = [],
       blockedByAge = [],
+      lockTool = null,
       outdated = [],
       skipped = [],
       status,
@@ -148,12 +170,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             blockedAsDowngrade,
             includeBranches,
             blockedByTrust,
+            relockBlockers,
             blockedByMode,
             blockedByAge,
             directories,
             preferTags,
             scanResult,
             lockfiles,
+            lockTool,
             outdated,
             skipped,
             status,
@@ -248,7 +272,21 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       spinner = createSpinner('Checking for updates...').start()
     }
 
+    /**
+     * The tool is looked for only when a lockfile that can be regenerated pins
+     * a scanned entry.
+     */
+    let relockableFiles = new Set(
+      lockedFiles.keys().filter(file => !relockBlockers.has(file)),
+    )
+    let lockTool: LockTool | null =
+      relockableFiles.size > 0 ? await findLockTool(process.cwd()) : null
+
     let plan = await createUpdatePlan(scanResult, {
+      canRelock:
+        lockTool === 'available' ?
+          (action: GitHubAction) => relockableFiles.has(action.file!)
+        : undefined,
       token: process.env['GITHUB_TOKEN'],
       minAge: options.minAge,
       includeBranches,
@@ -265,6 +303,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         writeJsonReport({
           status: 'nothing-to-check',
           actionsToCheckCount: 0,
+          lockTool,
         })
         return
       }
@@ -312,7 +351,12 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     function printWarnings(): void {
       if (!quiet) {
         if (skipped.length > 0) {
-          printSkippedWarning(skipped, includeBranches, style)
+          printSkippedWarning(skipped, {
+            includeBranches,
+            relockBlockers,
+            lockTool,
+            style,
+          })
         }
         if (blockedByMode.length > 0) {
           printModeWarning(blockedByMode, mode)
@@ -340,6 +384,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           blockedByTrust,
           blockedByMode,
           blockedByAge,
+          lockTool,
           skipped,
         })
         printTrustWarning(trustEntries)
@@ -376,6 +421,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         blockedByTrust,
         blockedByMode,
         blockedByAge,
+        lockTool,
         outdated,
         skipped,
       })
@@ -398,6 +444,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             `${update.action.name}: ${colors.redBright(update.currentVersion)} → ${colors.green(
               target,
             )}\n`,
+        )
+      }
+
+      for (let { lockfile } of planRelocks(lockedFiles, outdated)) {
+        console.info(
+          colors.gray(
+            `${relative(process.cwd(), lockfile.path)} would be regenerated with gh actions-lock`,
+          ),
         )
       }
 
@@ -460,18 +514,38 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       requested = selected
     }
 
-    let unwritten = await applyUpdates(requested)
+    /**
+     * A stop signal waits for the writes and for the regeneration of the
+     * lockfiles they leave stale, so that the notices can name what it left
+     * undone. The workflow lockfiles that pin written entries are regenerated,
+     * and the files of a lockfile that could not be are put back when that is
+     * safe.
+     */
+    signals = holdStopSignals()
+    let { unwritten, files } = await writeUpdates(requested)
+    let written = requested.filter(update => !unwritten.includes(update))
+    let relock = await regenerateLockfiles(
+      planRelocks(lockedFiles, written),
+      files,
+      signals,
+    )
+    signals.release()
 
-    if (unwritten.length === 0) {
+    if (unwritten.length === 0 && relock.exitCode === 0) {
       console.info(colors.green('\n✓ Updates applied successfully!'))
       return
     }
 
     /**
      * An entry the writer could not find where the scan reported it was not
-     * applied, so the run reports it and fails instead of claiming success.
+     * applied, and neither was one whose file was put back because its lockfile
+     * could not be regenerated, so the run reports them and fails instead of
+     * claiming success. A signal that stopped the run is named, to explain its
+     * exit code.
      */
-    let writtenCount = requested.length - unwritten.length
+    let writtenCount = written.filter(
+      update => !relock.restored.has(update.action.file!),
+    ).length
     if (writtenCount > 0) {
       console.info(
         colors.green(
@@ -484,8 +558,12 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       )
     }
     printUnwrittenWarning(unwritten, requested.length)
-    process.exitCode = 1
+    if (signals.signal !== null) {
+      console.error(colors.yellow(`\n⚠️ Interrupted by ${signals.signal}`))
+    }
+    process.exitCode = Math.max(relock.exitCode, 1)
   } catch (error) {
+    signals?.release()
     spinner?.error('Failed')
 
     /**

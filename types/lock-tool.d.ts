@@ -1,0 +1,14 @@
+/**
+ * Whether gh-actions-lock, the GitHub CLI extension that regenerates workflow
+ * lockfiles, can be run, and why not when it cannot:
+ *
+ * - `available`: it can be run.
+ * - `no-gh`: the GitHub CLI cannot be started.
+ * - `unlisted`: the list of installed extensions did not finish, so the extension
+ *   was not looked for.
+ * - `missing`: it is not installed, or the list of extensions failed, as with the
+ *   GitHub CLI before 2.10 when no extension is installed.
+ * - `outdated`: its release is older than the relock needs.
+ */
+export type LockTool =
+  'available' | 'unlisted' | 'outdated' | 'missing' | 'no-gh'

@@ -11,9 +11,12 @@ import { SUPPORTED_LOCKFILE_VERSIONS } from '../constants'
 const FILE_KEYS = new Set(['dependencies', 'workflows', 'version'])
 
 /**
- * Read which workflows a workflow lockfile tracks.
+ * Read which workflows a workflow lockfile tracks, and which commit it pins
+ * each reference to.
  *
- * Only the keys of `workflows` are read; the rest of the file is checked for
+ * Only the keys of `workflows` and the commits of `dependencies`, by the key of
+ * each pin, `owner/repo@ref`, are read; the repository in a key is read in
+ * lower case, the way GitHub matches it. The rest of the file is checked for
  * its shape alone, so a field a newer release of gh-actions-lock adds to a pin
  * does not make the file unreadable. The format is still before 1.0 and may
  * change, so a file in a version this release does not know, with a key at the
@@ -22,7 +25,8 @@ const FILE_KEYS = new Set(['dependencies', 'workflows', 'version'])
  * reason is unreadable too.
  *
  * @param text - Content of `.github/workflows/actions.lock`.
- * @returns The tracked workflows, or why the file cannot be read.
+ * @returns The tracked workflows and the pinned commits, or why the file cannot
+ *   be read.
  */
 export function parseLockfile(text: string): LockfileParseResult {
   let document = parseDocument(text)
@@ -77,7 +81,26 @@ export function parseLockfile(text: string): LockfileParseResult {
     return { reason: 'malformed dependencies', kind: 'unsupported', version }
   }
 
-  return { workflows: Object.keys(workflows ?? {}), kind: 'parsed', version }
+  return {
+    commits: new Map(
+      Object.entries(dependencies ?? {}).flatMap(
+        ([key, pin]): [string, string][] => {
+          let at = key.indexOf('@')
+          return at > 0 && isRecord(pin) && typeof pin['commit'] === 'string' ?
+              [
+                [
+                  `${key.slice(0, at).toLowerCase()}${key.slice(at)}`,
+                  pin['commit'].replace(/^sha1-/u, '').toLowerCase(),
+                ],
+              ]
+            : []
+        },
+      ),
+    ),
+    workflows: Object.keys(workflows ?? {}),
+    kind: 'parsed',
+    version,
+  }
 }
 
 /**

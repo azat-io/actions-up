@@ -12,7 +12,9 @@ const SETUP_ACTION = '/repo/.github/actions/setup/action.yml'
  * Lockfile of `/repo` that tracks its CI workflow, which runs the setup action
  * of the repository.
  */
-const LOCKFILE = makeWorkflowLockfile({ reached: new Set([SETUP_ACTION]) })
+const LOCKFILE = makeWorkflowLockfile({
+  reached: new Map([[SETUP_ACTION, new Map<string, boolean>()]]),
+})
 
 /**
  * Lockfile of `/repo` whose tracked workflows could not be traced.

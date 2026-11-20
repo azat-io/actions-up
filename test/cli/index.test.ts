@@ -9,6 +9,7 @@ import type { ActionUpdate } from '../../types/action-update'
 import type { GitHubClient } from '../../types/github-client'
 import type { ScanResult } from '../../types/scan-result'
 import type { Spinner } from '../../cli/create-spinner'
+import type { LockTool } from '../../types/lock-tool'
 
 import { promptUpdateSelection } from '../../core/interactive/prompt-update-selection'
 import { readEnclosingLockfiles } from '../../core/lockfile/read-enclosing-lockfiles'
@@ -16,8 +17,10 @@ import { GitHubRateLimitError } from '../../core/api/github-rate-limit-error'
 import { createGitHubClient } from '../../core/api/create-github-client'
 import { makeWorkflowLockfile } from '../helpers/make-workflow-lockfile'
 import { findRepositoryRoot } from '../../core/fs/find-repository-root'
-import { applyUpdates } from '../../core/ast/update/apply-updates'
+import { regenerateLockfiles } from '../../cli/regenerate-lockfiles'
+import { writeUpdates } from '../../core/ast/update/apply-updates'
 import { scanGitHubActions } from '../../core/scan-github-actions'
+import { findLockTool } from '../../core/lockfile/find-lock-tool'
 import { createMockClient } from '../helpers/create-mock-client'
 import { shouldIgnore } from '../../core/ignore/should-ignore'
 import { stripAnsi } from '../../core/interactive/strip-ansi'
@@ -96,6 +99,11 @@ const BANNER = '🚀 Actions Up!'
 const DRY_RUN_HEADER = '📋 Dry Run - No changes will be made'
 const UP_TO_DATE = '✨ Everything is already at the latest version!'
 
+/**
+ * Gh-actions-lock as the CLI finds it on a machine without the extension.
+ */
+const LOCK_TOOL_MISSING: LockTool = 'missing'
+
 const BRANCH_NOTICE = noticeAbout('pinned to branches')
 const MAJOR_HELD_NOTICE = noticeAbout('due to major updates')
 const MAJOR_OR_MINOR_HELD_NOTICE = noticeAbout('due to major/minor updates')
@@ -133,6 +141,8 @@ vi.mock(import('../../core/runners/known-runner-images'), () => ({
 }))
 vi.mock(import('../../core/interactive/prompt-update-selection'))
 vi.mock(import('../../core/lockfile/read-enclosing-lockfiles'))
+vi.mock(import('../../core/lockfile/find-lock-tool'))
+vi.mock(import('../../cli/regenerate-lockfiles'))
 vi.mock(import('../../core/api/create-github-client'))
 vi.mock(import('../../core/ast/update/apply-updates'))
 vi.mock(import('../../core/ignore/should-ignore'))
@@ -558,8 +568,13 @@ describe('run', () => {
     vi.mocked(scanRecursive).mockResolvedValue(makeScanResult([]))
     vi.mocked(checkUpdates).mockResolvedValue([])
     vi.mocked(promptUpdateSelection).mockResolvedValue([])
-    vi.mocked(applyUpdates).mockResolvedValue([])
+    vi.mocked(writeUpdates).mockResolvedValue({ unwritten: [], files: [] })
     vi.mocked(readEnclosingLockfiles).mockResolvedValue([])
+    vi.mocked(findLockTool).mockResolvedValue(LOCK_TOOL_MISSING)
+    vi.mocked(regenerateLockfiles).mockResolvedValue({
+      restored: new Set(),
+      exitCode: 0,
+    })
   })
 
   afterEach(() => {
@@ -804,7 +819,7 @@ describe('run', () => {
 
       await runCli('--yes', '--exclude', 'actions/checkout')
 
-      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+      expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
         expect.objectContaining({ targetRef: 'ubuntu-24.04' }),
       ])
     })
@@ -950,7 +965,7 @@ describe('run', () => {
 
       await runCli('--yes')
 
-      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+      expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
         expect.objectContaining({ action }),
       ])
     })
@@ -1001,7 +1016,7 @@ describe('run', () => {
 
       await runCli('--yes')
 
-      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+      expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
         expect.objectContaining({ action: slow }),
         expect.objectContaining({ action: fast }),
       ])
@@ -1015,7 +1030,7 @@ describe('run', () => {
 
       await runCli('--yes')
 
-      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+      expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
         {
           currentVersion: 'ubuntu-22.04',
           latestVersion: 'ubuntu-24.04',
@@ -1858,7 +1873,7 @@ describe('run', () => {
         '   • actions/checkout@v4.2.2 → b4ffde6: commit was found on neither the default branch nor a protected branch',
       ])
       expect(printedLines()).toStrictEqual([BANNER])
-      expect(applyUpdates).not.toHaveBeenCalled()
+      expect(writeUpdates).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -2095,7 +2110,7 @@ describe('run', () => {
 
       expect(readJsonReport().status).toBe('updates-available')
       expect(promptUpdateSelection).not.toHaveBeenCalled()
-      expect(applyUpdates).not.toHaveBeenCalled()
+      expect(writeUpdates).not.toHaveBeenCalled()
     })
 
     it('prints nothing besides the report in JSON mode', async () => {
@@ -2280,7 +2295,7 @@ describe('run', () => {
 
       await runCli('--yes')
 
-      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+      expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
         {
           ...makeUpdate(action),
           effectiveDate: new Date(ON_BRANCH_SINCE),
@@ -2331,8 +2346,8 @@ describe('run', () => {
           makeUpdate(setupNode, { latestVersion: 'v4.4.0' }),
         ],
       })
-      vi.mocked(applyUpdates).mockImplementation(updates =>
-        Promise.resolve(updates.slice(1)),
+      vi.mocked(writeUpdates).mockImplementation(updates =>
+        Promise.resolve({ unwritten: updates.slice(1), files: [] }),
       )
 
       await runCli('--yes')
@@ -2351,8 +2366,8 @@ describe('run', () => {
 
     it('reports a run that wrote nothing without a success line', async () => {
       arrangeRun({ updates: [makeUpdate(makeAction())] })
-      vi.mocked(applyUpdates).mockImplementation(updates =>
-        Promise.resolve(updates),
+      vi.mocked(writeUpdates).mockImplementation(updates =>
+        Promise.resolve({ unwritten: updates, files: [] }),
       )
 
       await runCli('--yes')
@@ -2381,7 +2396,7 @@ describe('run', () => {
         '2 entries would be updated',
       ])
       expect(promptUpdateSelection).not.toHaveBeenCalled()
-      expect(applyUpdates).not.toHaveBeenCalled()
+      expect(writeUpdates).not.toHaveBeenCalled()
     })
 
     it.each([
@@ -2454,7 +2469,7 @@ describe('run', () => {
 
       await runCli()
 
-      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+      expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
         expect.objectContaining({
           targetRef: SETUP_NODE_SHA,
           action: setupNode,
@@ -2526,7 +2541,7 @@ describe('run', () => {
 
         await runCli()
 
-        expect(applyUpdates).not.toHaveBeenCalled()
+        expect(writeUpdates).not.toHaveBeenCalled()
         expect(printedLines()).toStrictEqual([BANNER, 'No updates applied'])
       },
     )
@@ -2534,7 +2549,7 @@ describe('run', () => {
 
   describe('workflow lockfile', () => {
     let LOCKFILE_NOTICE =
-      '⚠️  Skipped 1 action pinned by a workflow lockfile (update them and regenerate .github/workflows/actions.lock with gh actions-lock)'
+      '⚠️  Skipped 1 action pinned by a workflow lockfile (run gh extension install github/gh-actions-lock to update them)'
 
     /**
      * Lets a workflow lockfile of `/repo` track the CI workflow.
@@ -2550,7 +2565,7 @@ describe('run', () => {
       ])
     }
 
-    it('skips an update to a workflow the lockfile tracks, says why, and writes the others', async () => {
+    it('skips an update to a workflow the lockfile tracks without gh-actions-lock, says how to get it, and writes the others', async () => {
       let tracked = makeUpdate(makeAction())
       let other = makeUpdate(
         makeAction({
@@ -2564,9 +2579,15 @@ describe('run', () => {
 
       await runCli('--yes')
 
-      expect(applyUpdates).toHaveBeenCalledExactlyOnceWith([
+      expect(findLockTool).toHaveBeenCalledExactlyOnceWith('/repo')
+      expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
         expect.objectContaining({ action: other.action }),
       ])
+      expect(regenerateLockfiles).toHaveBeenCalledExactlyOnceWith(
+        [],
+        [],
+        expect.objectContaining({ signal: null }),
+      )
       expect(printedLines()).toStrictEqual([
         BANNER,
         LOCKFILE_NOTICE,
@@ -2574,6 +2595,193 @@ describe('run', () => {
         '🔄 Updating 1 entry...',
         '✓ Updates applied successfully!',
       ])
+    })
+
+    describe('with gh-actions-lock available', () => {
+      /**
+       * Lockfile of `/repo` that tracks the CI workflow.
+       */
+      let lockfile = makeWorkflowLockfile({
+        workflows: new Set([WORKFLOW_FILE]),
+      })
+
+      /**
+       * Files the writer reports for an update of the CI workflow.
+       */
+      let files = [
+        {
+          after: `uses: actions/checkout@${LATEST_SHA}\n`,
+          before: 'uses: actions/checkout@v3\n',
+          path: WORKFLOW_FILE,
+        },
+      ]
+
+      /**
+       * Lets a run find an update to the CI workflow, which the lockfile
+       * tracks, and one to the release workflow, which it does not.
+       *
+       * @returns The two updates.
+       */
+      function arrangeUpdates(): ActionUpdate[] {
+        let updates = [
+          makeUpdate(makeAction()),
+          makeUpdate(
+            makeAction({
+              file: RELEASE_WORKFLOW_FILE,
+              name: 'actions/setup-node',
+              line: 9,
+            }),
+          ),
+        ]
+        arrangeRun({ updates })
+        return updates
+      }
+
+      beforeEach(() => {
+        vi.mocked(readEnclosingLockfiles).mockResolvedValue([lockfile])
+        vi.mocked(findLockTool).mockResolvedValue('available')
+        vi.mocked(writeUpdates).mockResolvedValue({ unwritten: [], files })
+      })
+
+      it('updates a workflow the lockfile tracks and regenerates the lockfile for it', async () => {
+        let [tracked, other] = arrangeUpdates()
+        let listeners = process.listenerCount('SIGINT')
+
+        await runCli('--yes')
+
+        expect(writeUpdates).toHaveBeenCalledExactlyOnceWith([
+          expect.objectContaining({ action: tracked!.action }),
+          expect.objectContaining({ action: other!.action }),
+        ])
+        expect(regenerateLockfiles).toHaveBeenCalledExactlyOnceWith(
+          [
+            {
+              updates: [expect.objectContaining({ action: tracked!.action })],
+              workflows: ['.github/workflows/ci.yml'],
+              files: new Set([WORKFLOW_FILE]),
+              lockfile,
+            },
+          ],
+          files,
+          expect.objectContaining({ signal: null }),
+        )
+        expect(process.listenerCount('SIGINT')).toBe(listeners)
+        expect(printedLines()).toStrictEqual([
+          BANNER,
+          '🔄 Updating 2 entries...',
+          '✓ Updates applied successfully!',
+        ])
+        expect(process.exitCode).toBeUndefined()
+      })
+
+      it('counts the entries of a file put back after a failed regeneration as not applied, and fails', async () => {
+        arrangeUpdates()
+        vi.mocked(regenerateLockfiles).mockResolvedValue({
+          restored: new Set([WORKFLOW_FILE]),
+          exitCode: 1,
+        })
+
+        await runCli('--yes')
+
+        expect(printedLines()).toStrictEqual([
+          BANNER,
+          '🔄 Updating 2 entries...',
+          '✓ 1 of 2 entries applied',
+        ])
+        expect(process.exitCode).toBe(1)
+      })
+
+      it('holds a signal that arrives while the files are written, for the regeneration to see, and a second longer for a copy of it', async () => {
+        vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] })
+        arrangeUpdates()
+        let interrupts = process.listeners('SIGINT')
+        vi.mocked(writeUpdates).mockImplementation(() => {
+          for (let listener of process.listeners('SIGINT')) {
+            if (!interrupts.includes(listener)) {
+              listener('SIGINT')
+            }
+          }
+          return Promise.resolve({ unwritten: [], files })
+        })
+        vi.mocked(regenerateLockfiles).mockResolvedValue({
+          restored: new Set(),
+          exitCode: 130,
+        })
+
+        await runCli('--yes')
+
+        expect(regenerateLockfiles).toHaveBeenCalledExactlyOnceWith(
+          expect.any(Array),
+          files,
+          expect.objectContaining({ signal: 'SIGINT' }),
+        )
+        expect(printedErrors()).toStrictEqual(['⚠️ Interrupted by SIGINT'])
+        expect(process.listeners('SIGINT')).toHaveLength(interrupts.length + 1)
+        expect(process.exitCode).toBe(130)
+
+        vi.advanceTimersByTime(1000)
+
+        expect(process.listeners('SIGINT')).toStrictEqual(interrupts)
+      })
+
+      it('names the signal that stopped the run and ends with its exit code', async () => {
+        arrangeUpdates()
+        vi.mocked(regenerateLockfiles).mockImplementation(
+          (_targets, _written, signals) => {
+            signals.signal = 'SIGINT'
+            return Promise.resolve({ restored: new Set(), exitCode: 130 })
+          },
+        )
+
+        await runCli('--yes')
+
+        expect(printedLines()).toStrictEqual([
+          BANNER,
+          '🔄 Updating 2 entries...',
+          '✓ 2 of 2 entries applied',
+        ])
+        expect(printedErrors()).toStrictEqual(['⚠️ Interrupted by SIGINT'])
+        expect(process.exitCode).toBe(130)
+      })
+
+      it('says which lockfile a dry run would regenerate', async () => {
+        arrangeUpdates()
+
+        await runCli('--dry-run')
+
+        expect(printedLines()).toContain(
+          '.github/workflows/actions.lock would be regenerated with gh actions-lock',
+        )
+        expect(writeUpdates).not.toHaveBeenCalled()
+        expect(regenerateLockfiles).not.toHaveBeenCalled()
+      })
+
+      it('lists an update to a tracked workflow among the updates of the JSON report', async () => {
+        arrangeUpdates()
+
+        await runCli('--json')
+
+        expect(readJsonReport()).toMatchObject({
+          updates: [
+            { action: { name: 'actions/checkout' } },
+            { action: { name: 'actions/setup-node' } },
+          ],
+          skipped: [],
+        })
+        expect(regenerateLockfiles).not.toHaveBeenCalled()
+      })
+    })
+
+    it('looks for gh-actions-lock only when a lockfile that can be regenerated pins an entry', async () => {
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+      arrangeLockfile({ error: 'invalid YAML', version: null, keys: null })
+
+      await runCli('--yes')
+
+      expect(findLockTool).not.toHaveBeenCalled()
+      expect(printedLines()).toContain(
+        '⚠️  Skipped 1 action pinned by a workflow lockfile that cannot be regenerated for them, since it, a workflow it tracks or an action of the repository cannot be read',
+      )
     })
 
     it.each([
@@ -2586,6 +2794,7 @@ describe('run', () => {
         arrangeLockfile({
           error: 'unsupported schema version v0.0.4',
           version: 'v0.0.4',
+          keys: null,
         })
 
         await runCli(...argv)
@@ -2593,7 +2802,7 @@ describe('run', () => {
         expect(printedWarnings()).toStrictEqual([
           '⚠️  .github/workflows/actions.lock cannot be read (unsupported schema version v0.0.4), so the updates of every workflow next to it and of the actions they run are skipped',
         ])
-        expect(applyUpdates).not.toHaveBeenCalled()
+        expect(writeUpdates).not.toHaveBeenCalled()
       },
     )
 
@@ -2614,7 +2823,7 @@ describe('run', () => {
 
       await runCli('--style', 'semver', '--yes')
 
-      expect(applyUpdates).not.toHaveBeenCalled()
+      expect(writeUpdates).not.toHaveBeenCalled()
       expect(printedLines()).toStrictEqual([
         BANNER,
         '⚠️  Skipped 1 action pinned by a workflow lockfile to a commit that was not compared with the latest version (gh actions-lock --relock moves such pins forward)',
@@ -2625,7 +2834,7 @@ describe('run', () => {
 
     it('describes the lockfiles and the skipped update in the JSON report only', async () => {
       arrangeRun({ updates: [makeUpdate(makeAction())] })
-      arrangeLockfile({ error: 'invalid YAML', version: null })
+      arrangeLockfile({ error: 'invalid YAML', version: null, keys: null })
 
       await runCli('--json')
 
@@ -2638,10 +2847,36 @@ describe('run', () => {
             version: null,
           },
         ],
-        skipped: [{ skipReason: 'lockfile', status: 'skipped' }],
+        skipped: [
+          {
+            action: { relockBlocker: 'unreadable' },
+            skipReason: 'lockfile',
+            status: 'skipped',
+          },
+        ],
+        lockTool: null,
         updates: [],
       })
+      expect(findLockTool).not.toHaveBeenCalled()
       expect(printedWarnings()).toStrictEqual([])
+    })
+
+    it('says in the JSON report why an update a lockfile that can be regenerated pins was skipped', async () => {
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+      arrangeLockfile()
+
+      await runCli('--json')
+
+      expect(readJsonReport()).toMatchObject({
+        skipped: [
+          {
+            action: { relockBlocker: null, locked: true },
+            skipReason: 'lockfile',
+          },
+        ],
+        lockTool: 'missing',
+        updates: [],
+      })
     })
   })
 

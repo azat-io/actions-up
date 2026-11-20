@@ -7,8 +7,11 @@ import type { FakeFileSystem } from '../../../helpers/create-fake-file-system'
 import type { ActionUpdate } from '../../../../types/action-update'
 import type { GitHubAction } from '../../../../types/github-action'
 
+import {
+  writeUpdates,
+  applyUpdates,
+} from '../../../../core/ast/update/apply-updates'
 import { createFakeFileSystem } from '../../../helpers/create-fake-file-system'
-import { applyUpdates } from '../../../../core/ast/update/apply-updates'
 
 vi.mock(import('node:fs/promises'), () => ({
   writeFile: vi.fn(),
@@ -1567,6 +1570,53 @@ describe('applyUpdates', () => {
         expect(unwritten).toStrictEqual([update])
       },
     )
+  })
+
+  describe('writeUpdates', () => {
+    it('reports each rewritten file with its text before and after, in the order of its first update', async () => {
+      let releasePath = '/repo/.github/workflows/release.yml'
+      let lintPath = '/repo/.github/workflows/lint.yml'
+      let before = workflowWithStep('      - uses: actions/checkout@v3')
+      let after = workflowWithStep(
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+      )
+      installFiles({
+        [workflowPath]: before,
+        [releasePath]: before,
+        [lintPath]: before,
+      })
+      let stale = createUpdate({
+        action: { line: lineAfterStepWorkflow, file: lintPath },
+      })
+
+      let result = await writeUpdates([
+        createUpdate({ action: { file: releasePath } }),
+        stale,
+        createUpdate(),
+      ])
+
+      expect(result).toStrictEqual({
+        files: [
+          { path: releasePath, before, after },
+          { path: workflowPath, before, after },
+        ],
+        unwritten: [stale],
+      })
+    })
+
+    it('reports no file that could not be written', async () => {
+      installFiles({
+        [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+      })
+      vi.mocked(writeFile).mockRejectedValueOnce(new Error('EACCES'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      let update = createUpdate()
+
+      await expect(writeUpdates([update])).resolves.toStrictEqual({
+        unwritten: [update],
+        files: [],
+      })
+    })
   })
 
   describe('current behavior pending owner decision', () => {
