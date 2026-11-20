@@ -60,7 +60,7 @@ describe('restoreWrittenFiles', () => {
       },
     ])
 
-    expect(result).toStrictEqual([CI_WORKFLOW])
+    expect(result).toStrictEqual({ restored: [CI_WORKFLOW], failed: new Map() })
     expect(fileSystem.contentOf(CI_WORKFLOW)).toBe(
       'uses: actions/checkout@v4\n',
     )
@@ -69,8 +69,7 @@ describe('restoreWrittenFiles', () => {
     )
   })
 
-  it('leaves a file that is gone, and one that cannot be written back, saying why', async () => {
-    let consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('leaves a file that is gone, and reports one that cannot be written back with the error', async () => {
     installFiles({
       [LINT_WORKFLOW]: 'uses: actions/checkout@v5\n',
       [CI_WORKFLOW]: 'uses: actions/checkout@v5\n',
@@ -97,11 +96,13 @@ describe('restoreWrittenFiles', () => {
       },
     ])
 
-    expect(result).toStrictEqual([])
-    expect(consoleError.mock.calls).toStrictEqual([
-      [`Could not put back ${CI_WORKFLOW}: EACCES: permission denied`],
-      [`Could not put back ${LINT_WORKFLOW}: disk full`],
-    ])
+    expect(result).toStrictEqual({
+      failed: new Map([
+        [CI_WORKFLOW, 'EACCES: permission denied'],
+        [LINT_WORKFLOW, 'disk full'],
+      ]),
+      restored: [],
+    })
   })
 
   it('leaves a file whose bytes differ from what was written, even when they read as the same text', async () => {
@@ -115,7 +116,7 @@ describe('restoreWrittenFiles', () => {
       },
     ])
 
-    expect(result).toStrictEqual([])
+    expect(result).toStrictEqual({ failed: new Map(), restored: [] })
     expect(writeFile).not.toHaveBeenCalled()
   })
 })

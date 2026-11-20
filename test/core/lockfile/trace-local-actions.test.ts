@@ -152,11 +152,7 @@ describe('traceLocalActions', () => {
 
   it('lists a workflow that runs an action only through ./ when the action runs remote actions alone', async () => {
     installFileSystem({
-      [SETUP_ACTION]: makeActionText(
-        'docker://alpine:3',
-        './tools/missing',
-        './tools/lint',
-      ),
+      [SETUP_ACTION]: makeActionText('docker://alpine:3', './tools/lint'),
       [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
       [LINT_ACTION]: makeActionText('actions/cache@v4'),
     })
@@ -165,6 +161,32 @@ describe('traceLocalActions', () => {
 
     expect(reached).toStrictEqual(
       new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+    )
+  })
+
+  it('lists a workflow that runs through ./ an action the repository does not hold', async () => {
+    installFileSystem({
+      [CI_WORKFLOW]: makeWorkflowText(
+        './tools/checked-out',
+        './tools/empty',
+        './.github/workflows/reusable.yml',
+        './tools/container',
+        './tools/legacy-container',
+        '$/tools/missing',
+      ),
+      '/repo/tools/empty/readme.md': 'Filled while the workflow runs',
+      '/repo/.github/workflows/reusable.yml': makeWorkflowText('$/'),
+      '/repo/tools/legacy-container/dockerfile': 'FROM alpine:3\n',
+      '/repo/tools/container/Dockerfile': 'FROM alpine:3\n',
+    })
+
+    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(reached).toStrictEqual(
+      new Map([
+        ['/repo/tools/checked-out/action.yml', new Map([[CI_WORKFLOW, false]])],
+        ['/repo/tools/empty/action.yml', new Map([[CI_WORKFLOW, false]])],
+      ]),
     )
   })
 

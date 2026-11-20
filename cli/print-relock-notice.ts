@@ -14,12 +14,15 @@ import { colors } from '../core/interactive/colors'
  * @param notice.details - Findings or references that explain it.
  * @param notice.restored - Files put back the way they were, as shown to the
  *   user.
+ * @param notice.unrestored - Files that could not be written back, each with
+ *   the error, as shown to the user; the write may have left them cut short.
  * @param notice.left - Files that keep their updates, as shown to the user.
  * @param notice.command - Command that regenerates the lockfile, run from the
  *   working directory, null when running it would pin the same again.
  */
 export function printRelockNotice(notice: {
   command: string | null
+  unrestored: string[]
   restored: string[]
   details: string[]
   heading: string
@@ -31,6 +34,13 @@ export function printRelockNotice(notice: {
     printList(
       `   Restored ${countFiles(notice.restored.length)} to match the lockfile again:`,
       notice.restored,
+    )
+  }
+
+  if (notice.unrestored.length > 0) {
+    printList(
+      `   Could not put back ${countFiles(notice.unrestored.length)}, which may now be cut short; check with git diff:`,
+      notice.unrestored,
     )
   }
 

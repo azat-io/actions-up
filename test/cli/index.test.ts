@@ -572,6 +572,7 @@ describe('run', () => {
     vi.mocked(readEnclosingLockfiles).mockResolvedValue([])
     vi.mocked(findLockTool).mockResolvedValue(LOCK_TOOL_MISSING)
     vi.mocked(regenerateLockfiles).mockResolvedValue({
+      unrestored: new Set(),
       restored: new Set(),
       exitCode: 0,
     })
@@ -2658,8 +2659,8 @@ describe('run', () => {
           [
             {
               updates: [expect.objectContaining({ action: tracked!.action })],
+              files: new Map([[WORKFLOW_FILE, ['.github/workflows/ci.yml']]]),
               workflows: ['.github/workflows/ci.yml'],
-              files: new Set([WORKFLOW_FILE]),
               lockfile,
             },
           ],
@@ -2675,22 +2676,34 @@ describe('run', () => {
         expect(process.exitCode).toBeUndefined()
       })
 
-      it('counts the entries of a file put back after a failed regeneration as not applied, and fails', async () => {
-        arrangeUpdates()
-        vi.mocked(regenerateLockfiles).mockResolvedValue({
-          restored: new Set([WORKFLOW_FILE]),
-          exitCode: 1,
-        })
+      it.each([
+        [
+          'put back after a failed regeneration',
+          { restored: new Set([WORKFLOW_FILE]), unrestored: new Set<string>() },
+        ],
+        [
+          'that could not be put back, which may be cut short',
+          { unrestored: new Set([WORKFLOW_FILE]), restored: new Set<string>() },
+        ],
+      ])(
+        'counts the entries of a file %s as not applied, and fails',
+        async (_description, outcome) => {
+          arrangeUpdates()
+          vi.mocked(regenerateLockfiles).mockResolvedValue({
+            ...outcome,
+            exitCode: 1,
+          })
 
-        await runCli('--yes')
+          await runCli('--yes')
 
-        expect(printedLines()).toStrictEqual([
-          BANNER,
-          '🔄 Updating 2 entries...',
-          '✓ 1 of 2 entries applied',
-        ])
-        expect(process.exitCode).toBe(1)
-      })
+          expect(printedLines()).toStrictEqual([
+            BANNER,
+            '🔄 Updating 2 entries...',
+            '✓ 1 of 2 entries applied',
+          ])
+          expect(process.exitCode).toBe(1)
+        },
+      )
 
       it('holds a signal that arrives while the files are written, for the regeneration to see, and a second longer for a copy of it', async () => {
         vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] })
@@ -2705,6 +2718,7 @@ describe('run', () => {
           return Promise.resolve({ unwritten: [], files })
         })
         vi.mocked(regenerateLockfiles).mockResolvedValue({
+          unrestored: new Set(),
           restored: new Set(),
           exitCode: 130,
         })
@@ -2730,7 +2744,11 @@ describe('run', () => {
         vi.mocked(regenerateLockfiles).mockImplementation(
           (_targets, _written, signals) => {
             signals.signal = 'SIGINT'
-            return Promise.resolve({ restored: new Set(), exitCode: 130 })
+            return Promise.resolve({
+              unrestored: new Set(),
+              restored: new Set(),
+              exitCode: 130,
+            })
           },
         )
 

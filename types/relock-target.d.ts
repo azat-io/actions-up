@@ -6,6 +6,13 @@ import type { ActionUpdate } from './action-update'
  */
 export interface RelockTarget {
   /**
+   * Written files whose entries the lockfile pins, as the scan names them, each
+   * with the tracked workflows the lockfile records it under, as it names
+   * them.
+   */
+  files: Map<string, string[]>
+
+  /**
    * Lockfile to regenerate.
    */
   lockfile: WorkflowLockfile
@@ -21,9 +28,4 @@ export interface RelockTarget {
    * it records what the written files run, sorted.
    */
   workflows: string[]
-
-  /**
-   * Written files whose entries the lockfile pins, as the scan names them.
-   */
-  files: Set<string>
 }

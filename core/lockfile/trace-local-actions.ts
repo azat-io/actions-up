@@ -14,8 +14,15 @@ interface Manifest {
   references: string[] | null
 
   /**
+   * Whether the repository holds no definition of the action, which then is
+   * whatever the workspace holds once the workflow runs.
+   */
+  absent: boolean
+
+  /**
    * Real path of the definition, the way the scan of the repository is matched
-   * against it.
+   * against it; the path it would have for an action the repository does not
+   * hold.
    */
   path: string
 }
@@ -25,6 +32,12 @@ interface Manifest {
  * them.
  */
 const ACTION_MANIFESTS = ['action.yml', 'action.yaml']
+
+/**
+ * Names of the file that defines a Docker action on its own, without an action
+ * definition, as the runner accepts them.
+ */
+const DOCKER_FILES = ['Dockerfile', 'dockerfile']
 
 /**
  * Prefixes of a reference to an action of the same repository.
@@ -56,7 +69,9 @@ const DOCKER_PREFIX = 'docker://'
  * takes `$/` references alone. A workflow that runs an action only through `./`
  * is listed for it only when the action runs remote actions: their pins may be
  * the ones of the same references the workflow runs itself, which a relock of
- * the workflow drops once it no longer does. The actions are traced from the
+ * the workflow drops once it no longer does. An action the repository does not
+ * hold, as one a workflow checks out from another repository while it runs, may
+ * run any, so it counts as one that does. The actions are traced from the
  * workflows the lockfile tracks, whatever part of the repository the run scans,
  * and each definition is read once. Workflows and definitions are read as data,
  * the way GitHub reads them, so a reference written through a YAML alias
@@ -71,7 +86,9 @@ const DOCKER_PREFIX = 'docker://'
  *   workflows that reach it and whether the lockfile records what it runs under
  *   each of them, or null when a workflow or a definition could not be read. A
  *   definition that runs no remote action is listed only for the workflows that
- *   reach it through `$/` references alone.
+ *   reach it through `$/` references alone, and an action the repository does
+ *   not hold only for those that reach it through `./`, by the path its
+ *   definition would have.
  */
 export async function traceLocalActions(
   root: string,
@@ -157,8 +174,12 @@ export async function traceLocalActions(
     let next = new Map<string, boolean>()
     let complete = true
 
+    /**
+     * Gh-actions-lock refuses a `$/` reference to an action the repository does
+     * not hold by itself.
+     */
     for (let [manifest, recorded] of found) {
-      if (manifest) {
+      if (manifest && (!recorded || !manifest.absent)) {
         if (recorded || runsRemoteActions(manifest)) {
           let runs = reached.get(manifest.path) ?? new Map<string, boolean>()
           reached.set(manifest.path, runs)
@@ -201,26 +222,35 @@ export async function traceLocalActions(
 /**
  * Read the definition of an action of the repository.
  *
- * A directory without a definition defines no action. A definition that cannot
- * be looked for or read may run any action, so it is reported without its
- * references.
+ * A file at the path, such as a workflow that a job calls, defines no action
+ * that runs others, and neither does a Dockerfile that defines a Docker action
+ * on its own. Where the repository holds no definition, the action is whatever
+ * the workspace holds once the workflow runs, as after a checkout of another
+ * repository. A definition that cannot be looked for or read may run any
+ * action, so it is reported without its references.
  *
  * @param directory - Directory a local reference names.
- * @returns The definition, or null when the directory holds none.
+ * @returns The definition, or null when a file is at the path or a Dockerfile
+ *   alone defines the action.
  */
 async function findManifest(directory: string): Promise<Manifest | null> {
   let candidates = ACTION_MANIFESTS.map(name => join(directory, name))
-  let paths: (string | null)[]
+  let others = [directory, ...DOCKER_FILES.map(name => join(directory, name))]
+  let found: (string | null)[]
 
   try {
-    paths = await Promise.all(candidates.map(findFile))
+    found = await Promise.all([...candidates, ...others].map(findFile))
   } catch {
-    return { path: candidates[0]!, references: null }
+    return { path: candidates[0]!, references: null, absent: false }
   }
 
-  let path = paths.find(candidate => candidate !== null)
+  let path = found
+    .slice(0, candidates.length)
+    .find(candidate => candidate !== null)
   if (!path) {
-    return null
+    return found.some(Boolean) ? null : (
+        { path: candidates[0]!, references: [], absent: true }
+      )
   }
 
   try {
@@ -228,9 +258,9 @@ async function findManifest(directory: string): Promise<Manifest | null> {
       readReferences(path),
       realpath(path),
     ])
-    return { path: real, references }
+    return { absent: false, path: real, references }
   } catch {
-    return { references: null, path }
+    return { references: null, absent: false, path }
   }
 }
 
@@ -282,13 +312,17 @@ async function readReferences(path: string): Promise<string[] | null> {
  * action, one the lockfile would pin.
  *
  * @param manifest - Definition of the action.
- * @returns True when one of its references is neither local nor a Docker image.
+ * @returns True when one of its references is neither local nor a Docker image,
+ *   or when the repository does not hold the action, which may then run any.
  */
 function runsRemoteActions(manifest: Manifest): boolean {
-  return (manifest.references ?? []).some(
-    reference =>
-      LOCAL_PREFIXES.every(prefix => !reference.startsWith(prefix)) &&
-      !reference.startsWith(DOCKER_PREFIX),
+  return (
+    manifest.absent ||
+    (manifest.references ?? []).some(
+      reference =>
+        LOCAL_PREFIXES.every(prefix => !reference.startsWith(prefix)) &&
+        !reference.startsWith(DOCKER_PREFIX),
+    )
   )
 }
 
