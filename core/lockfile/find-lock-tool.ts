@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises'
 import semver from 'semver'
 
 import type { LockTool } from '../../types/lock-tool'
@@ -35,8 +36,12 @@ const LIST_TIMEOUT = 30_000
 export async function findLockTool(cwd: string): Promise<LockTool> {
   let list = await runGh(['extension', 'list'], { timeout: LIST_TIMEOUT, cwd })
 
+  /**
+   * Node reports a working directory that is gone with the same code as a `gh`
+   * that is not found, so the directory is looked at first.
+   */
   if (list.startError === 'ENOENT') {
-    return 'no-gh'
+    return (await isDirectory(cwd)) ? 'no-gh' : 'unlisted'
   }
 
   /**
@@ -77,4 +82,19 @@ function findListedVersion(list: string): string | null {
     }
   }
   return null
+}
+
+/**
+ * Tell whether a directory is there.
+ *
+ * @param path - Path to look at.
+ * @returns True when a directory is at the path, false when there is none or it
+ *   cannot be looked at.
+ */
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory()
+  } catch {
+    return false
+  }
 }
