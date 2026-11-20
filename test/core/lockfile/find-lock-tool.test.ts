@@ -48,13 +48,28 @@ describe('findLockTool', () => {
     })
   })
 
-  it('reports the GitHub CLI missing when gh cannot be started', async () => {
+  it('reports the GitHub CLI missing when no gh is found', async () => {
     vi.mocked(runGh).mockResolvedValue(
-      makeGhResult({ exitCode: null, started: false }),
+      makeGhResult({ startError: 'ENOENT', exitCode: null, started: false }),
     )
 
     await expect(findLockTool('/repo')).resolves.toBe('no-gh')
   })
+
+  it.each([
+    ['without the permission to run it', 'EACCES'],
+    ['as a script without a shebang line', 'ENOEXEC'],
+    ['for a reason without a code', null],
+  ])(
+    'does not ask to install a gh that could not be started %s',
+    async (_description, startError) => {
+      vi.mocked(runGh).mockResolvedValue(
+        makeGhResult({ exitCode: null, started: false, startError }),
+      )
+
+      await expect(findLockTool('/repo')).resolves.toBe('unlisted')
+    },
+  )
 
   it('reports a list that did not finish', async () => {
     vi.mocked(runGh).mockResolvedValue(

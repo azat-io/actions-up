@@ -9,6 +9,7 @@ import type { GhResult } from '../../types/gh-result'
  */
 export function makeGhResult(overrides: Partial<GhResult> = {}): GhResult {
   return {
+    startError: null,
     started: true,
     signal: null,
     exitCode: 0,

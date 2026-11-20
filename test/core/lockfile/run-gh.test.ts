@@ -58,6 +58,7 @@ describe('runGh', () => {
     await expect(result).resolves.toStrictEqual({
       stdout: '{"findings":[]}\n',
       stderr: '✓ relocked\n',
+      startError: null,
       started: true,
       signal: null,
       exitCode: 0,
@@ -85,6 +86,7 @@ describe('runGh', () => {
 
     await expect(result).resolves.toStrictEqual({
       stderr: 'no token\n',
+      startError: null,
       started: true,
       signal: null,
       exitCode: 2,
@@ -92,22 +94,37 @@ describe('runGh', () => {
     })
   })
 
-  it('reports that gh could not be started', async () => {
-    child = makeChild(null)
-    vi.mocked(spawn).mockReturnValue(child)
+  it.each([
+    [
+      'with the code of the error',
+      Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' }),
+      'ENOENT',
+    ],
+    [
+      'without a code when the error has none',
+      new Error('spawn gh failed'),
+      null,
+    ],
+  ])(
+    'reports that gh could not be started, %s',
+    async (_description, error, startError) => {
+      child = makeChild(null)
+      vi.mocked(spawn).mockReturnValue(child)
 
-    let result = runGh(['extension', 'list'], { cwd: '/repo' })
-    child.emit('error', new Error('spawn gh ENOENT'))
-    child.emit('close', -2, null)
+      let result = runGh(['extension', 'list'], { cwd: '/repo' })
+      child.emit('error', error)
+      child.emit('close', -2, null)
 
-    await expect(result).resolves.toStrictEqual({
-      started: false,
-      exitCode: null,
-      signal: null,
-      stdout: '',
-      stderr: '',
-    })
-  })
+      await expect(result).resolves.toStrictEqual({
+        started: false,
+        exitCode: null,
+        signal: null,
+        startError,
+        stdout: '',
+        stderr: '',
+      })
+    },
+  )
 
   it('reports that gh could not be started when Node has no file descriptors left for its output', async () => {
     child = Object.assign(new ChildProcess(), {
@@ -119,10 +136,14 @@ describe('runGh', () => {
     vi.mocked(spawn).mockReturnValue(child)
 
     let result = runGh(['extension', 'list'], { cwd: '/repo' })
-    child.emit('error', new Error('spawn EMFILE'))
+    child.emit(
+      'error',
+      Object.assign(new Error('spawn EMFILE'), { code: 'EMFILE' }),
+    )
     child.emit('close', -24, null)
 
     await expect(result).resolves.toStrictEqual({
+      startError: 'EMFILE',
       started: false,
       exitCode: null,
       signal: null,
@@ -131,28 +152,50 @@ describe('runGh', () => {
     })
   })
 
-  it('reports that gh could not be started when Node cannot run it at all', async () => {
-    vi.mocked(spawn).mockImplementation(() => {
-      throw new Error('spawn ENOEXEC')
-    })
+  it.each([
+    [
+      'with the code of the error',
+      Object.assign(new Error('spawn ENOEXEC'), { code: 'ENOEXEC' }),
+      'ENOEXEC',
+    ],
+    [
+      'without a code when the error has none',
+      new TypeError('spawn failed'),
+      null,
+    ],
+  ])(
+    'reports that gh could not be started when Node cannot run it at all, %s',
+    async (_description, error, startError) => {
+      vi.mocked(spawn).mockImplementation(() => {
+        throw error
+      })
 
-    await expect(
-      runGh(['extension', 'list'], { cwd: '/repo' }),
-    ).resolves.toStrictEqual({
-      started: false,
-      exitCode: null,
-      signal: null,
-      stdout: '',
-      stderr: '',
-    })
-  })
+      await expect(
+        runGh(['extension', 'list'], { cwd: '/repo' }),
+      ).resolves.toStrictEqual({
+        started: false,
+        exitCode: null,
+        signal: null,
+        startError,
+        stdout: '',
+        stderr: '',
+      })
+    },
+  )
 
   it('keeps a started command started when it reports an error later', async () => {
     let result = runGh(['actions-lock'], { cwd: '/repo' })
-    child.emit('error', new Error('kill EPERM'))
+    child.emit(
+      'error',
+      Object.assign(new Error('kill EPERM'), { code: 'EPERM' }),
+    )
     child.emit('close', 1, null)
 
-    await expect(result).resolves.toMatchObject({ started: true, exitCode: 1 })
+    await expect(result).resolves.toMatchObject({
+      startError: null,
+      started: true,
+      exitCode: 1,
+    })
   })
 
   it('reports the signal that ended gh', async () => {
@@ -182,6 +225,42 @@ describe('runGh', () => {
       signal: 'SIGTERM',
       exitCode: null,
     })
+  })
+
+  it('kills gh and closes its output when the command does not end once stopped', async () => {
+    vi.useFakeTimers()
+    let result = runGh(['extension', 'list'], { timeout: 30_000, cwd: '/repo' })
+    child.stdout!.emit('data', Buffer.from('gh notes\t'))
+
+    vi.advanceTimersByTime(30_000 + 1999)
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith()
+    expect(child.stdout!.destroyed).toBe(false)
+
+    vi.advanceTimersByTime(1)
+    expect(child.kill).toHaveBeenLastCalledWith('SIGKILL')
+    expect(child.stdout!.destroyed).toBe(true)
+    expect(child.stderr!.destroyed).toBe(true)
+
+    child.emit('close', null, 'SIGKILL')
+
+    await expect(result).resolves.toMatchObject({
+      stdout: 'gh notes\t',
+      signal: 'SIGKILL',
+      exitCode: null,
+    })
+  })
+
+  it('does not kill gh when the command ends once stopped', async () => {
+    vi.useFakeTimers()
+    let result = runGh(['extension', 'list'], { timeout: 30_000, cwd: '/repo' })
+    vi.advanceTimersByTime(30_000)
+    child.emit('close', null, 'SIGTERM')
+    await result
+
+    vi.advanceTimersByTime(2000)
+
+    expect(child.kill).toHaveBeenCalledExactlyOnceWith()
+    expect(child.stdout!.destroyed).toBe(false)
   })
 
   it('stops waiting for the time limit once the command exits', async () => {

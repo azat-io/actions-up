@@ -75,8 +75,10 @@ interface Outcome {
  * first SIGINT or SIGTERM keeps `gh` from starting again and stops the
  * regeneration once the current `gh` run ends: Ctrl+C in a terminal stops that
  * run too, while a signal sent to the CLI alone lets it finish. After a signal
- * nothing is put back: the notices name each lockfile that may not match its
- * files, with the command that regenerates it.
+ * nothing is put back, except for files already being put back, as stopping
+ * halfway would leave their lockfile matching only some of them: the notices
+ * name each lockfile that may not match its files, with the command that
+ * regenerates it.
  *
  * @param targets - Lockfiles to regenerate, with the workflows, the written
  *   files and the written updates each is regenerated for; every such file is
@@ -183,9 +185,10 @@ async function relockAndCheck(
   /**
    * The tool exited on its own, so it is done writing. The files match a
    * lockfile it left as it was once they are put back, unless the run was
-   * stopped meanwhile: nothing is put back after a signal. A lockfile that
-   * could not be read, before or after, may have changed, so nothing is put
-   * back for it either.
+   * stopped meanwhile: nothing is put back after a signal that came before this
+   * check, while one that comes later lets the files being put back finish. A
+   * lockfile that could not be read, before or after, may have changed, so
+   * nothing is put back for it either.
    */
   let after = await readBytes(target.lockfile.path)
   let unchanged = before !== null && after !== null && before.equals(after)
