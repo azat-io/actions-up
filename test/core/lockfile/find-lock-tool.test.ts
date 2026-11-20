@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { stat } from 'node:fs/promises'
 
+import { createFakeFileSystem } from '../../helpers/create-fake-file-system'
 import { findLockTool } from '../../../core/lockfile/find-lock-tool'
 import { makeGhResult } from '../../helpers/make-gh-result'
 import { runGh } from '../../../core/lockfile/run-gh'
 
+vi.mock(import('node:fs/promises'), () => ({
+  stat: vi.fn(),
+}))
 vi.mock(import('../../../core/lockfile/run-gh'))
 
 /**
@@ -49,11 +54,23 @@ describe('findLockTool', () => {
   })
 
   it('reports the GitHub CLI missing when no gh is found', async () => {
+    vi.mocked(stat).mockImplementation(
+      createFakeFileSystem({ '/repo': { kind: 'directory' } }).stat,
+    )
     vi.mocked(runGh).mockResolvedValue(
       makeGhResult({ startError: 'ENOENT', exitCode: null, started: false }),
     )
 
     await expect(findLockTool('/repo')).resolves.toBe('no-gh')
+  })
+
+  it('does not ask to install gh when the working directory is gone', async () => {
+    vi.mocked(stat).mockImplementation(createFakeFileSystem({}).stat)
+    vi.mocked(runGh).mockResolvedValue(
+      makeGhResult({ startError: 'ENOENT', exitCode: null, started: false }),
+    )
+
+    await expect(findLockTool('/repo')).resolves.toBe('unlisted')
   })
 
   it.each([
