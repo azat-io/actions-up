@@ -9,6 +9,7 @@ import type { ScanResult } from '../../../types/scan-result'
 import { readEnclosingLockfiles } from '../../../core/lockfile/read-enclosing-lockfiles'
 import { makeWorkflowLockfile } from '../../helpers/make-workflow-lockfile'
 import { findRepositoryRoot } from '../../../core/fs/find-repository-root'
+import { findRelockBlockers } from '../../../core/lockfile/plan-relocks'
 import { scanGitHubActions } from '../../../core/scan-github-actions'
 import { scanRepository } from '../../../core/plan/scan-repository'
 import { scanRecursive } from '../../../core/scan-recursive'
@@ -28,9 +29,11 @@ const SETUP_ACTION = '/repo/.github/actions/setup/action.yml'
 
 /**
  * Lockfile of `/repo` that tracks its CI workflow, which runs the setup action
- * of the repository.
+ * of the repository through `$/`.
  */
-const LOCKFILE = makeWorkflowLockfile({ reached: new Set([SETUP_ACTION]) })
+const LOCKFILE = makeWorkflowLockfile({
+  reached: new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, true]])]]),
+})
 
 /**
  * Let every path be real except the paths through the given symbolic links, and
@@ -122,10 +125,133 @@ describe('scanRepository', () => {
     arrangeLinks()
   })
 
+  it('lists an action of the repository the workflows run only through ./ without workflows to relock for it', async () => {
+    let local = makeWorkflowLockfile({
+      reached: new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([local])
+
+    let { lockedFiles } = await scanRepository({ cwd: '/repo' })
+
+    expect(lockedFiles.get(SETUP_ACTION)).toStrictEqual([
+      { lockfile: local, workflows: null },
+    ])
+  })
+
+  it('lists an action of the repository without workflows to relock for it when one workflow runs it through $/ and another only through ./', async () => {
+    let release = '/repo/.github/workflows/release.yml'
+    let mixed = makeWorkflowLockfile({
+      reached: new Map([
+        [
+          SETUP_ACTION,
+          new Map([
+            [CI_WORKFLOW, true],
+            [release, false],
+          ]),
+        ],
+      ]),
+      keys: new Map([
+        ['.github/workflows/release.yml', release],
+        ['.github/workflows/ci.yml', CI_WORKFLOW],
+      ]),
+      workflows: new Set([CI_WORKFLOW, release]),
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([mixed])
+
+    let { lockedFiles } = await scanRepository({ cwd: '/repo' })
+
+    expect(lockedFiles.get(SETUP_ACTION)).toStrictEqual([
+      { lockfile: mixed, workflows: null },
+    ])
+    expect(lockedFiles.get(CI_WORKFLOW)).toStrictEqual([
+      { workflows: ['.github/workflows/ci.yml'], lockfile: mixed },
+    ])
+  })
+
+  it('lists a workflow that runs remote actions through ./ alone, and the actions it runs through $/, without workflows to relock for them', async () => {
+    let release = '/repo/.github/workflows/release.yml'
+    let lint = '/repo/tools/lint/action.yml'
+    let local = makeWorkflowLockfile({
+      reached: new Map([
+        [
+          SETUP_ACTION,
+          new Map([
+            [CI_WORKFLOW, true],
+            [release, true],
+          ]),
+        ],
+        [lint, new Map([[release, false]])],
+      ]),
+      keys: new Map([
+        ['.github/workflows/release.yml', release],
+        ['.github/workflows/ci.yml', CI_WORKFLOW],
+      ]),
+      workflows: new Set([CI_WORKFLOW, release]),
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([local])
+
+    let { lockedFiles } = await scanRepository({ cwd: '/repo' })
+
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [
+          CI_WORKFLOW,
+          [{ workflows: ['.github/workflows/ci.yml'], lockfile: local }],
+        ],
+        [SETUP_ACTION, [{ lockfile: local, workflows: null }]],
+        [release, [{ lockfile: local, workflows: null }]],
+        [lint, [{ lockfile: local, workflows: null }]],
+      ]),
+    )
+  })
+
+  it('relocks no workflow of a lockfile whose workflows cannot all be traced, since any of them may run remote actions through ./', async () => {
+    let untraced = makeWorkflowLockfile({ reached: null })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([untraced])
+
+    let { lockedFiles } = await scanRepository({ cwd: '/repo' })
+
+    expect(lockedFiles.get(CI_WORKFLOW)).toStrictEqual([
+      { lockfile: untraced, workflows: null },
+    ])
+    expect(findRelockBlockers(lockedFiles)).toStrictEqual(
+      new Map([
+        ['/repo/tools/lint/action.yml', 'unreadable'],
+        [SETUP_ACTION, 'unreadable'],
+        [CI_WORKFLOW, 'unreadable'],
+      ]),
+    )
+  })
+
+  it('lists a tracked workflow that no key of the lockfile names without workflows to relock for it, so that no relock runs without paths', async () => {
+    let unnamed = makeWorkflowLockfile({ keys: new Map() })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([unnamed])
+
+    let { lockedFiles } = await scanRepository({ cwd: '/repo' })
+
+    expect(lockedFiles.get(CI_WORKFLOW)).toStrictEqual([
+      { lockfile: unnamed, workflows: null },
+    ])
+  })
+
   it('marks the actions of the tracked workflows and of the actions they run as locked', async () => {
-    let { scanResult, lockfiles } = await scanRepository({ cwd: '/repo' })
+    let { lockedFiles, scanResult, lockfiles } = await scanRepository({
+      cwd: '/repo',
+    })
 
     expect(lockfiles).toStrictEqual([LOCKFILE])
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [
+          SETUP_ACTION,
+          [{ workflows: ['.github/workflows/ci.yml'], lockfile: LOCKFILE }],
+        ],
+        [
+          CI_WORKFLOW,
+          [{ workflows: ['.github/workflows/ci.yml'], lockfile: LOCKFILE }],
+        ],
+      ]),
+    )
     expect(
       scanResult.actions.map(({ locked, name, file }) => ({
         locked,
@@ -187,6 +313,7 @@ describe('scanRepository', () => {
       workflows: null,
       reached: null,
       version: null,
+      keys: null,
     })
 
     /**
@@ -206,11 +333,14 @@ describe('scanRepository', () => {
       arrangeFile(CI_WORKFLOW)
       arrangeLinks({ [CI_WORKFLOW]: '../../ci/main.yml' })
 
-      let { scanResult } = await scanRepository({ cwd: '/repo' })
+      let { lockedFiles, scanResult } = await scanRepository({ cwd: '/repo' })
 
       expect(scanResult.actions.map(action => action.locked)).toStrictEqual([
         true,
       ])
+      expect(lockedFiles).toStrictEqual(
+        new Map([[CI_WORKFLOW, [{ lockfile: unlisted, workflows: null }]]]),
+      )
     })
 
     it('marks a file that leads through a workflow there to a file elsewhere', async () => {
@@ -261,21 +391,24 @@ describe('scanRepository', () => {
   it('marks nothing when no lockfile encloses the scanned files', async () => {
     vi.mocked(readEnclosingLockfiles).mockResolvedValue([])
 
-    let { scanResult, lockfiles } = await scanRepository({ cwd: '/repo' })
+    let { lockedFiles, scanResult, lockfiles } = await scanRepository({
+      cwd: '/repo',
+    })
 
     expect(lockfiles).toStrictEqual([])
+    expect(lockedFiles).toStrictEqual(new Map())
     expect(scanResult.actions.some(action => action.locked)).toBe(false)
   })
 
   it('marks an action that any of the lockfiles pins', async () => {
-    vi.mocked(readEnclosingLockfiles).mockResolvedValue([
-      makeWorkflowLockfile({
-        workflows: new Set(['/repo/.github/workflows/release.yml']),
-      }),
-      LOCKFILE,
-    ])
+    let release = '/repo/.github/workflows/release.yml'
+    let other = makeWorkflowLockfile({
+      keys: new Map([['.github/workflows/release.yml', release]]),
+      workflows: new Set([release]),
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([other, LOCKFILE])
 
-    let { scanResult } = await scanRepository({ cwd: '/repo' })
+    let { lockedFiles, scanResult } = await scanRepository({ cwd: '/repo' })
 
     expect(scanResult.actions.map(action => action.locked)).toStrictEqual([
       true,
@@ -284,6 +417,52 @@ describe('scanRepository', () => {
       true,
       undefined,
     ])
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [
+          SETUP_ACTION,
+          [{ workflows: ['.github/workflows/ci.yml'], lockfile: LOCKFILE }],
+        ],
+        [
+          CI_WORKFLOW,
+          [{ workflows: ['.github/workflows/ci.yml'], lockfile: LOCKFILE }],
+        ],
+        [
+          release,
+          [{ workflows: ['.github/workflows/release.yml'], lockfile: other }],
+        ],
+      ]),
+    )
+  })
+
+  it('lists a file with every lockfile that pins it, once for all its actions', async () => {
+    let second = makeWorkflowLockfile({ path: '/repo/second/actions.lock' })
+    vi.mocked(scanGitHubActions).mockResolvedValue({
+      ...makeScanResult(),
+      actions: [
+        { name: 'actions/checkout', file: CI_WORKFLOW, type: 'external' },
+        { name: 'actions/setup-node', file: CI_WORKFLOW, type: 'external' },
+      ],
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([LOCKFILE, second])
+
+    let { lockedFiles, scanResult } = await scanRepository({ cwd: '/repo' })
+
+    expect(scanResult.actions.map(action => action.locked)).toStrictEqual([
+      true,
+      true,
+    ])
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [
+          CI_WORKFLOW,
+          [
+            { workflows: ['.github/workflows/ci.yml'], lockfile: LOCKFILE },
+            { workflows: ['.github/workflows/ci.yml'], lockfile: second },
+          ],
+        ],
+      ]),
+    )
   })
 
   it('matches a file found through a symbolic link by its real path, keeping its spelling', async () => {
@@ -297,8 +476,18 @@ describe('scanRepository', () => {
     })
     arrangeRealPaths({ [link]: '/repo/.github/workflows' }, ['/gone'])
 
-    let { scanResult } = await scanRepository({ cwd: '/home/me/repo' })
+    let { lockedFiles, scanResult } = await scanRepository({
+      cwd: '/home/me/repo',
+    })
 
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [
+          `${link}/ci.yml`,
+          [{ workflows: ['.github/workflows/ci.yml'], lockfile: LOCKFILE }],
+        ],
+      ]),
+    )
     expect(readEnclosingLockfiles).toHaveBeenCalledExactlyOnceWith(
       new Set(['/repo/.github/workflows', '/gone']),
     )
@@ -311,6 +500,29 @@ describe('scanRepository', () => {
       },
       { file: '/gone/action.yml', name: 'actions/cache', type: 'external' },
     ])
+  })
+
+  it('lists a tracked workflow that is a symbolic link under the key the lockfile names it by', async () => {
+    let lockfile = makeWorkflowLockfile({
+      keys: new Map([['.github/workflows/ci.yml', '/repo/ci/main.yml']]),
+      workflows: new Set(['/repo/ci/main.yml']),
+    })
+    vi.mocked(scanGitHubActions).mockResolvedValue({
+      ...makeScanResult(),
+      actions: [
+        { name: 'actions/checkout', file: CI_WORKFLOW, type: 'external' },
+      ],
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([lockfile])
+    arrangeLinks({ [CI_WORKFLOW]: '../../ci/main.yml' })
+
+    let { lockedFiles } = await scanRepository({ cwd: '/repo' })
+
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [CI_WORKFLOW, [{ workflows: ['.github/workflows/ci.yml'], lockfile }]],
+      ]),
+    )
   })
 
   it('looks up no repository root in recursive mode, scanning from the working directory', async () => {

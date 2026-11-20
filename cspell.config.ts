@@ -4,6 +4,7 @@ export default defineConfig({
   words: [
     'azat',
     'bridgecrewio',
+    'cdpath',
     'changelogen',
     'changelogithub',
     'cmder',
@@ -21,6 +22,8 @@ export default defineConfig({
     'pipefail',
     'rcompare',
     'relock',
+    'relockable',
+    'relocks',
     'rolldown',
     'segs',
     'worktree',

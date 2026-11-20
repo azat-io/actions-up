@@ -11,9 +11,12 @@ export function makeWorkflowLockfile(
   overrides: Partial<WorkflowLockfile> = {},
 ): WorkflowLockfile {
   return {
+    keys: new Map([
+      ['.github/workflows/ci.yml', '/repo/.github/workflows/ci.yml'],
+    ]),
     workflows: new Set(['/repo/.github/workflows/ci.yml']),
     path: '/repo/.github/workflows/actions.lock',
-    reached: new Set(),
+    reached: new Map(),
     version: 'v0.0.3',
     root: '/repo',
     ...overrides,

@@ -89,12 +89,21 @@ export interface Spinner {
  * In an interactive terminal the spinner redraws its row every 50 ms with the
  * cursor hidden. Elsewhere it prints its text once when it starts and the final
  * line when it stops. While it runs, SIGINT and SIGTERM erase it and show the
- * cursor before the process exits.
+ * cursor before the process exits. A spinner over work that must finish its own
+ * way, such as a child process that writes files, can leave the exit to the
+ * caller instead: the signal then only erases it.
  *
  * @param text - Message next to the animation.
+ * @param options - How the spinner behaves.
+ * @param options.exitOnSignal - Whether SIGINT and SIGTERM end the process.
+ *   Defaults to true.
  * @returns Controls of the spinner.
  */
-export function createSpinner(text: string): Spinner {
+export function createSpinner(
+  text: string,
+  options: { exitOnSignal?: boolean } = {},
+): Spinner {
+  let exitOnSignal = options.exitOnSignal ?? true
   let stream = process.stderr
   let isInteractive = isInteractiveTerminal()
   let isUnicode = isUnicodeSupported()
@@ -161,7 +170,9 @@ export function createSpinner(text: string): Spinner {
           signal,
           (listener = () => {
             stop('')
-            process.exit(code)
+            if (exitOnSignal) {
+              process.exit(code)
+            }
           }),
         )
         signalListeners.push([signal, listener])

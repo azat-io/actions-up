@@ -18,6 +18,11 @@ interface SkippedOptions {
   version?: string
 
   /**
+   * File the reference is written in.
+   */
+  file?: string
+
+  /**
    * Action name.
    */
   name?: string
@@ -39,8 +44,13 @@ function makeSkipped({
   name = 'actions/checkout',
   skipReason = 'branch',
   version = 'main',
+  file,
 }: SkippedOptions = {}): SkippedUpdate {
-  return { action: { version, name }, currentVersion: version, skipReason }
+  return {
+    action: { version, name, file },
+    currentVersion: version,
+    skipReason,
+  }
 }
 
 describe('printSkippedWarning', () => {
@@ -88,7 +98,7 @@ describe('printSkippedWarning', () => {
   ])(
     'reports $count pinned to branches $hint',
     ({ includeBranches, expectedText, skipped }) => {
-      printSkippedWarning(skipped, includeBranches, 'sha')
+      printSkippedWarning(skipped, { includeBranches, style: 'sha' })
 
       expect(consoleInfoSpy.printedText()).toBe(expectedText)
     },
@@ -216,15 +226,15 @@ describe('printSkippedWarning', () => {
       style: 'sha' as const,
     },
     {
-      expectedText:
-        '\n⚠️  Skipped 1 action pinned by a workflow lockfile (update them and regenerate .github/workflows/actions.lock with gh actions-lock)\n' +
-        '   • actions/checkout@v4',
       skipped: makeSkipped({
         name: 'actions/checkout',
         skipReason: 'lockfile',
         version: 'v4',
       }),
-      description: 'references a workflow lockfile pins',
+      expectedText:
+        '\n⚠️  Skipped 1 action pinned by a workflow lockfile\n' +
+        '   • actions/checkout@v4',
+      description: 'references a lockfile pins',
       style: 'sha' as const,
     },
     {
@@ -242,11 +252,94 @@ describe('printSkippedWarning', () => {
   ])(
     'reports $description under a dedicated header',
     ({ expectedText, skipped, style }) => {
-      printSkippedWarning([skipped], false, style)
+      printSkippedWarning([skipped], { includeBranches: false, style })
 
       expect(consoleInfoSpy.printedText()).toBe(expectedText)
     },
   )
+
+  it.each([
+    [
+      'missing',
+      'run gh extension install github/gh-actions-lock to update them',
+    ] as const,
+    [
+      'outdated',
+      'run gh extension upgrade gh-actions-lock to update them; v0.3.0 or later is needed',
+    ] as const,
+    [
+      'no-gh',
+      'install the GitHub CLI from https://cli.github.com and run gh extension install github/gh-actions-lock to update them',
+    ] as const,
+    [
+      'unlisted',
+      'gh extension list did not finish, so gh-actions-lock was not looked for',
+    ] as const,
+  ])(
+    'says how to get gh-actions-lock for references a lockfile pins when it is %s',
+    (lockTool, hint) => {
+      printSkippedWarning(
+        [makeSkipped({ skipReason: 'lockfile', version: 'v4' })],
+        { includeBranches: false, style: 'sha', lockTool },
+      )
+
+      expect(consoleInfoSpy.printedText()).toBe(
+        `\n⚠️  Skipped 1 action pinned by a workflow lockfile (${hint})\n` +
+          '   • actions/checkout@v4',
+      )
+    },
+  )
+
+  it('tells apart references whose lockfiles cannot be regenerated anyway, and why', () => {
+    printSkippedWarning(
+      [
+        makeSkipped({
+          file: '/repo/.github/actions/local/action.yml',
+          name: 'actions/setup-node',
+          skipReason: 'lockfile',
+          version: 'v4',
+        }),
+        makeSkipped({
+          file: '/repo/vendor/.github/workflows/ci.yml',
+          skipReason: 'lockfile',
+          version: 'v4',
+        }),
+        makeSkipped({
+          file: '/repo/.github/actions/broken/action.yml',
+          skipReason: 'lockfile',
+          name: 'actions/cache',
+          version: 'v4',
+        }),
+        makeSkipped({
+          file: '/repo/.github/workflows/ci.yml',
+          name: 'actions/upload-artifact',
+          skipReason: 'lockfile',
+          version: 'v4',
+        }),
+      ],
+      {
+        relockBlockers: new Map([
+          ['/repo/.github/actions/broken/action.yml', 'unreadable'],
+          ['/repo/.github/actions/local/action.yml', 'unrecorded'],
+          ['/repo/vendor/.github/workflows/ci.yml', 'shared'],
+        ]),
+        includeBranches: false,
+        lockTool: 'missing',
+        style: 'sha',
+      },
+    )
+
+    expect(consoleInfoSpy.printedText()).toBe(
+      '\n⚠️  Skipped 1 action pinned by a workflow lockfile (run gh extension install github/gh-actions-lock to update them)\n' +
+        '   • actions/upload-artifact@v4\n' +
+        '\n⚠️  Skipped 1 action pinned by a workflow lockfile that cannot be regenerated for them, since it, a workflow it tracks or an action of the repository cannot be read\n' +
+        '   • actions/cache@v4\n' +
+        '\n⚠️  Skipped 1 action in workflows that run actions of the repository through ./, or in the actions they run, which gh actions-lock does not lock (change ./ to $/; gh actions-lock --migrate-local-actions does it in workflows, not in action files)\n' +
+        '   • actions/setup-node@v4\n' +
+        '\n⚠️  Skipped 1 action pinned by the workflow lockfiles of more than one repository root, which Actions Up does not regenerate together\n' +
+        '   • actions/checkout@v4',
+    )
+  })
 
   it('lists each skipped action once with the number of places it appears in', () => {
     let skipped = [
@@ -255,7 +348,7 @@ describe('printSkippedWarning', () => {
       makeSkipped(),
     ]
 
-    printSkippedWarning(skipped, false, 'sha')
+    printSkippedWarning(skipped, { includeBranches: false, style: 'sha' })
 
     expect(consoleInfoSpy.printedText()).toBe(
       '\n⚠️  Skipped 2 actions pinned to branches (use --include-branches to check them)\n' +
@@ -299,7 +392,7 @@ describe('printSkippedWarning', () => {
       makeSkipped(),
     ]
 
-    printSkippedWarning(skipped, false, 'sha')
+    printSkippedWarning(skipped, { includeBranches: false, style: 'sha' })
 
     expect(consoleInfoSpy.printedText()).toBe(
       '\n⚠️  Skipped 1 action pinned to branches (use --include-branches to check them)\n' +
@@ -328,7 +421,7 @@ describe('printSkippedWarning', () => {
         },
       ]
 
-      printSkippedWarning(skipped, false, 'sha')
+      printSkippedWarning(skipped, { includeBranches: false, style: 'sha' })
 
       expect(consoleInfoSpy.printedText()).toBe(
         '\n⚠️  Skipped 1 action pinned to branches (use --include-branches to check them)\n' +
@@ -354,7 +447,7 @@ describe('printSkippedWarning', () => {
         }),
       ]
 
-      printSkippedWarning(skipped, false, 'sha')
+      printSkippedWarning(skipped, { includeBranches: false, style: 'sha' })
 
       expect(consoleInfoSpy.printedText()).toBe(
         '\n⚠️  Skipped 1 action that could not be checked\n' +
