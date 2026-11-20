@@ -25,7 +25,9 @@ const LIST_TIMEOUT = 30_000
  * build from source, is accepted. Nothing is installed or upgraded here; a
  * missing or outdated tool is reported for the caller to say what fixes it. A
  * list that fails counts as one without the extension, as with the GitHub CLI
- * before 2.10, which fails the list when no extension is installed.
+ * before 2.10, which fails the list when no extension is installed. Only a `gh`
+ * that is not found counts as not installed: one that is there but cannot be
+ * started, as without the permission to run it, needs another fix.
  *
  * @param cwd - Directory to run `gh` in.
  * @returns Whether the extension can be run, and why not when it cannot.
@@ -33,13 +35,13 @@ const LIST_TIMEOUT = 30_000
 export async function findLockTool(cwd: string): Promise<LockTool> {
   let list = await runGh(['extension', 'list'], { timeout: LIST_TIMEOUT, cwd })
 
-  if (!list.started) {
+  if (list.startError === 'ENOENT') {
     return 'no-gh'
   }
 
   /**
-   * A list that did not finish says nothing about the extension, so it is not
-   * worth installing again for it.
+   * A list that did not finish, or that `gh` could not start, says nothing
+   * about the extension, so it is not worth installing again for it.
    */
   if (list.exitCode === null) {
     return 'unlisted'
