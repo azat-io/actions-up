@@ -539,12 +539,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * An entry the writer could not find where the scan reported it was not
      * applied, and neither was one whose file was put back because its lockfile
-     * could not be regenerated, so the run reports them and fails instead of
-     * claiming success. A signal that stopped the run is named, to explain its
-     * exit code.
+     * could not be regenerated, or could not be put back and may be cut short,
+     * so the run reports them and fails instead of claiming success. A signal
+     * that stopped the run is named, to explain its exit code.
      */
     let writtenCount = written.filter(
-      update => !relock.restored.has(update.action.file!),
+      ({ action }) =>
+        !relock.restored.has(action.file!) &&
+        !relock.unrestored.has(action.file!),
     ).length
     if (writtenCount > 0) {
       console.info(

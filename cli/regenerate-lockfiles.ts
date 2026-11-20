@@ -26,6 +26,26 @@ const SIGNAL_EXIT_CODES: Record<NonNullable<HeldSignals['signal']>, number> = {
 }
 
 /**
+ * What the regeneration of one lockfile did.
+ */
+interface Outcome {
+  /**
+   * Whether the lockfile was regenerated as checked.
+   */
+  regenerated: boolean
+
+  /**
+   * Written files that could not be put back, which may be cut short.
+   */
+  unrestored: string[]
+
+  /**
+   * Written files put back the way they were.
+   */
+  restored: string[]
+}
+
+/**
  * How the regeneration runs.
  */
 interface Run {
@@ -38,21 +58,6 @@ interface Run {
    * Stop signal held back so far.
    */
   signals: HeldSignals
-}
-
-/**
- * What the regeneration of one lockfile did.
- */
-interface Outcome {
-  /**
-   * Whether the lockfile was regenerated as checked.
-   */
-  regenerated: boolean
-
-  /**
-   * Written files put back the way they were.
-   */
-  restored: string[]
 }
 
 /**
@@ -85,15 +90,20 @@ interface Outcome {
  *   one of `written`.
  * @param written - Files the updater rewrote, with their text before and after.
  * @param signals - Stop signal held back since the files were written.
- * @returns Paths of the files put back, as the scan names them, and the exit
- *   code of the run: 0 when every lockfile was regenerated as checked, 1 when
- *   one was not, and the code of a signal that stopped the run.
+ * @returns Paths of the files put back, and of the files that could not be, as
+ *   the scan names them, and the exit code of the run: 0 when every lockfile
+ *   was regenerated as checked, 1 when one was not, and the code of a signal
+ *   that stopped the run.
  */
 export async function regenerateLockfiles(
   targets: RelockTarget[],
   written: WrittenFile[],
   signals: HeldSignals,
-): Promise<{ restored: Set<string>; exitCode: number }> {
+): Promise<{
+  unrestored: Set<string>
+  restored: Set<string>
+  exitCode: number
+}> {
   /**
    * Each lockfile is regenerated only once the one before is done.
    */
@@ -105,6 +115,7 @@ export async function regenerateLockfiles(
   let failed = outcomes.some(({ regenerated }) => !regenerated)
   return {
     exitCode: signal === null ? Number(failed) : SIGNAL_EXIT_CODES[signal],
+    unrestored: new Set(outcomes.flatMap(({ unrestored }) => unrestored)),
     restored: new Set(outcomes.flatMap(({ restored }) => restored)),
   }
 }
@@ -135,7 +146,7 @@ async function relockAndCheck(
   let result = await relockWorkflows(target.lockfile, target.workflows)
   let mismatches =
     result.kind === 'relocked' ?
-      findPinMismatches(target.updates, result, readRecordedCommits(before))
+      findPinMismatches(target, result, readRecordedCommits(before))
     : []
 
   /**
@@ -150,12 +161,13 @@ async function relockAndCheck(
       printRelockNotice({
         heading: `gh actions-lock kept earlier pins in ${lockfile}`,
         details: kept.map(describeMismatch),
+        unrestored: [],
         command: null,
         restored: [],
         left: [],
       })
     }
-    return { regenerated: true, restored: [] }
+    return { regenerated: true, unrestored: [], restored: [] }
   }
 
   /**
@@ -215,27 +227,6 @@ async function relockAndCheck(
 }
 
 /**
- * Describe a reference the lockfile does not pin as checked, with what fixes
- * it.
- *
- * @param mismatch - The reference and what the lockfile pins for it.
- * @returns The description.
- */
-function describeMismatch(mismatch: PinMismatch): string {
-  if (mismatch.kind === 'refused') {
-    return `${mismatch.reference} is not pinned for ${mismatch.workflow}: its entry in the lockfile did not track the action, and gh actions-lock adds it only without --no-onboard`
-  }
-  if (mismatch.kind === 'missing') {
-    return `${mismatch.reference} is not pinned: gh actions-lock left it out of the lockfile`
-  }
-  let pinned = mismatch.pinned.slice(0, 7)
-  let checked = mismatch.checked.slice(0, 7)
-  return mismatch.kind === 'kept-commit' ?
-      `${mismatch.reference} stays pinned to ${pinned}, which the lockfile pinned before, not to the checked ${checked}; gh actions-lock --relock moves it forward`
-    : `${mismatch.reference} is pinned to ${pinned}, not to the checked ${checked}: it moved after Actions Up checked it, so the pinned commit skipped the cool-down and trust checks; review it, or undo the changes with Git`
-}
-
-/**
  * Put back the written files of a lockfile that was not regenerated as checked,
  * when that is safe, and say what became of them.
  *
@@ -261,7 +252,10 @@ async function finish(
   },
 ): Promise<Outcome> {
   let files = written.filter(file => target.files.has(file.path))
-  let restored = notice.restore ? await restoreWrittenFiles(files) : []
+  let { restored, failed } =
+    notice.restore ?
+      await restoreWrittenFiles(files)
+    : { failed: new Map<string, string>(), restored: [] }
 
   printRelockNotice({
     command:
@@ -272,14 +266,39 @@ async function finish(
         )
       : null,
     left: files
-      .filter(file => !restored.includes(file.path))
+      .filter(file => !restored.includes(file.path) && !failed.has(file.path))
       .map(file => toDisplayPath(file.path)),
+    unrestored: failed
+      .entries()
+      .map(([path, error]) => `${toDisplayPath(path)}: ${error}`)
+      .toArray(),
     restored: restored.map(toDisplayPath),
     details: notice.details,
     heading: notice.heading,
   })
 
-  return { regenerated: false, restored }
+  return { unrestored: failed.keys().toArray(), regenerated: false, restored }
+}
+
+/**
+ * Describe a reference the lockfile does not pin as checked, with what fixes
+ * it.
+ *
+ * @param mismatch - The reference and what the lockfile pins for it.
+ * @returns The description.
+ */
+function describeMismatch(mismatch: PinMismatch): string {
+  if (mismatch.kind === 'refused') {
+    return `${mismatch.reference} is not pinned for ${mismatch.workflow}: its entry in the lockfile did not track the action, and gh actions-lock adds it only without --no-onboard`
+  }
+  if (mismatch.kind === 'missing') {
+    return `${mismatch.reference} is not pinned: gh actions-lock left it out of the lockfile`
+  }
+  let pinned = mismatch.pinned.slice(0, 7)
+  let checked = mismatch.checked.slice(0, 7)
+  return mismatch.kind === 'kept-commit' ?
+      `${mismatch.reference} stays pinned to ${pinned}, which the lockfile pinned before, not to the checked ${checked}; gh actions-lock --relock moves it forward`
+    : `${mismatch.reference} is pinned to ${pinned}, not to the checked ${checked}: it moved after Actions Up checked it, so the pinned commit skipped the cool-down and trust checks; review it, or undo the changes with Git`
 }
 
 /**

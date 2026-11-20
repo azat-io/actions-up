@@ -166,8 +166,8 @@ describe('planRelocks', () => {
 
     expect(planRelocks(LOCKED_FILES, [update])).toStrictEqual([
       {
+        files: new Map([[CI_WORKFLOW_LINK, ['.github/workflows/ci.yml']]]),
         workflows: ['.github/workflows/ci.yml'],
-        files: new Set([CI_WORKFLOW_LINK]),
         lockfile: LOCKFILE,
         updates: [update],
       },
@@ -195,11 +195,17 @@ describe('planRelocks', () => {
 
     expect(planRelocks(lockedFiles, [setup, release])).toStrictEqual([
       {
+        files: new Map([
+          [
+            SETUP_ACTION,
+            ['.github/workflows/release.yml', '.github/workflows/ci.yml'],
+          ],
+          [RELEASE_WORKFLOW, ['.github/workflows/release.yml']],
+        ]),
         workflows: [
           '.github/workflows/ci.yml',
           '.github/workflows/release.yml',
         ],
-        files: new Set([RELEASE_WORKFLOW, SETUP_ACTION]),
         updates: [setup, release],
         lockfile: LOCKFILE,
       },
@@ -215,14 +221,14 @@ describe('planRelocks', () => {
       planRelocks(LOCKED_FILES, [vendored, checkout, setupNode]),
     ).toStrictEqual([
       {
+        files: new Map([[RELEASE_WORKFLOW, ['.github/workflows/release.yml']]]),
         workflows: ['.github/workflows/release.yml'],
-        files: new Set([RELEASE_WORKFLOW]),
         updates: [checkout, setupNode],
         lockfile: LOCKFILE,
       },
       {
+        files: new Map([[VENDORED_WORKFLOW, ['.github/workflows/ci.yml']]]),
         workflows: ['.github/workflows/ci.yml'],
-        files: new Set([VENDORED_WORKFLOW]),
         updates: [vendored],
         lockfile: VENDORED,
       },

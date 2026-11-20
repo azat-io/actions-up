@@ -41,14 +41,14 @@ export function planRelocks(
         continue
       }
       let target: RelockTarget = targets.get(lockfile) ?? {
-        files: new Set<string>(),
+        files: new Map<string, string[]>(),
         workflows: [],
         updates: [],
         lockfile,
       }
       targets.set(lockfile, target)
       target.workflows = [...new Set([...target.workflows, ...workflows])]
-      target.files.add(file)
+      target.files.set(file, workflows)
       target.updates.push(update)
     }
   }

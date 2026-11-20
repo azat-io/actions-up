@@ -151,12 +151,18 @@ const TARGET_PINS = [
  * workflow and setup action.
  */
 const TARGET: RelockTarget = {
+  files: new Map([
+    [
+      SETUP_ACTION,
+      ['.github/workflows/ci.yml', '.github/workflows/release.yml'],
+    ],
+    [CI_WORKFLOW, ['.github/workflows/ci.yml']],
+  ]),
   updates: [
     makeUpdate(CI_WORKFLOW, TARGET_PINS[0]!),
     makeUpdate(SETUP_ACTION, TARGET_PINS[1]!),
   ],
   workflows: ['.github/workflows/ci.yml', '.github/workflows/release.yml'],
-  files: new Set([SETUP_ACTION, CI_WORKFLOW]),
   lockfile: LOCKFILE,
 }
 
@@ -169,9 +175,9 @@ const VENDORED_PINS = [makePin('actions/setup-node', 'v5', SETUP_NODE_SHA)]
  * Target that relocks the vendored repository for its written CI workflow.
  */
 const VENDORED_TARGET: RelockTarget = {
+  files: new Map([[VENDORED_WORKFLOW, ['.github/workflows/ci.yml']]]),
   updates: [makeUpdate(VENDORED_WORKFLOW, VENDORED_PINS[0]!)],
   workflows: ['.github/workflows/ci.yml'],
-  files: new Set([VENDORED_WORKFLOW]),
   lockfile: VENDORED,
 }
 
@@ -261,10 +267,10 @@ const MISSING_DETAIL =
   'actions/cache@v5 is not pinned: gh actions-lock left it out of the lockfile'
 
 /**
- * Line that describes `actions/checkout@v4` refused for the release workflow.
+ * Line that describes `actions/cache@v5` refused for the release workflow.
  */
 const REFUSED_DETAIL =
-  'actions/checkout@v4 is not pinned for .github/workflows/release.yml: its entry in the lockfile did not track the action, and gh actions-lock adds it only without --no-onboard'
+  'actions/cache@v5 is not pinned for .github/workflows/release.yml: its entry in the lockfile did not track the action, and gh actions-lock adds it only without --no-onboard'
 
 /**
  * Files of the lockfile of `/repo` as the notices show them.
@@ -301,7 +307,10 @@ describe('regenerateLockfiles', () => {
     signals = { release: vi.fn<() => void>(), signal: null }
     vi.mocked(readFile).mockResolvedValue(Buffer.from('lock\n'))
     vi.mocked(restoreWrittenFiles).mockImplementation(files =>
-      Promise.resolve(files.map(file => file.path)),
+      Promise.resolve({
+        restored: files.map(file => file.path),
+        failed: new Map(),
+      }),
     )
   })
 
@@ -324,7 +333,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET, VENDORED_TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 0 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 0,
+    })
     expect(vi.mocked(relockWorkflows).mock.calls).toStrictEqual([
       [LOCKFILE, TARGET.workflows],
       [VENDORED, VENDORED_TARGET.workflows],
@@ -366,7 +379,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 0 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 0,
+    })
     expect(spinnerMock.success).toHaveBeenCalledExactlyOnceWith(
       'Regenerated .github/workflows/actions.lock',
     )
@@ -375,6 +392,7 @@ describe('regenerateLockfiles', () => {
       heading:
         'gh actions-lock kept earlier pins in .github/workflows/actions.lock',
       details: [KEPT_COMMIT_DETAIL],
+      unrestored: [],
       command: null,
       restored: [],
       left: [],
@@ -402,7 +420,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 1,
+    })
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ details: [OTHER_COMMIT_DETAIL] }),
     )
@@ -427,7 +449,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 1,
+    })
     expect(spinnerMock.success).not.toHaveBeenCalled()
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
       details: [
@@ -436,6 +462,7 @@ describe('regenerateLockfiles', () => {
       ],
       heading: NOT_AS_CHECKED_HEADING,
       left: TARGET_FILES,
+      unrestored: [],
       command: null,
       restored: [],
     })
@@ -449,11 +476,18 @@ describe('regenerateLockfiles', () => {
         kind: 'relocked',
         refusals: [],
       })
-    vi.mocked(restoreWrittenFiles).mockResolvedValueOnce([CI_WORKFLOW])
+    vi.mocked(restoreWrittenFiles).mockResolvedValueOnce({
+      restored: [CI_WORKFLOW],
+      failed: new Map(),
+    })
 
     await expect(
       regenerateLockfiles([TARGET, VENDORED_TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set([CI_WORKFLOW]), exitCode: 1 })
+    ).resolves.toStrictEqual({
+      restored: new Set([CI_WORKFLOW]),
+      unrestored: new Set(),
+      exitCode: 1,
+    })
     expect(restoreWrittenFiles).toHaveBeenCalledExactlyOnceWith([
       WRITTEN[1],
       WRITTEN[2],
@@ -467,8 +501,33 @@ describe('regenerateLockfiles', () => {
       details: BLOCKED_DETAILS,
       heading: BLOCKED_HEADING,
       command: COMMAND,
+      unrestored: [],
     })
     expect(relockWorkflows).toHaveBeenCalledTimes(2)
+  })
+
+  it('lists a file that could not be put back apart from the files that keep their updates', async () => {
+    vi.mocked(relockWorkflows).mockResolvedValue(BLOCKED)
+    vi.mocked(restoreWrittenFiles).mockResolvedValueOnce({
+      failed: new Map([[CI_WORKFLOW, 'EIO: i/o error, write']]),
+      restored: [SETUP_ACTION],
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      unrestored: new Set([CI_WORKFLOW]),
+      restored: new Set([SETUP_ACTION]),
+      exitCode: 1,
+    })
+    expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+      unrestored: ['.github/workflows/ci.yml: EIO: i/o error, write'],
+      restored: ['.github/actions/setup/action.yml'],
+      details: BLOCKED_DETAILS,
+      heading: BLOCKED_HEADING,
+      command: COMMAND,
+      left: [],
+    })
   })
 
   it('leaves the files when a failed run changed the lockfile', async () => {
@@ -480,7 +539,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 1,
+    })
     expect(restoreWrittenFiles).not.toHaveBeenCalled()
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
       heading:
@@ -488,6 +551,7 @@ describe('regenerateLockfiles', () => {
       details: BLOCKED_DETAILS,
       left: TARGET_FILES,
       command: COMMAND,
+      unrestored: [],
       restored: [],
     })
   })
@@ -503,7 +567,11 @@ describe('regenerateLockfiles', () => {
 
       await expect(
         regenerateLockfiles([TARGET], WRITTEN, signals),
-      ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+      ).resolves.toStrictEqual({
+        unrestored: new Set(),
+        restored: new Set(),
+        exitCode: 1,
+      })
       expect(restoreWrittenFiles).not.toHaveBeenCalled()
       expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ left: TARGET_FILES, restored: [] }),
@@ -529,7 +597,11 @@ describe('regenerateLockfiles', () => {
 
       await expect(
         regenerateLockfiles([TARGET], WRITTEN, signals),
-      ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+      ).resolves.toStrictEqual({
+        unrestored: new Set(),
+        restored: new Set(),
+        exitCode: 1,
+      })
       expect(restoreWrittenFiles).not.toHaveBeenCalled()
       expect(spinnerMock.error).toHaveBeenCalledExactlyOnceWith(
         'Regenerated .github/workflows/actions.lock, but not as checked',
@@ -538,14 +610,14 @@ describe('regenerateLockfiles', () => {
         heading: NOT_AS_CHECKED_HEADING,
         details: [OTHER_COMMIT_DETAIL],
         left: TARGET_FILES,
+        unrestored: [],
         command: null,
         restored: [],
       })
     },
   )
 
-  it('fails a lockfile that pins a written reference for one workflow while it was refused for another', async () => {
-    arrangeLockfileReads('old lock\n', 'new lock\n')
+  it('regenerates a lockfile whose relock refused a written reference only for a workflow it was not written for', async () => {
     vi.mocked(relockWorkflows).mockResolvedValue({
       refusals: [
         {
@@ -560,7 +632,38 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 0,
+    })
+    expect(spinnerMock.success).toHaveBeenCalledExactlyOnceWith(
+      'Regenerated .github/workflows/actions.lock',
+    )
+    expect(printRelockNotice).not.toHaveBeenCalled()
+  })
+
+  it('fails a lockfile that pins a written reference for one workflow while it was refused for another that runs the written file', async () => {
+    arrangeLockfileReads('old lock\n', 'new lock\n')
+    vi.mocked(relockWorkflows).mockResolvedValue({
+      refusals: [
+        {
+          workflow: '.github/workflows/release.yml',
+          repository: 'actions/cache',
+          ref: 'v5',
+        },
+      ],
+      pins: TARGET_PINS,
+      kind: 'relocked',
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 1,
+    })
     expect(spinnerMock.success).not.toHaveBeenCalled()
     expect(restoreWrittenFiles).not.toHaveBeenCalled()
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith(
@@ -583,6 +686,7 @@ describe('regenerateLockfiles', () => {
       regenerateLockfiles([TARGET], WRITTEN, signals),
     ).resolves.toStrictEqual({
       restored: new Set([SETUP_ACTION, CI_WORKFLOW]),
+      unrestored: new Set(),
       exitCode: 1,
     })
     expect(restoreWrittenFiles).toHaveBeenCalledExactlyOnceWith([
@@ -593,6 +697,7 @@ describe('regenerateLockfiles', () => {
       heading: NOT_AS_CHECKED_HEADING,
       details: [MISSING_DETAIL],
       restored: TARGET_FILES,
+      unrestored: [],
       command: null,
       left: [],
     })
@@ -606,7 +711,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET, VENDORED_TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 130 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 130,
+    })
     expect(relockWorkflows).toHaveBeenCalledExactlyOnceWith(
       LOCKFILE,
       TARGET.workflows,
@@ -622,6 +731,7 @@ describe('regenerateLockfiles', () => {
             'Stopped, so .github/workflows/actions.lock may not match the updated files',
           left: TARGET_FILES,
           command: COMMAND,
+          unrestored: [],
           restored: [],
           details: [],
         },
@@ -632,6 +742,7 @@ describe('regenerateLockfiles', () => {
             'Stopped, so vendor/tool/.github/workflows/actions.lock may not match the updated files',
           left: ['vendor/tool/.github/workflows/ci.yml'],
           command: VENDORED_COMMAND,
+          unrestored: [],
           restored: [],
           details: [],
         },
@@ -651,7 +762,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET, VENDORED_TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 143 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 143,
+    })
     expect(spinnerMock.success).toHaveBeenCalledExactlyOnceWith(
       'Regenerated .github/workflows/actions.lock',
     )
@@ -675,7 +790,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 130 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 130,
+    })
     expect(restoreWrittenFiles).not.toHaveBeenCalled()
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
@@ -693,13 +812,18 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 143 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 143,
+    })
     expect(restoreWrittenFiles).not.toHaveBeenCalled()
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
       details: BLOCKED_DETAILS,
       heading: BLOCKED_HEADING,
       left: TARGET_FILES,
       command: COMMAND,
+      unrestored: [],
       restored: [],
     })
   })
@@ -710,7 +834,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 1,
+    })
     expect(restoreWrittenFiles).not.toHaveBeenCalled()
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ left: TARGET_FILES, restored: [] }),
@@ -725,7 +853,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 130 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 130,
+    })
     expect(relockWorkflows).not.toHaveBeenCalled()
     expect(createSpinnerMock).not.toHaveBeenCalled()
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
@@ -733,6 +865,7 @@ describe('regenerateLockfiles', () => {
         'Stopped, so .github/workflows/actions.lock may not match the updated files',
       left: TARGET_FILES,
       command: COMMAND,
+      unrestored: [],
       restored: [],
       details: [],
     })
@@ -749,7 +882,11 @@ describe('regenerateLockfiles', () => {
 
     await expect(
       regenerateLockfiles([TARGET, VENDORED_TARGET], WRITTEN, signals),
-    ).resolves.toStrictEqual({ restored: new Set(), exitCode: 1 })
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 1,
+    })
     expect(restoreWrittenFiles).not.toHaveBeenCalled()
     expect(relockWorkflows).toHaveBeenCalledTimes(2)
     expect(spinnerMock.error).toHaveBeenCalledExactlyOnceWith(
@@ -760,6 +897,7 @@ describe('regenerateLockfiles', () => {
         'gh actions-lock was ended by SIGKILL, so .github/workflows/actions.lock may not match the updated files',
       left: TARGET_FILES,
       command: COMMAND,
+      unrestored: [],
       restored: [],
       details: [],
     })

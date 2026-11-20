@@ -205,6 +205,22 @@ describe('scanRepository', () => {
     )
   })
 
+  it('relocks no workflow that runs through ./ an action the repository does not hold, since it may run any remote action', async () => {
+    let absent = makeWorkflowLockfile({
+      reached: new Map([
+        ['/repo/tools/action.yml', new Map([[CI_WORKFLOW, false]])],
+      ]),
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([absent])
+
+    let { lockedFiles } = await scanRepository({ cwd: '/repo' })
+
+    expect(lockedFiles.get(CI_WORKFLOW)).toStrictEqual([
+      { lockfile: absent, workflows: null },
+    ])
+    expect(findRelockBlockers(lockedFiles).get(CI_WORKFLOW)).toBe('unrecorded')
+  })
+
   it('relocks no workflow of a lockfile whose workflows cannot all be traced, since any of them may run remote actions through ./', async () => {
     let untraced = makeWorkflowLockfile({ reached: null })
     vi.mocked(readEnclosingLockfiles).mockResolvedValue([untraced])

@@ -35,7 +35,9 @@ describe('printRelockNotice', () => {
         '.github/workflows/ci.yml: ref v999 does not exist (ref-missing)',
       ],
       restored: ['.github/workflows/ci.yml'],
+
       command: COMMAND,
+      unrestored: [],
       left: [],
     })
 
@@ -55,6 +57,8 @@ describe('printRelockNotice', () => {
         'Stopped, so .github/workflows/actions.lock may not match the updated files',
       left: ['.github/workflows/ci.yml', '.github/actions/setup/action.yml'],
       command: COMMAND,
+      unrestored: [],
+
       restored: [],
       details: [],
     })
@@ -63,6 +67,35 @@ describe('printRelockNotice', () => {
       '\n⚠️ Stopped, so .github/workflows/actions.lock may not match the updated files',
       '   Kept the updates in 2 files; run this to regenerate the lockfile:',
       '   • .github/workflows/ci.yml',
+      '   • .github/actions/setup/action.yml',
+      `   ${COMMAND}`,
+    ])
+  })
+
+  it('lists the files that could not be put back apart from the ones that keep their updates', () => {
+    let printed = captureStderr()
+
+    printRelockNotice({
+      unrestored: [
+        '.github/workflows/ci.yml: EIO: i/o error, write',
+        '.github/workflows/release.yml: ENOSPC: no space left on device, write',
+      ],
+      heading:
+        'gh actions-lock did not regenerate .github/workflows/actions.lock: it found problems that block the lockfile',
+      left: ['.github/actions/setup/action.yml'],
+      restored: ['.github/workflows/lint.yml'],
+      command: COMMAND,
+      details: [],
+    })
+
+    expect(printed()).toStrictEqual([
+      '\n⚠️ gh actions-lock did not regenerate .github/workflows/actions.lock: it found problems that block the lockfile',
+      '   Restored 1 file to match the lockfile again:',
+      '   • .github/workflows/lint.yml',
+      '   Could not put back 2 files, which may now be cut short; check with git diff:',
+      '   • .github/workflows/ci.yml: EIO: i/o error, write',
+      '   • .github/workflows/release.yml: ENOSPC: no space left on device, write',
+      '   Kept the updates in 1 file; run this to regenerate the lockfile:',
       '   • .github/actions/setup/action.yml',
       `   ${COMMAND}`,
     ])
@@ -78,7 +111,9 @@ describe('printRelockNotice', () => {
       heading:
         'gh actions-lock did not pin what Actions Up checked in .github/workflows/actions.lock',
       left: ['.github/workflows/ci.yml'],
+      unrestored: [],
       command: null,
+
       restored: [],
     })
 
