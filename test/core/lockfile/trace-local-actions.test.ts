@@ -184,6 +184,93 @@ describe('traceLocalActions', () => {
     )
   })
 
+  it.each([
+    {
+      definition: [
+        'runs:',
+        '  using: node20',
+        '  main: index.js',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ],
+      action: 'a node action, whatever steps it holds',
+    },
+    {
+      definition: [
+        'runs:',
+        '  using: composite',
+        '  steps:',
+        '    - uses: docker://alpine:3',
+        '      with:',
+        '        uses: actions/cache@v4',
+        '    - echo',
+        '    - uses: 3',
+        '',
+      ],
+      action: 'a composite action whose remote reference is an input',
+    },
+    {
+      definition: [
+        'runs:',
+        '  using: composite',
+        '  steps:',
+        '    uses: actions/cache@v4',
+        '',
+      ],
+      action: 'a composite action whose steps are no list',
+    },
+    {
+      definition: [
+        'runs:',
+        '  using: 3',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ],
+      action: 'an action whose kind is no text',
+    },
+    {
+      definition: ['name: Setup', 'uses: actions/cache@v4', ''],
+      action: 'an action without runs',
+    },
+    {
+      definition: ['- uses: actions/cache@v4', ''],
+      action: 'a definition that is no mapping',
+    },
+  ])(
+    'does not list a workflow that runs through ./ $action, which runs no remote action',
+    async ({ definition }) => {
+      installFileSystem({
+        [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+        [SETUP_ACTION]: definition.join('\n'),
+      })
+
+      let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+      expect(reached).toStrictEqual(new Map())
+    },
+  )
+
+  it('reads the steps of a composite action whose kind is written in another case, as the runner runs them', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: Composite',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+    })
+
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(reached).toStrictEqual(
+      new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+    )
+  })
+
   it('lists a workflow that runs through ./ an action the repository does not hold', async () => {
     installFileSystem({
       [CI_WORKFLOW]: makeWorkflowText(
