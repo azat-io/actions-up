@@ -3,7 +3,8 @@
  */
 export interface WrittenFile {
   /**
-   * Text the file held when it was read.
+   * Text the file held when it was read, decoded from valid UTF-8, so that it
+   * encodes back to the same bytes.
    */
   before: string
 
