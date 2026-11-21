@@ -125,6 +125,17 @@ function writtenBy(
 }
 
 /**
+ * Reference the relock refused to pin for a workflow.
+ *
+ * @param workflow - Workflow, relative to the repository root.
+ * @param repository - Repository, `owner/repo`.
+ * @returns What gh-actions-lock reports for the workflow.
+ */
+function makeRefusal(workflow: string, repository: string): LockRefusal {
+  return { dependency: `${repository}@v4`, repository, ref: 'v4', workflow }
+}
+
+/**
  * Pin of a regenerated lockfile.
  *
  * @param repository - Repository, `owner/repo`.
@@ -134,17 +145,6 @@ function writtenBy(
  */
 function makePin(repository: string, reference: string, sha: string): LockPin {
   return { ref: reference, repository, sha }
-}
-
-/**
- * Reference the relock refused to pin for a workflow.
- *
- * @param workflow - Workflow, relative to the repository root.
- * @param repository - Repository, `owner/repo`.
- * @returns What gh-actions-lock reports for the workflow.
- */
-function makeRefusal(workflow: string, repository: string): LockRefusal {
-  return { repository, ref: 'v4', workflow }
 }
 
 describe('findPinMismatches', () => {

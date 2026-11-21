@@ -9,6 +9,12 @@ export interface LockRefusal {
   repository: string
 
   /**
+   * Reference as the workflow writes it, `owner/repo@ref` with the path of an
+   * action in a subdirectory after the repository.
+   */
+  dependency: string
+
+  /**
    * Workflow the reference was refused for, relative to the repository root.
    */
   workflow: string

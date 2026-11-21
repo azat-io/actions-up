@@ -660,11 +660,12 @@ describe('regenerateLockfiles', () => {
     },
   )
 
-  it('regenerates a lockfile whose relock refused a written reference only for a workflow it was not written for', async () => {
+  it('regenerates a lockfile whose relock refused a written reference only for a workflow it was not written for, and names that reference', async () => {
     vi.mocked(relockWorkflows).mockResolvedValue({
       refusals: [
         {
           workflow: '.github/workflows/release.yml',
+          dependency: 'actions/checkout@v4',
           repository: 'actions/checkout',
           ref: 'v4',
         },
@@ -683,7 +684,83 @@ describe('regenerateLockfiles', () => {
     expect(spinnerMock.success).toHaveBeenCalledExactlyOnceWith(
       'Regenerated .github/workflows/actions.lock',
     )
-    expect(printRelockNotice).not.toHaveBeenCalled()
+    expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+      details: [
+        'actions/checkout@v4 is not pinned for .github/workflows/release.yml: its entry in the lockfile does not track the action; run gh actions-lock without --no-onboard to add it',
+      ],
+      heading:
+        'gh actions-lock left references unpinned in .github/workflows/actions.lock',
+      unrestored: [],
+      command: null,
+      restored: [],
+      left: [],
+    })
+  })
+
+  it('names each reference a relocked workflow still does not pin once, after the earlier pins the lockfile kept', async () => {
+    arrangeLockfileReads(
+      makeLockfileText({
+        workflows: { '.github/workflows/release.yml': ['actions/checkout@v4'] },
+        dependencies: { 'actions/checkout@v4': RECORDED_SHA },
+      }),
+      makeLockfileWith(
+        makePin('actions/checkout', 'v4', RECORDED_SHA),
+        makePin('actions/cache', 'v5', CACHE_SHA),
+      ),
+    )
+    let untracked = {
+      dependency:
+        'my-org/actions/yarn-install@a9e1b5817bc3a7d4de6e9abf2a4e28b4ab6a7b74',
+      ref: 'a9e1b5817bc3a7d4de6e9abf2a4e28b4ab6a7b74',
+      workflow: '.github/workflows/release.yml',
+      repository: 'my-org/actions',
+    }
+    vi.mocked(relockWorkflows).mockResolvedValue({
+      refusals: [
+        untracked,
+        untracked,
+        { ...untracked, workflow: '.github/workflows/docs.yml' },
+      ],
+      pins: [
+        makePin('actions/checkout', 'v4', RECORDED_SHA),
+        makePin('actions/cache', 'v5', CACHE_SHA),
+      ],
+      kind: 'relocked',
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 0,
+    })
+    expect(vi.mocked(printRelockNotice).mock.calls).toStrictEqual([
+      [
+        {
+          heading:
+            'gh actions-lock kept earlier pins in .github/workflows/actions.lock',
+          details: [KEPT_COMMIT_DETAIL],
+          unrestored: [],
+          command: null,
+          restored: [],
+          left: [],
+        },
+      ],
+      [
+        {
+          details: [
+            'my-org/actions/yarn-install@a9e1b5817bc3a7d4de6e9abf2a4e28b4ab6a7b74 is not pinned for .github/workflows/release.yml: its entry in the lockfile does not track the action; run gh actions-lock without --no-onboard to add it',
+          ],
+          heading:
+            'gh actions-lock left references unpinned in .github/workflows/actions.lock',
+          unrestored: [],
+          command: null,
+          restored: [],
+          left: [],
+        },
+      ],
+    ])
   })
 
   it('fails a lockfile that pins a written reference for one workflow while it was refused for another that runs the written file', async () => {
@@ -692,6 +769,7 @@ describe('regenerateLockfiles', () => {
       refusals: [
         {
           workflow: '.github/workflows/release.yml',
+          dependency: 'actions/cache@v5',
           repository: 'actions/cache',
           ref: 'v5',
         },

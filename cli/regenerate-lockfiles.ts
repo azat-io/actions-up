@@ -227,6 +227,32 @@ async function relockAndCheck(
         left: [],
       })
     }
+
+    /**
+     * A refusal of a written reference for a workflow it was written for fails
+     * the lockfile, so the refusals left are of references the entries of the
+     * relocked workflows did not track before the run. The lockfile leaves them
+     * unpinned as it did, so they do not fail the run, but the notice names
+     * them, since those workflows check them against the lockfile.
+     */
+    let unpinned = new Set(
+      result.refusals
+        .filter(({ workflow }) => target.workflows.includes(workflow))
+        .map(
+          ({ dependency, workflow }) =>
+            `${dependency} is not pinned for ${workflow}: its entry in the lockfile does not track the action; run gh actions-lock without --no-onboard to add it`,
+        ),
+    )
+    if (unpinned.size > 0) {
+      printRelockNotice({
+        heading: `gh actions-lock left references unpinned in ${lockfile}`,
+        details: [...unpinned],
+        unrestored: [],
+        command: null,
+        restored: [],
+        left: [],
+      })
+    }
     return { regenerated: true, unrestored: [], restored: [] }
   }
 

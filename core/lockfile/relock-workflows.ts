@@ -183,6 +183,7 @@ function readRefusals(report: Record<string, unknown>): LockRefusal[] {
           {
             repository: `${owner}/${repository}`.toLowerCase(),
             ref: reference,
+            dependency,
             workflow,
           },
         ]
