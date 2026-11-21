@@ -14,6 +14,7 @@ import {
 } from '../core/lockfile/relock-workflows'
 import { findPinMismatches } from '../core/lockfile/find-pin-mismatches'
 import { restoreWrittenFiles } from '../core/fs/restore-written-files'
+import { isRenameRewrite } from '../core/lockfile/is-rename-rewrite'
 import { parseLockfile } from '../core/lockfile/parse-lockfile'
 import { printRelockNotice } from './print-relock-notice'
 import { SIGNAL_EXIT_CODES } from '../core/constants'
@@ -61,15 +62,17 @@ interface Run {
  * and the lockfile pins every written reference, for each workflow, to the
  * commit Actions Up checked, or to the one it already pinned the reference to,
  * which a notice names, both as the tool reports it and as the lockfile on disk
- * records it. Otherwise the workflows it tracks would run something else than
- * the run announced, or fail to start. When the tool exited on its own and left
- * the lockfile as it was, the written files are put back to match it again,
- * each only while it still holds what was written. The run never writes a
- * lockfile: once the tool changed one, what it wrote is known only from the
- * disk, where another writer may have changed it too, so the files stay with
- * it, and the notice says what it does not pin as checked. The plan skips files
- * that more than one lockfile pins, so each lockfile is regenerated for files
- * of its own.
+ * records it, and when the written files still hold what was written, but for a
+ * repository that moved, which the relock renames to a name the lockfile pins.
+ * Otherwise the workflows it tracks would run something else than the run
+ * announced, or fail to start. When the tool exited on its own and left the
+ * lockfile as it was, the written files are put back to match it again, each
+ * only while it still holds what was written. The run never writes a lockfile:
+ * once the tool changed one, what it wrote is known only from the disk, where
+ * another writer may have changed it too, so the files stay with it, and the
+ * notice says what it does not pin as checked. The plan skips files that more
+ * than one lockfile pins, so each lockfile is regenerated for files of its
+ * own.
  *
  * The caller holds stop signals back from the time the files are written. The
  * first SIGINT or SIGTERM keeps `gh` from starting again and stops the
@@ -211,6 +214,28 @@ async function relockAndCheck(
    */
   let kept = mismatches.filter(({ kind }) => kind === 'kept-commit')
   if (kept.length === mismatches.length) {
+    /**
+     * Even without narrowing, the relock renames a repository that moved in the
+     * workflow, and the line it rewrites loses its comment, such as the version
+     * comment of a SHA, and its line break turns into LF. A written file
+     * changed otherwise, or one that cannot be read, was changed by something
+     * else while the lockfile was regenerated, so the lockfile may not match
+     * it.
+     */
+    let { renamed, changed } = await findRewritten(
+      written.filter(file => target.files.has(file.path)),
+      { pins: regenerated.pins, files: target.files },
+    )
+    if (changed.length > 0) {
+      spinner.error(`Regenerated ${lockfile}, but could not check it`)
+      return finish(target, written, {
+        heading: `${countFiles(changed.length)} changed while gh actions-lock regenerated ${lockfile}, so the lockfile may not match the updated files`,
+        details: changed.map(toDisplayPath),
+        rerun: true,
+        restore,
+      })
+    }
+
     spinner.success(`Regenerated ${lockfile}`)
     if (kept.length > 0) {
       printRelockNotice({
@@ -250,21 +275,13 @@ async function relockAndCheck(
     }
 
     /**
-     * Even without narrowing, the relock renames a repository that moved in the
-     * workflow, and the line it rewrites loses its comment, such as the version
-     * comment of a SHA, and its line break turns into LF. The files match the
-     * lockfile all the same, so the notice only names them.
+     * The files a relock renamed a repository in match the lockfile all the
+     * same, so the notice only names them.
      */
-    let rewritten = await findRewritten(
-      written.filter(file => target.files.has(file.path)),
-    )
-    if (rewritten.length > 0) {
-      let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
-      let noun =
-        pluralRules.select(rewritten.length) === 'one' ? 'file' : 'files'
+    if (renamed.length > 0) {
       printRelockNotice({
-        heading: `gh actions-lock also rewrote ${rewritten.length} ${noun}: a repository that moved is renamed in the workflow, which drops the comment of that line`,
-        details: rewritten.map(toDisplayPath),
+        heading: `gh actions-lock also rewrote ${countFiles(renamed.length)}: a repository that moved is renamed in the workflow, which drops the comment of that line`,
+        details: renamed.map(toDisplayPath),
         unrestored: [],
         command: null,
         restored: [],
@@ -365,22 +382,48 @@ async function finish(
 }
 
 /**
- * Find the written files that hold other bytes than the ones written.
+ * Find the written files that hold other bytes than the ones written: those in
+ * which gh-actions-lock renamed a repository that moved to a name the lockfile
+ * on disk pins, and those changed otherwise or that cannot be read.
  *
  * @param files - Files the updater rewrote.
- * @returns Paths of the files that hold something else now, in the given order;
- *   a file that cannot be read is left out.
+ * @param lockfile - What the files are checked against.
+ * @param lockfile.files - Workflows the lockfile records each file under, as it
+ *   names them.
+ * @param lockfile.pins - Keys of the pins of each tracked workflow on disk.
+ * @returns Paths of the files of each kind, in the given order.
  */
-async function findRewritten(files: WrittenFile[]): Promise<string[]> {
-  let rewritten = await Promise.all(
+async function findRewritten(
+  files: WrittenFile[],
+  lockfile: { files: Map<string, string[]>; pins: Map<string, string[]> },
+): Promise<{ renamed: string[]; changed: string[] }> {
+  let kinds = await Promise.all(
     files.map(async ({ after, path }) => {
       let bytes = await readBytes(path)
-      return bytes === null || bytes.equals(Buffer.from(after, 'utf8')) ?
-          []
-        : [path]
+      if (bytes?.equals(Buffer.from(after, 'utf8'))) {
+        return 'unchanged'
+      }
+      let workflows = lockfile.files.get(path)!
+      return (
+          bytes !== null &&
+            isRenameRewrite(after, bytes.toString('utf8'), key =>
+              workflows.every(workflow =>
+                lockfile.pins.get(workflow)?.includes(key),
+              ),
+            )
+        ) ?
+          'renamed'
+        : 'changed'
     }),
   )
-  return rewritten.flat()
+  let paths = Map.groupBy(
+    files.map(({ path }) => path),
+    (_path, index) => kinds[index],
+  )
+  return {
+    renamed: paths.get('renamed') ?? [],
+    changed: paths.get('changed') ?? [],
+  }
 }
 
 /**
@@ -446,6 +489,17 @@ function readLockfile(bytes: Buffer | null): LockfileParseResult {
   return bytes === null ?
       { reason: 'unreadable file', kind: 'unsupported', version: null }
     : parseLockfile(bytes.toString('utf8'))
+}
+
+/**
+ * Count files in words.
+ *
+ * @param count - Number of files.
+ * @returns The count with the noun in the matching form.
+ */
+function countFiles(count: number): string {
+  let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
+  return `${count} ${pluralRules.select(count) === 'one' ? 'file' : 'files'}`
 }
 
 /**
