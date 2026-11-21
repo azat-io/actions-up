@@ -168,6 +168,14 @@ Runner updates appear in `runners`, with `summary.totalRunnerUpdates` and
 `summary.totalRunners` counting available updates and scanned labels. `updates`,
 `summary.totalUpdates` and `summary.totalActions` exclude runners.
 
+`lockfiles` lists the workflow lockfiles found, and `action.locked` tells
+whether one pins an entry. `lockTool` is `available` when gh actions-lock can
+regenerate them, or why it cannot: `no-gh`, `unauthenticated`, `unlisted`,
+`missing` or `outdated`; it is `null` when it was not looked for. Locked updates
+are listed in `updates` only when it is `available`, and otherwise in `skipped`
+with the reason `lockfile`; `action.relockBlocker` (`unreadable`, `unrecorded`
+or `shared`) tells why a lockfile cannot be regenerated for an entry at all.
+
 ### Custom Directory
 
 By default, Actions Up scans `.github`.
@@ -308,10 +316,22 @@ updating to the latest resolved SHA and are never converted to tags.
 Actions Up updates actions pinned by a
 [workflow lockfile](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles)
 and regenerates it with
-[gh actions-lock](https://github.com/github/gh-actions-lock) v0.5.0 or later.
-Without it, such updates are skipped. So are updates in workflows that run local
-actions only through `./`, which gh actions-lock does not lock, and in those
-actions.
+[gh actions-lock](https://github.com/github/gh-actions-lock) v0.5.0 or later:
+after writing the updates it runs `gh actions-lock --no-onboard --no-narrow` for
+the affected workflows and checks that every updated reference is pinned to the
+commit it checked. `gh` has to be authenticated (`gh auth login`, `GH_TOKEN` or
+`GITHUB_TOKEN`).
+
+If the lockfile cannot be regenerated, the updated files are put back and the
+run exits with code 1. Without the extension such updates are skipped, with a
+hint on how to get it. Updates are also skipped in workflows that run, only
+through `./`, a local action that uses remote actions or is not part of the
+repository, and in those actions: gh actions-lock does not lock what they run.
+
+By default Actions Up pins commit SHAs, also in workflows a lockfile tracks. gh
+actions-lock reports such references as `sha-as-ref` warnings and turns them
+back into tags when it runs without `--no-narrow`; use `--style preserve` to
+keep the tags the lockfile already pins.
 
 ### Prefer Tags
 
@@ -341,7 +361,9 @@ skipped with a warning suggesting `--prefer-tags`.
 
 You can integrate Actions Up into your CI/CD pipeline to automatically check for
 outdated actions on every pull request. This helps maintain security and ensures
-your team stays aware of available updates.
+your team stays aware of available updates. Updates of actions a workflow
+lockfile pins count in `summary.totalUpdates` only when the runner has gh
+actions-lock (`gh extension install github/gh-actions-lock`).
 
 <details>
 <summary>Create <code>.github/workflows/check-actions-updates.yml</code>.</summary>
@@ -367,7 +389,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install actions-up
         run: npm install -g actions-up
