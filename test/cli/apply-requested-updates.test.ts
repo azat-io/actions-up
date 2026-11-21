@@ -7,11 +7,13 @@ import type { ActionUpdate } from '../../types/action-update'
 import { applyRequestedUpdates } from '../../cli/apply-requested-updates'
 import { makeWorkflowLockfile } from '../helpers/make-workflow-lockfile'
 import { regenerateLockfiles } from '../../cli/regenerate-lockfiles'
+import { ignoreOutputErrors } from '../../cli/ignore-output-errors'
 import { writeUpdates } from '../../core/ast/update/apply-updates'
 import { stripAnsi } from '../../core/interactive/strip-ansi'
 
 vi.mock(import('../../core/ast/update/apply-updates'))
 vi.mock(import('../../cli/regenerate-lockfiles'))
+vi.mock(import('../../cli/ignore-output-errors'))
 
 const CI_WORKFLOW = '/repo/.github/workflows/ci.yml'
 
@@ -109,6 +111,28 @@ describe('applyRequestedUpdates', () => {
     )
     expect(printed()).toStrictEqual(['✓ Updates applied successfully!'])
     expect(process.exitCode).toBeUndefined()
+  })
+
+  it('keeps an output that is gone from ending the run before it writes an update a lockfile pins', async () => {
+    vi.mocked(writeUpdates).mockResolvedValue({ unwritten: [], files: [] })
+
+    await applyRequestedUpdates([makeUpdate(CI_WORKFLOW, true)], LOCKED_FILES)
+
+    expect(ignoreOutputErrors).toHaveBeenCalledExactlyOnceWith()
+    expect(
+      vi.mocked(ignoreOutputErrors).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(writeUpdates).mock.invocationCallOrder[0]!)
+  })
+
+  it('lets an output that is gone end the run as before when no lockfile pins an update', async () => {
+    vi.mocked(writeUpdates).mockResolvedValue({ unwritten: [], files: [] })
+
+    await applyRequestedUpdates(
+      [makeUpdate(RELEASE_WORKFLOW, false)],
+      LOCKED_FILES,
+    )
+
+    expect(ignoreOutputErrors).not.toHaveBeenCalled()
   })
 
   it('counts the entries of a file put back as not applied, names the signal that stopped the run, and ends with its code', async () => {
