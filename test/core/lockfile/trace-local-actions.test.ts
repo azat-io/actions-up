@@ -249,6 +249,48 @@ describe('traceLocalActions', () => {
     },
   )
 
+  it('does not record a node action a workflow reaches through $/, whatever steps it holds, since it runs none', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: node24',
+        '  main: index.js',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+    })
+
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(reached).toStrictEqual(new Map())
+  })
+
+  it('does not record what a composite action whose kind is written in another case runs for a workflow that reaches it through $/, since gh-actions-lock does not read its steps', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: Composite',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '    - uses: $/tools/lint',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+      [LINT_ACTION]: makeActionText('actions/setup-node@v4'),
+    })
+
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(reached).toStrictEqual(
+      new Map([
+        [SETUP_ACTION, new Map([[CI_WORKFLOW, false]])],
+        [LINT_ACTION, new Map([[CI_WORKFLOW, false]])],
+      ]),
+    )
+  })
+
   it('reads the steps of a composite action whose kind is written in another case, as the runner runs them', async () => {
     installFileSystem({
       [SETUP_ACTION]: [
