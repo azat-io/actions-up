@@ -594,6 +594,36 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
+    'fails a lockfile regenerated as checked when the workflow then holds another reference, which stays',
+    async () => {
+      let edited = makeWorkflowText(['actions/checkout@v3.0.0'])
+      await writeRepository({
+        [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
+        [LOCKFILE_KEY]: CI_LOCKFILE,
+      })
+      await arrangeGh({
+        report: makeReport(['actions/checkout', CHECKOUT_SHA, CHECKOUT_SHA]),
+        writes: { [LOCKFILE_KEY]: RELOCKED_CI_LOCKFILE, [CI_KEY]: edited },
+      })
+
+      await runCli('--yes')
+
+      expect(String(await readRepository(CI_KEY))).toBe(edited)
+      expect(String(await readRepository(LOCKFILE_KEY))).toBe(
+        RELOCKED_CI_LOCKFILE,
+      )
+      expect(printedErrors()).toStrictEqual([
+        `⚠️ 1 file changed while gh actions-lock regenerated ${LOCKFILE_KEY}, so the lockfile may not match the updated files`,
+        `   • ${CI_KEY}`,
+        '   Kept the updates in 1 file; run this to regenerate the lockfile:',
+        `   • ${CI_KEY}`,
+        `   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- ${CI_KEY}`,
+      ])
+      expect(process.exitCode).toBe(1)
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
     'regenerates the lockfile when the output is gone once the files are about to be written',
     async () => {
       let brokenPipe = Object.assign(new Error('write EPIPE'), {

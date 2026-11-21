@@ -913,30 +913,32 @@ describe('regenerateLockfiles', () => {
 
   it.each([
     {
-      setup: Buffer.from('uses: my-org/cache@v5\n'),
+      setup: 'uses: my-org/cache@v5\n',
       rewritten: TARGET_FILES,
       files: '2 files',
     },
     {
       rewritten: ['.github/workflows/ci.yml'],
+      setup: WRITTEN[2]!.after,
       files: '1 file',
-      setup: null,
     },
   ])(
-    'names the $files gh-actions-lock rewrote while it regenerated the lockfile as checked, but not a file it cannot read',
+    'names the $files gh-actions-lock rewrote for a repository that moved while it regenerated the lockfile as checked',
     async ({ rewritten, setup, files }) => {
-      vi.mocked(readFile).mockImplementation(path => {
-        if (path === SETUP_ACTION) {
-          return setup ?
-              Promise.resolve(setup)
-            : Promise.reject(new Error('ENOENT'))
-        }
-        return Promise.resolve(
-          Buffer.from(
-            path === CI_WORKFLOW ? 'uses: my-org/checkout@v4\r\n' : AS_CHECKED,
-          ),
-        )
-      })
+      let renamed = makeLockfileWith(
+        makePin('my-org/checkout', 'v4', CHECKOUT_SHA),
+        makePin('my-org/cache', 'v5', CACHE_SHA),
+        ...TARGET_PINS,
+      )
+      let contents = [
+        [CI_WORKFLOW, 'uses: my-org/checkout@v4\n'],
+        [SETUP_ACTION, setup],
+      ]
+      vi.mocked(readFile).mockImplementation(path =>
+        Promise.resolve(
+          Buffer.from(contents.find(([file]) => file === path)?.[1] ?? renamed),
+        ),
+      )
       vi.mocked(relockWorkflows).mockResolvedValue({
         pins: TARGET_PINS,
         kind: 'relocked',
@@ -963,6 +965,119 @@ describe('regenerateLockfiles', () => {
       })
     },
   )
+
+  it.each([
+    {
+      ci: 'uses: actions/checkout@v3.0.0\n',
+      changed: ['.github/workflows/ci.yml'],
+      name: 'another reference',
+      setup: WRITTEN[2]!.after,
+      files: '1 file',
+    },
+    {
+      name: 'a new name the lockfile does not pin',
+      changed: ['.github/workflows/ci.yml'],
+      ci: 'uses: my-org/checkout@v4\n',
+      setup: WRITTEN[2]!.after,
+      files: '1 file',
+    },
+    {
+      ci: 'uses: actions/checkout@v4\nuses: actions/cache@v5\n',
+      name: 'lines a rename does not explain',
+      setup: 'uses: my-org/cache@v5\n',
+      changed: TARGET_FILES,
+      files: '2 files',
+    },
+    {
+      changed: ['.github/actions/setup/action.yml'],
+      name: 'no bytes it can read',
+      ci: WRITTEN[1]!.after,
+      files: '1 file',
+      setup: null,
+    },
+  ])(
+    'fails a lockfile regenerated as checked when a written file then holds $name, keeping the updates',
+    async ({ changed, setup, files, ci }) => {
+      vi.mocked(readFile).mockImplementation(path => {
+        if (path === SETUP_ACTION) {
+          return setup === null ?
+              Promise.reject(new Error('ENOENT'))
+            : Promise.resolve(Buffer.from(setup))
+        }
+        return Promise.resolve(
+          Buffer.from(path === CI_WORKFLOW ? ci : AS_CHECKED),
+        )
+      })
+      arrangeLockfileReads(makeLockfileWith(), AS_CHECKED)
+      vi.mocked(relockWorkflows).mockResolvedValue({
+        pins: TARGET_PINS,
+        kind: 'relocked',
+        refusals: [],
+      })
+
+      await expect(
+        regenerateLockfiles([TARGET], WRITTEN, signals),
+      ).resolves.toStrictEqual({
+        unrestored: new Set(),
+        restored: new Set(),
+        exitCode: 1,
+      })
+      expect(restoreWrittenFiles).not.toHaveBeenCalled()
+      expect(spinnerMock.error).toHaveBeenCalledExactlyOnceWith(
+        'Regenerated .github/workflows/actions.lock, but could not check it',
+      )
+      expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+        heading: `${files} changed while gh actions-lock regenerated .github/workflows/actions.lock, so the lockfile may not match the updated files`,
+        left: TARGET_FILES,
+        details: changed,
+        command: COMMAND,
+        unrestored: [],
+        restored: [],
+      })
+    },
+  )
+
+  it('puts back the other files when a written file changed while gh-actions-lock left the lockfile as it was', async () => {
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        Buffer.from(
+          path === CI_WORKFLOW ?
+            'uses: actions/checkout@v3.0.0\n'
+          : (WRITTEN.find(file => file.path === path)?.after ?? AS_CHECKED),
+        ),
+      ),
+    )
+    vi.mocked(relockWorkflows).mockResolvedValue({
+      pins: TARGET_PINS,
+      kind: 'relocked',
+      refusals: [],
+    })
+    vi.mocked(restoreWrittenFiles).mockResolvedValueOnce({
+      restored: [SETUP_ACTION],
+      failed: new Map(),
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      restored: new Set([SETUP_ACTION]),
+      unrestored: new Set(),
+      exitCode: 1,
+    })
+    expect(restoreWrittenFiles).toHaveBeenCalledExactlyOnceWith([
+      WRITTEN[1],
+      WRITTEN[2],
+    ])
+    expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+      heading:
+        '1 file changed while gh actions-lock regenerated .github/workflows/actions.lock, so the lockfile may not match the updated files',
+      restored: ['.github/actions/setup/action.yml'],
+      details: ['.github/workflows/ci.yml'],
+      left: ['.github/workflows/ci.yml'],
+      command: COMMAND,
+      unrestored: [],
+    })
+  })
 
   it('stops at Ctrl+C, naming each lockfile that may not match its files without putting anything back', async () => {
     vi.mocked(relockWorkflows).mockImplementation(() => {
