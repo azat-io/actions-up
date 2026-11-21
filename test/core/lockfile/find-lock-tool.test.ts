@@ -37,8 +37,11 @@ describe('findLockTool', () => {
   })
 
   it.each([
-    ['the first release that takes every flag the relock passes', 'v0.3.0'],
-    ['a later release', 'v0.4.1'],
+    [
+      'the oldest release whose own --verify accepts a relocked lockfile',
+      'v0.5.0',
+    ],
+    ['a later release', 'v0.5.1'],
     ['a build from source, which lists no release', ''],
     ['an install pinned to a commit', '8bb4bb6'],
   ])('finds %s', async (_description, version) => {
@@ -108,9 +111,16 @@ describe('findLockTool', () => {
     await expect(findLockTool('/repo')).resolves.toBe('missing')
   })
 
-  it('reports a release older than the relock needs as outdated', async () => {
+  it.each([
+    [
+      'the last release whose relock drops edges of composite actions',
+      'v0.4.1',
+    ],
+    ['a prerelease of the oldest release that works', 'v0.5.0-rc.1'],
+    ['an older release', 'v0.2.0'],
+  ])('reports %s as outdated', async (_description, version) => {
     vi.mocked(runGh).mockResolvedValue(
-      makeGhResult({ stdout: listWith('v0.2.0') }),
+      makeGhResult({ stdout: listWith(version) }),
     )
 
     await expect(findLockTool('/repo')).resolves.toBe('outdated')
