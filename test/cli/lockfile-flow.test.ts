@@ -762,7 +762,7 @@ describe('lockfile flow', () => {
         [...RELOCK_ARGUMENTS, CI_KEY],
       ])
       expect(printedLines()).toContain(
-        '⚠️  Skipped 2 actions in workflows that run actions through ./, or in the actions they run, which gh actions-lock does not lock (change ./ to $/ for an action of the repository; gh actions-lock --migrate-local-actions does it in workflows, not in action files)',
+        '⚠️  Skipped 2 actions in workflows that run actions through ./, or in the actions they run, which gh actions-lock does not lock (for an action of the repository change ./ to $/, which gh actions-lock --migrate-local-actions does in workflows, not in action files; an action that is checked out while the workflow runs cannot be locked)',
       )
       expect(process.exitCode).toBeUndefined()
     },

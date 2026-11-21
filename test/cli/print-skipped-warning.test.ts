@@ -338,7 +338,7 @@ describe('printSkippedWarning', () => {
         '   • actions/upload-artifact@v4\n' +
         '\n⚠️  Skipped 1 action pinned by a workflow lockfile that cannot be regenerated for them, since it, a workflow it tracks or an action of the repository cannot be read\n' +
         '   • actions/cache@v4\n' +
-        '\n⚠️  Skipped 1 action in workflows that run actions through ./, or in the actions they run, which gh actions-lock does not lock (change ./ to $/ for an action of the repository; gh actions-lock --migrate-local-actions does it in workflows, not in action files)\n' +
+        '\n⚠️  Skipped 1 action in workflows that run actions through ./, or in the actions they run, which gh actions-lock does not lock (for an action of the repository change ./ to $/, which gh actions-lock --migrate-local-actions does in workflows, not in action files; an action that is checked out while the workflow runs cannot be locked)\n' +
         '   • actions/setup-node@v4\n' +
         '\n⚠️  Skipped 1 action pinned by the workflow lockfiles of more than one repository root, which Actions Up does not regenerate together\n' +
         '   • actions/checkout@v4',
