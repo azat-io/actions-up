@@ -458,20 +458,20 @@ describe('relockWorkflows', () => {
 })
 
 describe('formatRelockCommand', () => {
-  it('writes the relock command with the root of the repository and the keys of the workflows after --', () => {
+  it('writes the relock command with the root of the repository, the directory of the lockfile from that root and the keys of the workflows after --', () => {
     expect(
       formatRelockCommand(
         ['.github/workflows/ci.yml', '.github/workflows/release.yml'],
         '',
       ),
     ).toBe(
-      'GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml .github/workflows/release.yml',
+      'GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml .github/workflows/release.yml',
     )
   })
 
   it('quotes a path a shell would split', () => {
     expect(formatRelockCommand([".github/workflows/it's ci.yml"], '')).toBe(
-      String.raw`GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- '.github/workflows/it'\''s ci.yml'`,
+      String.raw`GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- '.github/workflows/it'\''s ci.yml'`,
     )
   })
 
@@ -479,7 +479,7 @@ describe('formatRelockCommand', () => {
     expect(
       formatRelockCommand(['.github/workflows/ci.yml'], 'vendor/my tool'),
     ).toBe(
-      `(cd -P './vendor/my tool' && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml)`,
+      `(cd -P './vendor/my tool' && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml)`,
     )
   })
 
@@ -500,7 +500,7 @@ describe('formatRelockCommand', () => {
     'changes to a root that %s through a path cd takes as it is',
     (_description, directory, path) => {
       expect(formatRelockCommand(['.github/workflows/ci.yml'], directory)).toBe(
-        `(cd -P ${path} && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml)`,
+        `(cd -P ${path} && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml)`,
       )
     },
   )

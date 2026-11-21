@@ -121,7 +121,11 @@ export async function relockWorkflows(
  * the directory of the lockfile below it, the way Actions Up runs it, so that
  * gh-actions-lock does not take the lockfile or the `$/` references of an
  * enclosing Git repository instead, or the lockfile the environment names, or
- * fail where there is no Git repository at all. Outside that root, the command
+ * fail where there is no Git repository at all. The directory is named from the
+ * root, as the lockfile names its workflows: run without the workflows, the
+ * command then checks every workflow of that directory, while an absolute
+ * directory would make gh-actions-lock look them up under other names, prune
+ * every entry of the lockfile and delete it. Outside that root, the command
  * changes to it first, through a path that starts with a dot, so that `CDPATH`
  * does not lead elsewhere and a leading dash is not read as an option. The path
  * is followed physically, since it leads from the real working directory: a
@@ -143,7 +147,7 @@ export function formatRelockCommand(
     '--',
     ...workflows.map(quotePath),
   ].join(' ')
-  let rooted = `GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" ${command}`
+  let rooted = `GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows ${command}`
   if (directory === '') {
     return rooted
   }
