@@ -62,10 +62,10 @@ const CACHE_SHA = 'caa296126883cff596d87d8935842f9db880ef25'
 const SETUP_NODE_SHA = 'a0853c24544627f65ddf259abe73b1d18a591444'
 
 const COMMAND =
-  'GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml .github/workflows/release.yml'
+  'GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml .github/workflows/release.yml'
 
 const VENDORED_COMMAND =
-  '(cd -P ./vendor/tool && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml)'
+  '(cd -P ./vendor/tool && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml)'
 
 /**
  * Lockfile of `/repo` that tracks the CI and release workflows, which both run

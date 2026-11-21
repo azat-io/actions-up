@@ -864,7 +864,7 @@ describe('lockfile flow', () => {
         `   • ${CI_KEY}: ref v4.2.2 does not exist in actions/checkout (ref-missing)`,
         '   Kept the updates in 1 file; run this to regenerate the lockfile:',
         `   • ${CI_KEY}`,
-        `   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- ${CI_KEY}`,
+        `   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- ${CI_KEY}`,
         '⚠️ Interrupted by SIGINT',
       ])
       expect(process.exitCode).toBe(130)

@@ -5,7 +5,7 @@ import { printRelockNotice } from '../../cli/print-relock-notice'
 import { stripAnsi } from '../../core/interactive/strip-ansi'
 
 const COMMAND =
-  'GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR="$PWD/.github/workflows" gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml'
+  'GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml'
 
 describe('printRelockNotice', () => {
   afterEach(() => {
