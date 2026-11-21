@@ -545,6 +545,38 @@ describe('traceLocalActions', () => {
     },
   )
 
+  it('names the first workflow that cannot be read, in the order of the workflows', async () => {
+    installFileSystem({
+      [RELEASE_WORKFLOW]: 'jobs: [\n',
+      [CI_WORKFLOW]: 'jobs: [\n',
+    })
+
+    let traced = await traceLocalActions(
+      '/repo',
+      new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
+    )
+
+    expect(traced).toStrictEqual({
+      unreadable: RELEASE_WORKFLOW,
+      reached: null,
+    })
+  })
+
+  it('names the first definition that cannot be read, in the order of the references', async () => {
+    installFileSystem({
+      [CI_WORKFLOW]: makeWorkflowText(
+        '$/.github/actions/setup',
+        '$/tools/lint',
+      ),
+      [SETUP_ACTION]: 'runs: [\n',
+      [LINT_ACTION]: 'runs: [\n',
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({ unreadable: SETUP_ACTION, reached: null })
+  })
+
   it('lets any action be reached when the definition of a reached one cannot be looked for', async () => {
     installFileSystem({
       [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),

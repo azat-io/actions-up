@@ -505,6 +505,9 @@ describe('lockfile flow', () => {
   })
 
   afterEach(async () => {
+    for (let stream of [process.stdout, process.stderr]) {
+      stream.removeAllListeners('error')
+    }
     process.exitCode = undefined
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
@@ -591,21 +594,22 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
-    'regenerates the lockfile when standard error is gone once the files are being written',
+    'regenerates the lockfile when the output is gone once the files are about to be written',
     async () => {
+      let brokenPipe = Object.assign(new Error('write EPIPE'), {
+        syscall: 'write',
+        code: 'EPIPE',
+      })
       let gone = false
       consoleInfoSpy.mockImplementation(text => {
-        gone ||= String(text).includes('Updating')
+        if (String(text).includes('Updating')) {
+          gone = true
+          process.nextTick(() => process.stdout.emit('error', brokenPipe))
+        }
       })
       stderrWriteSpy.mockImplementation(() => {
         if (gone) {
-          process.stderr.emit(
-            'error',
-            Object.assign(new Error('write EPIPE'), {
-              syscall: 'write',
-              code: 'EPIPE',
-            }),
-          )
+          process.stderr.emit('error', brokenPipe)
         }
         return true
       })
@@ -878,10 +882,13 @@ describe('lockfile flow', () => {
     20_000,
   )
 
-  it.skipIf(process.platform === 'win32')(
-    'ends with the code of a signal that arrives while gh-actions-lock regenerates the lockfile as checked',
-    async () => {
-      let listeners = process.listeners('SIGTERM')
+  it.skipIf(process.platform === 'win32').each([
+    { signal: 'SIGINT' as const, code: 130 },
+    { signal: 'SIGTERM' as const, code: 143 },
+  ])(
+    'ends with the code of $signal when it arrives while gh-actions-lock regenerates the lockfile as checked',
+    async ({ signal, code }) => {
+      let listeners = process.listeners(signal)
       await writeRepository({
         [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
         [LOCKFILE_KEY]: CI_LOCKFILE,
@@ -892,7 +899,7 @@ describe('lockfile flow', () => {
         hold: true,
       })
 
-      await runCliInterrupted('SIGTERM', '--yes')
+      await runCliInterrupted(signal, '--yes')
 
       expect(String(await readRepository(CI_KEY))).toBe(
         makeWorkflowText([UPDATED_CHECKOUT]),
@@ -901,10 +908,10 @@ describe('lockfile flow', () => {
         RELOCKED_CI_LOCKFILE,
       )
       expect(printedLines().at(-1)).toBe('✓ 1 of 1 entry applied')
-      expect(printedErrors()).toStrictEqual(['⚠️ Interrupted by SIGTERM'])
-      expect(process.exitCode).toBe(143)
+      expect(printedErrors()).toStrictEqual([`⚠️ Interrupted by ${signal}`])
+      expect(process.exitCode).toBe(code)
       await vi.waitFor(() => {
-        expect(process.listeners('SIGTERM')).toStrictEqual(listeners)
+        expect(process.listeners(signal)).toStrictEqual(listeners)
       })
     },
     20_000,
