@@ -20,18 +20,19 @@ const RELEASE_WORKFLOW = '/repo/.github/workflows/release.yml'
 const LINT_WORKFLOW = '/repo/.github/workflows/lint.yml'
 
 /**
- * Serve files from an in-memory file system through `node:fs/promises`.
+ * Serve files from an in-memory file system through `node:fs/promises`, which
+ * keeps their bytes and encodes and decodes text as asked.
  *
- * @param files - Absolute paths mapped to file text.
+ * @param files - Absolute paths mapped to file text or bytes.
  * @returns File system holding what is written back.
  */
-function installFiles(files: Record<string, string>): FakeFileSystem {
+function installFiles(files: Record<string, string | Buffer>): FakeFileSystem {
   let fileSystem = createFakeFileSystem(files)
   vi.mocked(readFile).mockImplementation((path, options) =>
     fileSystem.readFile(path as PathLike, options),
   )
-  vi.mocked(writeFile).mockImplementation((path, content) =>
-    fileSystem.writeFile(path as PathLike, content as string),
+  vi.mocked(writeFile).mockImplementation((path, content, options) =>
+    fileSystem.writeFile(path as PathLike, content as string, options),
   )
   return fileSystem
 }
@@ -106,7 +107,7 @@ describe('restoreWrittenFiles', () => {
   })
 
   it('leaves a file whose bytes differ from what was written, even when they read as the same text', async () => {
-    vi.mocked(readFile).mockResolvedValueOnce(Buffer.from([0xff]))
+    let fileSystem = installFiles({ [CI_WORKFLOW]: Buffer.from([0xff]) })
 
     let result = await restoreWrittenFiles([
       {
@@ -118,5 +119,22 @@ describe('restoreWrittenFiles', () => {
 
     expect(result).toStrictEqual({ failed: new Map(), restored: [] })
     expect(writeFile).not.toHaveBeenCalled()
+    expect(fileSystem.bytesOf(CI_WORKFLOW)).toStrictEqual(Buffer.from([0xff]))
+  })
+
+  it('puts back the UTF-8 bytes of text beyond ASCII, a byte order mark and CRLF line breaks included', async () => {
+    let mark = Buffer.from([0xef, 0xbb, 0xbf]).toString()
+    let before = `${mark}on: push\r\n# café ✓\r\nuses: actions/checkout@v4\r\n`
+    let after = `${mark}on: push\r\n# café ✓\r\nuses: actions/checkout@v5\r\n`
+    let fileSystem = installFiles({ [CI_WORKFLOW]: Buffer.from(after, 'utf8') })
+
+    let result = await restoreWrittenFiles([
+      { path: CI_WORKFLOW, before, after },
+    ])
+
+    expect(result).toStrictEqual({ restored: [CI_WORKFLOW], failed: new Map() })
+    expect(fileSystem.bytesOf(CI_WORKFLOW)).toStrictEqual(
+      Buffer.from(before, 'utf8'),
+    )
   })
 })

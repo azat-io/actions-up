@@ -2784,9 +2784,39 @@ describe('run', () => {
             { action: { name: 'actions/checkout' } },
             { action: { name: 'actions/setup-node' } },
           ],
+          status: 'updates-available',
+          lockTool: 'available',
           skipped: [],
         })
         expect(regenerateLockfiles).not.toHaveBeenCalled()
+      })
+
+      it('says in the JSON report that gh-actions-lock was found though every entry was excluded', async () => {
+        arrangeUpdates()
+
+        await runCli('--json', '--exclude', '.*')
+
+        expect(readJsonReport()).toMatchObject({
+          status: 'nothing-to-check',
+          lockTool: 'available',
+        })
+      })
+
+      it('stops holding signals back when writing the updates fails', async () => {
+        arrangeUpdates()
+        let listeners = process.listeners('SIGINT')
+        vi.mocked(writeUpdates).mockImplementation(() => {
+          expect(process.listeners('SIGINT')).toHaveLength(listeners.length + 1)
+          return Promise.reject(new Error('EROFS: read-only file system'))
+        })
+
+        await runCli('--yes')
+
+        expect(process.listeners('SIGINT')).toStrictEqual(listeners)
+        expect(printedErrors()).toStrictEqual([
+          'Error: EROFS: read-only file system',
+        ])
+        expect(process.exitCode).toBe(1)
       })
     })
 

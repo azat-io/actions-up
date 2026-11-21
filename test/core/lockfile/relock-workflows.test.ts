@@ -12,8 +12,9 @@ vi.mock(import('../../../core/lockfile/run-gh'))
 
 /**
  * Output of gh-actions-lock v0.4.1 for a run that regenerated the lockfile,
- * with a pin the tool reports in capitals, references it refused to pin, and
- * entries that are no pins or no refusals of a reference.
+ * with a pin the tool reports in capitals, references it refused to pin, one of
+ * them with `@` in its ref, and entries that are no pins or no refusals of a
+ * reference.
  */
 const RELOCKED_OUTPUT = `{
   "cli_version": "v0.4.1",
@@ -39,6 +40,13 @@ const RELOCKED_OUTPUT = `{
       "category": "onboarding-required",
       "severity": "info",
       "detail": "workflow has no lockfile entry; --no-onboard refuses to add new workflows or actions"
+    },
+    {
+      "workflow": ".github/workflows/release.yml",
+      "category": "onboarding-required",
+      "severity": "info",
+      "dependency": "my-org/tool@release@2026",
+      "detail": "my-org/tool@release@2026 has no lockfile entry; --no-onboard refuses to add new workflows or actions"
     },
     {
       "workflow": ".github/workflows/ci.yml",
@@ -82,7 +90,8 @@ const RELOCKED_OUTPUT = `{
 
 /**
  * Output of gh-actions-lock v0.4.1 for a reference that does not exist, with a
- * warning about another pin of the same workflow.
+ * warning about another pin of the same workflow and a note about an action of
+ * another workflow it would not add.
  */
 const BLOCKED_OUTPUT = `{
   "cli_version": "v0.4.1",
@@ -107,6 +116,13 @@ const BLOCKED_OUTPUT = `{
       "workflow": ".github/workflows/release.yml",
       "category": "not-pinned",
       "detail": "workflow has no lockfile entry"
+    },
+    {
+      "workflow": ".github/workflows/release.yml",
+      "category": "onboarding-required",
+      "severity": "info",
+      "dependency": "actions/upload-artifact@v4",
+      "detail": "actions/upload-artifact@v4 has no lockfile entry; --no-onboard refuses to add new workflows or actions"
     },
     {
       "workflow": ".github/workflows/ci.yml",
@@ -146,18 +162,6 @@ describe('relockWorkflows', () => {
         '.github/workflows/release.yml',
       ]),
     ).resolves.toStrictEqual({
-      pins: [
-        {
-          sha: '0057852bfaa89a56745cba8c7296529d2fc39830',
-          repository: 'actions/cache',
-          ref: 'v4',
-        },
-        {
-          sha: 'a0853c24544627f65ddf259abe73b1d18a591444',
-          repository: 'actions/setup-node',
-          ref: 'v5',
-        },
-      ],
       refusals: [
         {
           repository: 'actions/upload-artifact',
@@ -168,6 +172,23 @@ describe('relockWorkflows', () => {
           workflow: '.github/workflows/release.yml',
           repository: 'github/codeql-action',
           ref: 'v4',
+        },
+        {
+          workflow: '.github/workflows/release.yml',
+          repository: 'my-org/tool',
+          ref: 'release@2026',
+        },
+      ],
+      pins: [
+        {
+          sha: '0057852bfaa89a56745cba8c7296529d2fc39830',
+          repository: 'actions/cache',
+          ref: 'v4',
+        },
+        {
+          sha: 'a0853c24544627f65ddf259abe73b1d18a591444',
+          repository: 'actions/setup-node',
+          ref: 'v5',
         },
       ],
       kind: 'relocked',

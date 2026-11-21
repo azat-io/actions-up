@@ -153,6 +153,20 @@ describe('traceLocalActions', () => {
     )
   })
 
+  it('does not record what an action runs for a workflow that reaches it through $/ from an action it runs through ./', async () => {
+    installFileSystem({
+      [RELEASE_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+      [LINT_ACTION]: makeActionText('actions/cache@v4'),
+      [SETUP_ACTION]: makeActionText('$/tools/lint'),
+    })
+
+    let reached = await traceLocalActions('/repo', new Set([RELEASE_WORKFLOW]))
+
+    expect(reached).toStrictEqual(
+      new Map([[LINT_ACTION, new Map([[RELEASE_WORKFLOW, false]])]]),
+    )
+  })
+
   it('lists a workflow that runs an action only through ./ when the action runs remote actions alone', async () => {
     installFileSystem({
       [SETUP_ACTION]: makeActionText('docker://alpine:3', './tools/lint'),
@@ -383,11 +397,17 @@ describe('traceLocalActions', () => {
       workflow: 'expands its aliases beyond reason',
     },
   ])(
-    'lets any action be reached when a tracked workflow $workflow',
+    'lets any action be reached when a tracked workflow $workflow, though another one can be read',
     async ({ entry }) => {
-      installFileSystem({ [CI_WORKFLOW]: entry })
+      installFileSystem({
+        [RELEASE_WORKFLOW]: makeWorkflowText('actions/checkout@v4'),
+        [CI_WORKFLOW]: entry,
+      })
 
-      let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let reached = await traceLocalActions(
+        '/repo',
+        new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
+      )
 
       expect(reached).toBeNull()
     },

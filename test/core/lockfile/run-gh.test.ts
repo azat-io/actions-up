@@ -41,6 +41,7 @@ describe('runGh', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
   })
 
   it('runs gh without a shell, in the given directory, with the variables added to the environment and output meant for pipes', async () => {
@@ -48,15 +49,16 @@ describe('runGh', () => {
       env: { GH_ACTIONS_LOCK_REPO_ROOT: '/repo' },
       cwd: '/repo',
     })
+    let report = Buffer.from('{"detail":"café"}\n')
     let check = Buffer.from('✓ relocked\n')
-    child.stdout!.emit('data', Buffer.from('{"findings":'))
-    child.stdout!.emit('data', Buffer.from('[]}\n'))
+    child.stdout!.emit('data', report.subarray(0, report.indexOf(0xc3) + 1))
+    child.stdout!.emit('data', report.subarray(report.indexOf(0xc3) + 1))
     child.stderr!.emit('data', check.subarray(0, 2))
     child.stderr!.emit('data', check.subarray(2))
     child.emit('close', 0, null)
 
     await expect(result).resolves.toStrictEqual({
-      stdout: '{"findings":[]}\n',
+      stdout: '{"detail":"café"}\n',
       stderr: '✓ relocked\n',
       startError: null,
       started: true,
@@ -77,6 +79,23 @@ describe('runGh', () => {
         cwd: '/repo',
       },
     )
+  })
+
+  it('lets the variables it adds win over the environment, and clears GH_FORCE_TTY even when the environment sets it', async () => {
+    vi.stubEnv('GH_ACTIONS_LOCK_WORKFLOWS_DIR', '/elsewhere/.github/workflows')
+    vi.stubEnv('GH_FORCE_TTY', '100')
+
+    let result = runGh(['actions-lock'], {
+      env: { GH_ACTIONS_LOCK_WORKFLOWS_DIR: '/repo/.github/workflows' },
+      cwd: '/repo',
+    })
+    child.emit('close', 0, null)
+    await result
+
+    expect(vi.mocked(spawn).mock.calls[0]?.[2]?.env).toMatchObject({
+      GH_ACTIONS_LOCK_WORKFLOWS_DIR: '/repo/.github/workflows',
+      GH_FORCE_TTY: '',
+    })
   })
 
   it('reports the exit code of a command that failed, with what it printed', async () => {
