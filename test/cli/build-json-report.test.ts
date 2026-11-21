@@ -35,6 +35,7 @@ function makeReportOptions(
     directories: ['/repo/.github'],
     status: 'updates-available',
     minAgeExcludePatterns: [],
+    relockBlockers: new Map(),
     blockedAsDowngrade: [],
     actionsToCheckCount: 0,
     includeBranches: false,
@@ -44,6 +45,7 @@ function makeReportOptions(
     preferTags: false,
     blockedByAge: [],
     recursive: false,
+    lockTool: null,
     lockfiles: [],
     mode: 'major',
     outdated: [],
@@ -317,8 +319,10 @@ describe('buildJsonReport', () => {
             ref: 'tj-actions/changed-files@v45.0.0',
             file: '.github/workflows/ci.yml',
             name: 'tj-actions/changed-files',
+            relockBlocker: null,
             version: 'v45.0.0',
             type: 'external',
+            locked: false,
             job: 'build',
             line: 26,
           },
@@ -355,7 +359,9 @@ describe('buildJsonReport', () => {
             version: '49933ea5288caeca8642d1e84afbd3f7d6820020',
             file: '.github/workflows/ci.yml',
             name: 'actions/setup-node',
+            relockBlocker: null,
             type: 'external',
+            locked: false,
             job: 'build',
             line: 15,
           },
@@ -385,9 +391,11 @@ describe('buildJsonReport', () => {
             ref: 'github/codeql-action@v3.28.0',
             name: 'github/codeql-action/init',
             file: '.github/workflows/ci.yml',
+            relockBlocker: null,
             version: 'v3.28.0',
             type: 'external',
             job: 'analyze',
+            locked: false,
             line: 18,
           },
           latestSha: 'b6a472f63d85b9c78a3ac5e89422239fc15e9b3c',
@@ -416,8 +424,10 @@ describe('buildJsonReport', () => {
             uses: 'actions/checkout@v4',
             ref: 'actions/checkout@v4',
             name: 'actions/checkout',
+            relockBlocker: null,
             type: 'external',
             version: 'v4',
+            locked: false,
             job: 'build',
             line: 12,
           },
@@ -447,8 +457,10 @@ describe('buildJsonReport', () => {
             uses: 'docker/build-push-action@v5',
             ref: 'docker/build-push-action@v5',
             name: 'docker/build-push-action',
+            relockBlocker: null,
             type: 'external',
             job: 'publish',
+            locked: false,
             version: 'v5',
             line: 30,
           },
@@ -478,9 +490,11 @@ describe('buildJsonReport', () => {
             uses: 'actions/setup-python@main',
             ref: 'actions/setup-python@main',
             name: 'actions/setup-python',
+            relockBlocker: null,
             type: 'external',
             version: 'main',
             job: 'release',
+            locked: false,
             line: 22,
           },
           targetRefRateLimited: false,
@@ -508,7 +522,9 @@ describe('buildJsonReport', () => {
             file: '.github/workflows/ci.yml',
             version: 'ubuntu-22.04',
             name: 'runner/ubuntu',
+            relockBlocker: null,
             type: 'runner',
+            locked: false,
             job: 'build',
             uses: null,
             ref: null,
@@ -564,6 +580,7 @@ describe('buildJsonReport', () => {
       },
       status: 'updates-available',
       schemaVersion: 2,
+      lockTool: null,
       lockfiles: [],
     })
   })
@@ -618,6 +635,47 @@ describe('buildJsonReport', () => {
         onboardedWorkflows: null,
         version: null,
       },
+    ])
+  })
+
+  it('tells whether gh-actions-lock can regenerate the lockfiles and why the lockfiles of a reference cannot', () => {
+    let local = makeAction({
+      file: '/repo/.github/actions/local/action.yml',
+      locked: true,
+    })
+    let report = buildJsonReport(
+      makeReportOptions({
+        outdated: [
+          makeUpdate({
+            action: makeAction({
+              file: '/repo/.github/actions/local/action.yml',
+              name: 'docker/login-action',
+            }),
+          }),
+        ],
+        skipped: [
+          makeSkipped({ skipReason: 'lockfile', action: local }),
+          makeSkipped({
+            action: makeAction({ locked: true }),
+            skipReason: 'lockfile',
+          }),
+        ],
+        relockBlockers: new Map([
+          ['/repo/.github/actions/local/action.yml', 'unrecorded'],
+        ]),
+        lockTool: 'missing',
+      }),
+    )
+
+    expect(report.lockTool).toBe('missing')
+    expect(
+      report.updates.map(({ action }) => action.relockBlocker),
+    ).toStrictEqual([null])
+    expect(
+      report.skipped.map(({ action }) => [action.file, action.relockBlocker]),
+    ).toStrictEqual([
+      ['.github/actions/local/action.yml', 'unrecorded'],
+      ['.github/workflows/ci.yml', null],
     ])
   })
 
@@ -871,6 +929,16 @@ describe('buildJsonReport', () => {
     ])
   })
 
+  it('says which references a workflow lockfile pins', () => {
+    let report = buildJsonReport(
+      makeReportOptions({
+        outdated: [makeUpdate({ action: makeAction({ locked: true }) })],
+      }),
+    )
+
+    expect(report.updates).toMatchObject([{ action: { locked: true } }])
+  })
+
   it('keeps absolute paths of scan directories outside the working directory', () => {
     let report = buildJsonReport(
       makeReportOptions({ directories: ['/tmp/shared'], cwd: '/repo' }),
@@ -925,8 +993,10 @@ describe('buildJsonReport', () => {
       {
         action: {
           name: 'actions/cache',
+          relockBlocker: null,
           type: 'external',
           version: null,
+          locked: false,
           file: null,
           line: null,
           uses: null,

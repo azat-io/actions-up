@@ -15,9 +15,15 @@ export interface ActionUpdate {
    * from a pin written by hand could not be read; none falls back to another
    * commit. `lockfile` means a workflow lockfile pins, or may pin, the commit
    * the reference runs (see `GitHubAction.locked`), so writing the update would
-   * leave the lockfile stale. `lockfile-unchecked` means the tag the reference
-   * names already points at the latest version, but the lockfile may pin an
-   * older commit of it, which Actions Up does not read.
+   * leave the lockfile stale: `planUpdates` never regenerates it, and the CLI
+   * does only with gh-actions-lock, when a single lockfile pins the reference,
+   * can be read and records it under each tracked workflow that runs it: the
+   * workflow that holds it, or those that run its action of the repository,
+   * each through `$/` references alone, which takes workflows that can be
+   * traced and never holds once one runs it only through `./`, or runs remote
+   * actions through `./` alone. `lockfile-unchecked` means the tag the
+   * reference names already points at the latest version, but the lockfile may
+   * pin an older commit of it, which Actions Up does not read.
    */
   skipReason?:
     | 'reachability-unknown'

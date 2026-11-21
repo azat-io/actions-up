@@ -3,12 +3,8 @@ import { isAbsolute, basename, relative, dirname, resolve } from 'node:path'
 import type { WorkflowLockfile } from '../../types/workflow-lockfile'
 import type { GitHubAction } from '../../types/github-action'
 
+import { ACTION_MANIFESTS } from '../constants'
 import { isYamlFile } from '../fs/is-yaml-file'
-
-/**
- * Names of the file that defines an action.
- */
-const ACTION_MANIFESTS = new Set(['action.yaml', 'action.yml'])
 
 /**
  * Tell whether the workflow lockfile pins the commit a reference runs.
@@ -52,7 +48,7 @@ export function isLockedReference(
 
   let path = relative(lockfile.root, file)
   return (
-    ACTION_MANIFESTS.has(basename(file)) &&
+    ACTION_MANIFESTS.includes(basename(file)) &&
     !path.startsWith('..') &&
     !isAbsolute(path)
   )

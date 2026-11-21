@@ -5,6 +5,7 @@ import type {
 import type { CandidateAssessment } from '../../types/candidate-assessment'
 import type { UpdatePlanStatus, UpdatePlan } from '../../types/update-plan'
 import type { ActionUpdate } from '../../types/action-update'
+import type { GitHubAction } from '../../types/github-action'
 import type { UpdateStyle } from '../../types/update-style'
 import type { HoldReason } from '../../types/hold-reason'
 import type { ScanResult } from '../../types/scan-result'
@@ -29,6 +30,13 @@ import { isSha } from '../versions/is-sha'
  * Policy a plan applies to the scanned entries.
  */
 interface CreateUpdatePlanOptions {
+  /**
+   * Whether the workflow lockfiles that pin a locked action can be regenerated
+   * once its update is written. Such an update is then planned like any other;
+   * by default it is skipped, since writing it would leave a lockfile stale.
+   */
+  canRelock?(action: GitHubAction): boolean
+
   /**
    * Patterns of actions that skip the cool-down but still follow the mode.
    */
@@ -116,6 +124,7 @@ export async function createUpdatePlan(
 ): Promise<UpdatePlan> {
   let { includeBranches, minAgeExcludes, preferTags, excludes, style, mode } =
     options
+  let canRelock = options.canRelock ?? ((): boolean => false)
 
   /**
    * Runner labels ride along in the scan result but resolve from a local table,
@@ -490,21 +499,22 @@ export async function createUpdatePlan(
   /**
    * An update whose resolved target matches the current reference is a no-op
    * and is dropped, and one whose target the style cannot express is skipped.
-   * So is one to a reference whose commit a workflow lockfile pins: writing it
-   * would leave the lockfile stale, and Actions Up does not regenerate it. A
-   * no-op of such a reference is skipped as well when it names a tag rather
-   * than a commit, because the lockfile may pin an older commit of that tag,
-   * and Actions Up does not read which. An update that stepped down past a
-   * version whose commit failed a trust check is reported as held back for it
-   * instead of the no-op or the skip: the newest version is what the run was
-   * asked about, and the finding must not vanish with the update.
+   * So is one to a reference whose commit a workflow lockfile pins, unless the
+   * lockfile can be regenerated once it is written: otherwise writing it would
+   * leave the lockfile stale. A no-op of such a reference is skipped as well
+   * when it names a tag rather than a commit, because the lockfile may pin an
+   * older commit of that tag, and Actions Up does not read which. An update
+   * that stepped down past a version whose commit failed a trust check is
+   * reported as held back for it instead of the no-op or the skip: the newest
+   * version is what the run was asked about, and the finding must not vanish
+   * with the update.
    */
   outdated = []
   for (let { heldForTrust, update } of resolvedDecisions) {
     let changed =
       Boolean(update.targetRef) && update.targetRef !== update.action.version
 
-    if (changed && !update.action.locked) {
+    if (changed && (!update.action.locked || canRelock(update.action))) {
       outdated.push(update)
     } else if (heldForTrust) {
       blockedByTrust.push(heldForTrust)

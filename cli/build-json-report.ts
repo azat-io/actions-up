@@ -1,12 +1,14 @@
 import { isAbsolute, relative, resolve } from 'node:path'
 
 import type { WorkflowLockfile } from '../types/workflow-lockfile'
+import type { RelockBlocker } from '../types/relock-blocker'
 import type { UpdatePlanStatus } from '../types/update-plan'
 import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
 import type { ScanResult } from '../types/scan-result'
 import type { UpdateMode } from '../types/update-mode'
 import type { TrustHold } from '../types/trust-hold'
+import type { LockTool } from '../types/lock-tool'
 
 /**
  * High-level status of a JSON report, the status of the plan it reports.
@@ -119,6 +121,12 @@ interface JsonReportUpdate {
  */
 interface BuildJsonReportOptions {
   /**
+   * Scanned files whose lockfiles cannot all be regenerated for them, each with
+   * why.
+   */
+  relockBlockers: Map<string, RelockBlocker>
+
+  /**
    * Updates held back because they would move a SHA pin to an older version
    * than its version comment names.
    */
@@ -153,6 +161,12 @@ interface BuildJsonReportOptions {
    * Number of actions that were actually checked after excludes.
    */
   actionsToCheckCount: number
+
+  /**
+   * Whether gh-actions-lock can regenerate the lockfiles that pin scanned
+   * entries, and why not; null when the run did not look for it.
+   */
+  lockTool: LockTool | null
 
   /**
    * Regex patterns supplied through `--exclude`.
@@ -218,6 +232,87 @@ interface BuildJsonReportOptions {
    * Working directory used for relative path normalization.
    */
   cwd?: string
+}
+
+/**
+ * Top-level machine-readable report emitted by `--json`.
+ */
+interface JsonReport {
+  /**
+   * Entries held back because they would downgrade a SHA pin.
+   */
+  blockedAsDowngrade: JsonReportUpdate[]
+
+  /**
+   * Entries held back because the commit their tag points at failed a trust
+   * check: a tag moved after its release, or a commit outside the history of
+   * the repository.
+   */
+  blockedByTrust: JsonReportUpdate[]
+
+  /**
+   * Entries filtered out by the selected update mode.
+   */
+  blockedByMode: JsonReportUpdate[]
+
+  /**
+   * Entries held back by the release age cool-down, including those whose date
+   * could not be established.
+   */
+  blockedByAge: JsonReportUpdate[]
+
+  /**
+   * Workflow lockfiles that may pin what the scanned files run.
+   */
+  lockfiles: JsonReportLockfile[]
+
+  /**
+   * Entries skipped during update checks.
+   */
+  skipped: JsonReportUpdate[]
+
+  /**
+   * Actionable updates after filtering.
+   */
+  updates: JsonReportUpdate[]
+
+  /**
+   * Actionable updates for the scanned `runs-on` labels.
+   *
+   * Kept apart from `updates` so that consumers gating on `totalUpdates` keep
+   * measuring action updates alone.
+   */
+  runners: JsonReportUpdate[]
+
+  /**
+   * Effective options that shaped the report.
+   */
+  options: JsonReportOptions
+
+  /**
+   * Aggregate counts for the current run.
+   */
+  summary: JsonReportSummary
+
+  /**
+   * Whether gh-actions-lock can regenerate the workflow lockfiles that pin
+   * scanned entries, and why not when it cannot: `no-gh`, `unauthenticated`,
+   * `unlisted`, `missing` or `outdated`. Updates of the entries they pin are
+   * listed only when it can, and skipped with the reason `lockfile` otherwise.
+   * Null when no lockfile that can be regenerated pins a scanned entry, so the
+   * run did not look for it.
+   */
+  lockTool: LockTool | null
+
+  /**
+   * Overall outcome for the current run.
+   */
+  status: JsonReportStatus
+
+  /**
+   * Version of the JSON payload schema.
+   */
+  schemaVersion: 2
 }
 
 /**
@@ -298,74 +393,62 @@ interface JsonReportSummary {
 }
 
 /**
- * Top-level machine-readable report emitted by `--json`.
+ * Serialized action reference included in each update entry.
  */
-interface JsonReport {
+interface JsonReportAction {
   /**
-   * Entries held back because they would downgrade a SHA pin.
+   * Action reference type detected during scanning.
    */
-  blockedAsDowngrade: JsonReportUpdate[]
+  type: ActionUpdate['action']['type']
 
   /**
-   * Entries held back because the commit their tag points at failed a trust
-   * check: a tag moved after its release, or a commit outside the history of
-   * the repository.
+   * Why the workflow lockfiles that pin the commit the reference runs cannot
+   * all be regenerated for it, so that its update is skipped with the reason
+   * `lockfile` however `lockTool` reads; null when they can, or none pins it.
    */
-  blockedByTrust: JsonReportUpdate[]
+  relockBlocker: RelockBlocker | null
 
   /**
-   * Entries filtered out by the selected update mode.
+   * Original version or ref from the file, if available.
    */
-  blockedByMode: JsonReportUpdate[]
+  version: string | null
 
   /**
-   * Entries held back by the release age cool-down, including those whose date
-   * could not be established.
+   * Relative or absolute file path for the action reference.
    */
-  blockedByAge: JsonReportUpdate[]
+  file: string | null
 
   /**
-   * Workflow lockfiles that may pin what the scanned files run.
+   * Line number of the action reference.
    */
-  lockfiles: JsonReportLockfile[]
+  line: number | null
 
   /**
-   * Entries skipped during update checks.
+   * The `uses` value as written; null for runner labels.
    */
-  skipped: JsonReportUpdate[]
+  uses: string | null
 
   /**
-   * Actionable updates after filtering.
+   * Workflow job name, when applicable.
    */
-  updates: JsonReportUpdate[]
+  job: string | null
 
   /**
-   * Actionable updates for the scanned `runs-on` labels.
-   *
-   * Kept apart from `updates` so that consumers gating on `totalUpdates` keep
-   * measuring action updates alone.
+   * Repository and ref as `owner/repo@ref`, without the path of an action
+   * inside the repository; null for local, Docker and runner entries.
    */
-  runners: JsonReportUpdate[]
+  ref: string | null
 
   /**
-   * Effective options that shaped the report.
+   * Whether a workflow lockfile pins the commit the reference runs, so that
+   * writing it leaves the lockfile stale until it is regenerated.
    */
-  options: JsonReportOptions
+  locked: boolean
 
   /**
-   * Aggregate counts for the current run.
+   * Normalized action name.
    */
-  summary: JsonReportSummary
-
-  /**
-   * Overall outcome for the current run.
-   */
-  status: JsonReportStatus
-
-  /**
-   * Version of the JSON payload schema.
-   */
-  schemaVersion: 2
+  name: string
 }
 
 /**
@@ -426,52 +509,6 @@ interface JsonReportOptions {
    * Indicates that this payload came from `--json`.
    */
   json: true
-}
-
-/**
- * Serialized action reference included in each update entry.
- */
-interface JsonReportAction {
-  /**
-   * Action reference type detected during scanning.
-   */
-  type: ActionUpdate['action']['type']
-
-  /**
-   * Original version or ref from the file, if available.
-   */
-  version: string | null
-
-  /**
-   * Relative or absolute file path for the action reference.
-   */
-  file: string | null
-
-  /**
-   * Line number of the action reference.
-   */
-  line: number | null
-
-  /**
-   * The `uses` value as written; null for runner labels.
-   */
-  uses: string | null
-
-  /**
-   * Workflow job name, when applicable.
-   */
-  job: string | null
-
-  /**
-   * Repository and ref as `owner/repo@ref`, without the path of an action
-   * inside the repository; null for local, Docker and runner entries.
-   */
-  ref: string | null
-
-  /**
-   * Normalized action name.
-   */
-  name: string
 }
 
 /**
@@ -598,20 +635,27 @@ export function buildJsonReport(options: BuildJsonReportOptions): JsonReport {
       version: lockfile.version,
     })),
     blockedAsDowngrade: options.blockedAsDowngrade.map(update =>
-      serializeUpdate(update, cwd),
+      serializeUpdate(update, cwd, options.relockBlockers),
     ),
     blockedByTrust: options.blockedByTrust.map(update =>
-      serializeUpdate(update, cwd),
+      serializeUpdate(update, cwd, options.relockBlockers),
     ),
     blockedByMode: options.blockedByMode.map(update =>
-      serializeUpdate(update, cwd),
+      serializeUpdate(update, cwd, options.relockBlockers),
     ),
     blockedByAge: options.blockedByAge.map(update =>
-      serializeUpdate(update, cwd),
+      serializeUpdate(update, cwd, options.relockBlockers),
     ),
-    skipped: options.skipped.map(update => serializeUpdate(update, cwd)),
-    updates: actionUpdates.map(update => serializeUpdate(update, cwd)),
-    runners: runnerUpdates.map(update => serializeUpdate(update, cwd)),
+    skipped: options.skipped.map(update =>
+      serializeUpdate(update, cwd, options.relockBlockers),
+    ),
+    updates: actionUpdates.map(update =>
+      serializeUpdate(update, cwd, options.relockBlockers),
+    ),
+    runners: runnerUpdates.map(update =>
+      serializeUpdate(update, cwd, options.relockBlockers),
+    ),
+    lockTool: options.lockTool,
     status: options.status,
     schemaVersion: 2,
   }
@@ -644,13 +688,24 @@ export function buildJsonErrorReport(error: unknown): JsonErrorReport {
  *
  * @param update - Update entry from the core pipeline.
  * @param cwd - Base directory used to relativize paths.
+ * @param relockBlockers - Scanned files whose lockfiles cannot all be
+ *   regenerated for them, each with why.
  * @returns Serialized update object.
  */
-function serializeUpdate(update: ActionUpdate, cwd: string): JsonReportUpdate {
+function serializeUpdate(
+  update: ActionUpdate,
+  cwd: string,
+  relockBlockers: Map<string, RelockBlocker>,
+): JsonReportUpdate {
   return {
     action: {
+      relockBlocker:
+        update.action.locked ?
+          (relockBlockers.get(update.action.file!) ?? null)
+        : null,
       file: serializePath(update.action.file, cwd),
       version: update.action.version ?? null,
+      locked: update.action.locked ?? false,
       line: update.action.line ?? null,
       uses: update.action.uses ?? null,
       job: update.action.job ?? null,

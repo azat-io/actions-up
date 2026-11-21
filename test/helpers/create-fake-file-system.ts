@@ -8,6 +8,16 @@ import { dirname, resolve } from 'node:path'
  */
 export interface FakeFileSystem {
   /**
+   * Overwrite or create a file with the given bytes, or with the given text in
+   * the given encoding, UTF-8 by default, the way `node:fs` encodes it.
+   */
+  writeFile(
+    path: PathLike,
+    content: Uint8Array | string,
+    options?: WriteFileOptions,
+  ): Promise<void>
+
+  /**
    * Contents of a file, following symbolic links. Like `node:fs`, the text is
    * returned only when an encoding is requested; otherwise the bytes are.
    */
@@ -17,12 +27,8 @@ export interface FakeFileSystem {
   ): Promise<Buffer<ArrayBuffer> | string>
 
   /**
-   * Overwrite or create a file with the given text.
-   */
-  writeFile(path: PathLike, content: string): Promise<void>
-
-  /**
-   * Current text of a file, or undefined when there is no such file.
+   * Current text of a file, read as UTF-8, or undefined when there is no such
+   * file.
    */
   contentOf(path: string): undefined | string
 
@@ -30,6 +36,11 @@ export interface FakeFileSystem {
    * Names of the entries inside a directory, sorted.
    */
   readdir(path: PathLike): Promise<string[]>
+
+  /**
+   * Current bytes of a file, or undefined when there is no such file.
+   */
+  bytesOf(path: string): undefined | Buffer
 
   /**
    * Path the entry is reached at once a symbolic link at it is followed.
@@ -81,7 +92,7 @@ type StoredEntry =
       target: string
     }
   | {
-      content: string
+      content: Buffer
       kind: 'file'
     }
 
@@ -99,24 +110,42 @@ type ReadFileOptions =
   | null
 
 /**
+ * Encoding argument of `writeFile` for text: a name, an options object, or
+ * nothing for UTF-8.
+ */
+type WriteFileOptions =
+  | {
+      /**
+       * Text encoding; UTF-8 when it is missing.
+       */
+      encoding?: BufferEncoding | null
+    }
+  | BufferEncoding
+  | null
+
+/**
  * Build an in-memory file system from absolute paths.
  *
- * A string value is the text of a file. Every ancestor of an entry is a
- * directory, so a tree is described by its files alone. Failures reject with
- * Node-style errors (`ENOENT`, `ENOTDIR`, `EISDIR`, `EACCES`).
+ * A string value is the text of a file, stored as UTF-8, and a buffer holds its
+ * bytes. Every ancestor of an entry is a directory, so a tree is described by
+ * its files alone. Failures reject with Node-style errors (`ENOENT`, `ENOTDIR`,
+ * `EISDIR`, `EACCES`).
  *
- * @param entries - Absolute paths mapped to file text or special entries.
+ * @param entries - Absolute paths mapped to file text, file bytes or special
+ *   entries.
  * @returns Fake file system whose functions can be installed into mocks.
  */
 export function createFakeFileSystem(
-  entries: Record<string, FakeEntry | string>,
+  entries: Record<string, FakeEntry | string | Buffer>,
 ): FakeFileSystem {
   let stored = new Map<string, StoredEntry>()
 
   for (let [path, entry] of Object.entries(entries)) {
     stored.set(
       resolve(path),
-      typeof entry === 'string' ? { content: entry, kind: 'file' } : entry,
+      typeof entry === 'string' || Buffer.isBuffer(entry) ?
+        { content: Buffer.from(entry), kind: 'file' }
+      : entry,
     )
   }
 
@@ -171,7 +200,7 @@ export function createFakeFileSystem(
       .toSorted()
   }
 
-  function readText(path: PathLike): string {
+  function readBytes(path: PathLike): Buffer {
     let entry = follow(path, 'open')
     if (entry.kind === 'unreadable-file') {
       throw createError('EACCES', 'open', path)
@@ -182,25 +211,35 @@ export function createFakeFileSystem(
     return entry.content
   }
 
+  function bytesOf(path: string): undefined | Buffer {
+    let entry = stored.get(resolve(path))
+    return entry?.kind === 'file' ? Buffer.from(entry.content) : undefined
+  }
+
   return {
+    writeFile: (path, content, options) =>
+      settle(() => {
+        let encoding = typeof options === 'string' ? options : options?.encoding
+        stored.set(resolve(String(path)), {
+          content:
+            typeof content === 'string' ?
+              Buffer.from(content, encoding ?? 'utf8')
+            : Buffer.from(content),
+          kind: 'file',
+        })
+      }),
     readFile: (path, options) =>
       settle(() => {
-        let text = readText(path)
+        let bytes = readBytes(path)
         let encoding = typeof options === 'string' ? options : options?.encoding
-        return encoding ? text : Buffer.from(text)
-      }),
-    contentOf: path => {
-      let entry = stored.get(resolve(path))
-      return entry?.kind === 'file' ? entry.content : undefined
-    },
-    writeFile: (path, content) =>
-      settle(() => {
-        stored.set(resolve(String(path)), { kind: 'file', content })
+        return encoding ? bytes.toString(encoding) : Buffer.from(bytes)
       }),
     stat: path => settle(() => describeEntry(follow(path, 'stat').kind)),
     lstat: path => settle(() => describeEntry(find(path, 'lstat').kind)),
     realpath: path => settle(() => realPath(path, 'realpath')),
+    contentOf: path => bytesOf(path)?.toString('utf8'),
     readdir: path => settle(() => listDirectory(path)),
+    bytesOf,
   }
 }
 

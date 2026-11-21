@@ -319,6 +319,78 @@ describe('createUpdatePlan', () => {
       })
     })
 
+    it('plans its update like any other when the lockfile can be regenerated once it is written', async () => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+      })
+      let locked = makeAction({ locked: true })
+      let other = makeAction({
+        file: '/repo/.github/workflows/release.yml',
+        line: 6,
+      })
+      let canRelock = vi.fn(() => true)
+
+      let result = await plan([locked, other], { canRelock })
+
+      expect(result).toMatchObject({
+        updates: [
+          { targetRef: RELEASE_SHA, action: locked },
+          { targetRef: RELEASE_SHA, action: other },
+        ],
+        skipped: [],
+      })
+      expect(canRelock).toHaveBeenCalledExactlyOnceWith(locked)
+    })
+
+    it('skips its update when the lockfile cannot be regenerated', async () => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+      })
+      let locked = makeAction({ locked: true })
+
+      let result = await plan([locked], { canRelock: () => false })
+
+      expect(result).toMatchObject({
+        skipped: [{ skipReason: 'lockfile', action: locked }],
+        updates: [],
+      })
+    })
+
+    it('still reports a tag that already names the latest version as unchecked when the lockfile can be regenerated', async () => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+        [`${REPOSITORY}/git/ref/tags/v4`]: ok(
+          makeReferencePayload('refs/tags/v4', {
+            sha: RELEASE_SHA,
+            type: 'commit',
+          }),
+        ),
+      })
+      let locked = makeAction({ version: 'v4', locked: true })
+
+      let result = await plan([locked], {
+        canRelock: () => true,
+        style: 'semver',
+      })
+
+      expect(result).toMatchObject({
+        skipped: [{ skipReason: 'lockfile-unchecked', action: locked }],
+        updates: [],
+      })
+    })
+
     it('reports a tag that already names the latest version as unchecked, since the lockfile may pin an older commit of it', async () => {
       let api = routeFetch({
         ...latestReleaseRoutes({

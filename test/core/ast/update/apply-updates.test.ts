@@ -7,8 +7,11 @@ import type { FakeFileSystem } from '../../../helpers/create-fake-file-system'
 import type { ActionUpdate } from '../../../../types/action-update'
 import type { GitHubAction } from '../../../../types/github-action'
 
+import {
+  writeUpdates,
+  applyUpdates,
+} from '../../../../core/ast/update/apply-updates'
 import { createFakeFileSystem } from '../../../helpers/create-fake-file-system'
-import { applyUpdates } from '../../../../core/ast/update/apply-updates'
 
 vi.mock(import('node:fs/promises'), () => ({
   writeFile: vi.fn(),
@@ -44,10 +47,12 @@ describe('applyUpdates', () => {
    * Like the real `readFile`, the text comes back only when an encoding is
    * requested; otherwise the caller gets the raw bytes.
    *
-   * @param files - Absolute paths mapped to file text.
+   * @param files - Absolute paths mapped to file text or bytes.
    * @returns File system holding the text the updater writes.
    */
-  function installFiles(files: Record<string, string>): FakeFileSystem {
+  function installFiles(
+    files: Record<string, string | Buffer>,
+  ): FakeFileSystem {
     let fileSystem = createFakeFileSystem(files)
     vi.mocked(readFile).mockImplementation((path, options) =>
       fileSystem.readFile(path as PathLike, options),
@@ -1518,6 +1523,114 @@ describe('applyUpdates', () => {
         expect(unwritten).toStrictEqual([update])
       },
     )
+  })
+
+  describe('writeUpdates', () => {
+    it('reports each rewritten file with its text before and after, in the order of its first update', async () => {
+      let releasePath = '/repo/.github/workflows/release.yml'
+      let lintPath = '/repo/.github/workflows/lint.yml'
+      let before = workflowWithStep('      - uses: actions/checkout@v3')
+      let after = workflowWithStep(
+        '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+      )
+      installFiles({
+        [workflowPath]: before,
+        [releasePath]: before,
+        [lintPath]: before,
+      })
+      let stale = createUpdate({
+        action: { line: lineAfterStepWorkflow, file: lintPath },
+      })
+
+      let result = await writeUpdates([
+        createUpdate({ action: { file: releasePath } }),
+        stale,
+        createUpdate(),
+      ])
+
+      expect(result).toStrictEqual({
+        files: [
+          { path: releasePath, before, after },
+          { path: workflowPath, before, after },
+        ],
+        unwritten: [stale],
+      })
+    })
+
+    it('leaves a file that is not valid UTF-8 as it is, with its updates unwritten, and writes the others', async () => {
+      let releasePath = '/repo/.github/workflows/release.yml'
+      let latin1 = Buffer.concat([
+        Buffer.from(workflowWithStep('      - uses: actions/checkout@v3')),
+        Buffer.from('# naïve\n', 'latin1'),
+      ])
+      let fileSystem = installFiles({
+        [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+        [releasePath]: latin1,
+      })
+      let consoleErrorSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {})
+      let release = createUpdate({ action: { file: releasePath } })
+
+      let result = await writeUpdates([release, createUpdate()])
+
+      expect(result.unwritten).toStrictEqual([release])
+      expect(result.files.map(({ path }) => path)).toStrictEqual([workflowPath])
+      expect(fileSystem.bytesOf(releasePath)).toStrictEqual(latin1)
+      expect(consoleErrorSpy).toHaveBeenCalledExactlyOnceWith(
+        `${releasePath} is not valid UTF-8, so it was left as it is`,
+      )
+    })
+
+    it('writes the bytes of text beyond ASCII, a byte order mark and CRLF line breaks back as they were, and reports text that encodes to them', async () => {
+      /**
+       * Text of a workflow with CRLF line breaks and the given step.
+       *
+       * @param step - Line of the step.
+       * @returns Workflow YAML text.
+       */
+      function lines(step: string): string {
+        return `on: push\r\njobs:\r\n  build:\r\n    steps:\r\n${step} # café ✓\r\n`
+      }
+      let mark = Buffer.from([0xef, 0xbb, 0xbf])
+      let before = Buffer.concat([
+        mark,
+        Buffer.from(lines('      - uses: actions/checkout@v3')),
+      ])
+      let fileSystem = installFiles({ [workflowPath]: before })
+
+      let result = await writeUpdates([createUpdate({ action: { line: 5 } })])
+
+      let after = Buffer.concat([
+        mark,
+        Buffer.from(
+          lines(
+            '      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2',
+          ).replace(' # café ✓', ''),
+        ),
+      ])
+      expect(fileSystem.bytesOf(workflowPath)).toStrictEqual(after)
+      expect(
+        result.files.map(file => [
+          Buffer.from(file.before),
+          Buffer.from(file.after),
+        ]),
+      ).toStrictEqual([[before, after]])
+    })
+
+    it('reports no file that could not be written', async () => {
+      installFiles({
+        [workflowPath]: workflowWithStep('      - uses: actions/checkout@v3'),
+      })
+      vi.mocked(writeFile).mockRejectedValueOnce(new Error('EACCES'))
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      let update = createUpdate()
+
+      await expect(writeUpdates([update])).resolves.toStrictEqual({
+        unwritten: [update],
+        files: [],
+      })
+    })
   })
 
   describe('current behavior pending owner decision', () => {

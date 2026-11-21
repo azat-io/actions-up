@@ -27,7 +27,12 @@ vi.mock(import('../../../core/lockfile/trace-local-actions'))
  * Definitions the tests let the tracked workflows of every lockfile reach: the
  * setup action of the repository.
  */
-const REACHED = new Set(['/repo/.github/actions/setup/action.yml'])
+const REACHED = new Map([
+  [
+    '/repo/.github/actions/setup/action.yml',
+    new Map([['/repo/.github/workflows/ci.yml', true]]),
+  ],
+])
 
 const LOCKFILE_PATH = '/repo/.github/workflows/actions.lock'
 
@@ -51,7 +56,10 @@ function installFileSystem(entries: Record<string, FakeEntry | string>): void {
 describe('readWorkflowLockfile', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    vi.mocked(traceLocalActions).mockResolvedValue(REACHED)
+    vi.mocked(traceLocalActions).mockResolvedValue({
+      unreadable: null,
+      reached: REACHED,
+    })
   })
 
   it('reads the workflows the lockfile tracks as absolute paths', async () => {
@@ -68,6 +76,13 @@ describe('readWorkflowLockfile', () => {
     let lockfile = await readWorkflowLockfile('/repo')
 
     expect(lockfile).toStrictEqual({
+      keys: new Map([
+        [
+          '.github/workflows/release.yaml',
+          '/repo/.github/workflows/release.yaml',
+        ],
+        ['.github/workflows/ci.yml', '/repo/.github/workflows/ci.yml'],
+      ]),
       workflows: new Set([
         '/repo/.github/workflows/release.yaml',
         '/repo/.github/workflows/ci.yml',
@@ -75,6 +90,7 @@ describe('readWorkflowLockfile', () => {
       path: LOCKFILE_PATH,
       version: 'v0.0.3',
       reached: REACHED,
+      unreadable: null,
       root: '/repo',
     })
     expect(traceLocalActions).toHaveBeenCalledExactlyOnceWith(
@@ -124,7 +140,9 @@ describe('readWorkflowLockfile', () => {
       path: LOCKFILE_PATH,
       version: 'v0.0.4',
       reached: REACHED,
+      unreadable: null,
       root: '/repo',
+      keys: null,
     })
   })
 
@@ -141,8 +159,10 @@ describe('readWorkflowLockfile', () => {
       error: 'invalid YAML',
       path: LOCKFILE_PATH,
       reached: REACHED,
+      unreadable: null,
       version: null,
       root: '/repo',
+      keys: null,
     })
   })
 
@@ -164,8 +184,10 @@ describe('readWorkflowLockfile', () => {
         error: 'unreadable file',
         path: LOCKFILE_PATH,
         reached: REACHED,
+        unreadable: null,
         version: null,
         root: '/repo',
+        keys: null,
       })
     },
   )
@@ -181,12 +203,34 @@ describe('readWorkflowLockfile', () => {
     expect(lockfile).toStrictEqual({
       error: 'unreadable file',
       path: LOCKFILE_PATH,
+      unreadable: null,
       workflows: null,
       version: null,
       reached: null,
       root: '/repo',
+      keys: null,
     })
     expect(traceLocalActions).not.toHaveBeenCalled()
+  })
+
+  it('names the first workflow or action that could not be traced', async () => {
+    installFileSystem({
+      [LOCKFILE_PATH]: makeLockfileText({
+        workflows: { '.github/workflows/ci.yml': [] },
+      }),
+      '/repo/.github/workflows/ci.yml': 'jobs: [\n',
+    })
+    vi.mocked(traceLocalActions).mockResolvedValue({
+      unreadable: '/repo/.github/workflows/ci.yml',
+      reached: null,
+    })
+
+    let lockfile = await readWorkflowLockfile('/repo')
+
+    expect(lockfile).toMatchObject({
+      unreadable: '/repo/.github/workflows/ci.yml',
+      reached: null,
+    })
   })
 
   it('names the lockfile by the real path of its directory', async () => {
@@ -201,7 +245,7 @@ describe('readWorkflowLockfile', () => {
     expect(lockfile?.path).toBe('/repo/config/workflows/actions.lock')
   })
 
-  it('names a tracked workflow by its real path', async () => {
+  it('names a tracked workflow by its real path, keeping the key the lockfile names it by', async () => {
     installFileSystem({
       [LOCKFILE_PATH]: makeLockfileText({
         workflows: { '.github/workflows/ci.yml': [] },
@@ -213,6 +257,9 @@ describe('readWorkflowLockfile', () => {
     let lockfile = await readWorkflowLockfile('/repo')
 
     expect(lockfile?.workflows).toStrictEqual(new Set(['/repo/ci/main.yml']))
+    expect(lockfile?.keys).toStrictEqual(
+      new Map([['.github/workflows/ci.yml', '/repo/ci/main.yml']]),
+    )
     expect(traceLocalActions).toHaveBeenCalledExactlyOnceWith(
       '/repo',
       new Set(['/repo/ci/main.yml']),

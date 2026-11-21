@@ -1,4 +1,4 @@
-import { realpath, readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { dirname, resolve, join } from 'node:path'
 
 import type { WorkflowLockfile } from '../../types/workflow-lockfile'
@@ -11,6 +11,7 @@ import {
 import { isMissingFileError } from '../fs/is-missing-file-error'
 import { traceLocalActions } from './trace-local-actions'
 import { parseLockfile } from './parse-lockfile'
+import { toRealPath } from '../fs/to-real-path'
 import { isYamlFile } from '../fs/is-yaml-file'
 
 /**
@@ -22,6 +23,12 @@ interface LockfileContents extends Pick<WorkflowLockfile, 'version' | 'error'> {
    * be listed.
    */
   workflows: Set<string> | null
+
+  /**
+   * Paths the lockfile names the workflows it tracks by, relative to the root,
+   * null when it cannot be read.
+   */
+  keys: string[] | null
 }
 
 /**
@@ -37,7 +44,8 @@ interface LockfileContents extends Pick<WorkflowLockfile, 'version' | 'error'> {
  * repository the workflows run are traced as well, since writing one of them
  * leaves the lockfile stale too. The lockfile and its workflows are named by
  * their real paths, so that a file found through a symbolic link is matched
- * with the one it points to.
+ * with the one it points to, and each workflow keeps the path the lockfile
+ * names it by, so that it can be regenerated under that name.
  *
  * @param root - Root of the repository.
  * @returns The lockfile, or null when the repository has none.
@@ -56,12 +64,25 @@ export async function readWorkflowLockfile(
   let workflows =
     contents.workflows &&
     new Set(await Promise.all([...contents.workflows].map(toRealPath)))
+  let keys =
+    contents.keys &&
+    new Map(
+      await Promise.all(
+        contents.keys.map(
+          async key => [key, await toRealPath(resolve(root, key))] as const,
+        ),
+      ),
+    )
+
+  let traced = workflows && (await traceLocalActions(root, workflows))
 
   return {
     ...contents,
-    reached: workflows ? await traceLocalActions(root, workflows) : null,
     path: join(await toRealPath(workflowsDirectory), LOCKFILE_NAME),
+    unreadable: traced ? traced.unreadable : null,
+    reached: traced ? traced.reached : null,
     workflows,
+    keys,
     root,
   }
 }
@@ -91,6 +112,7 @@ async function readContents(
       workflows: await listWorkflows(workflowsDirectory),
       error: 'unreadable file',
       version: null,
+      keys: null,
     }
   }
 
@@ -101,6 +123,7 @@ async function readContents(
       workflows: await listWorkflows(workflowsDirectory),
       version: parsed.version,
       error: parsed.reason,
+      keys: null,
     }
   }
 
@@ -109,6 +132,7 @@ async function readContents(
       parsed.workflows.map(workflow => resolve(root, workflow)),
     ),
     version: parsed.version,
+    keys: parsed.workflows,
   }
 }
 
@@ -127,19 +151,5 @@ async function listWorkflows(directory: string): Promise<Set<string> | null> {
     )
   } catch {
     return null
-  }
-}
-
-/**
- * Resolve the symbolic links of a path.
- *
- * @param path - Absolute path.
- * @returns Real path, or the path as given when it cannot be resolved.
- */
-async function toRealPath(path: string): Promise<string> {
-  try {
-    return await realpath(path)
-  } catch {
-    return path
   }
 }

@@ -2,19 +2,23 @@ import { relative } from 'node:path'
 
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
+import type { GitHubAction } from '../types/github-action'
 import type { CLIOptions } from './parse-arguments'
+import type { LockTool } from '../types/lock-tool'
 
 import { promptUpdateSelection } from '../core/interactive/prompt-update-selection'
+import { findRelockBlockers, planRelocks } from '../core/lockfile/plan-relocks'
 import { buildJsonErrorReport, buildJsonReport } from './build-json-report'
 import { normalizeUpdateStyle } from '../core/plan/normalize-update-style'
 import { normalizeUpdateMode } from '../core/plan/normalize-update-mode'
 import { createUpdatePlan } from '../core/plan/create-update-plan'
 import { printRateLimitWarning } from './print-rate-limit-warning'
-import { printUnwrittenWarning } from './print-unwritten-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
+import { applyRequestedUpdates } from './apply-requested-updates'
 import { normalizePatternList } from './normalize-pattern-list'
-import { applyUpdates } from '../core/ast/update/apply-updates'
+import { printUntracedWarning } from './print-untraced-warning'
 import { printLockfileWarning } from './print-lockfile-warning'
+import { findLockTool } from '../core/lockfile/find-lock-tool'
 import { scanRepository } from '../core/plan/scan-repository'
 import { printSkippedWarning } from './print-skipped-warning'
 import { printMinAgeWarning } from './print-min-age-warning'
@@ -54,6 +58,12 @@ interface WriteJsonReportOptions {
    * Number of actions checked after excludes.
    */
   actionsToCheckCount: number
+
+  /**
+   * Whether gh-actions-lock can regenerate the lockfiles that pin scanned
+   * entries, and why not; null when the run did not look for it.
+   */
+  lockTool?: LockTool | null
 
   /**
    * Actionable updates to serialize.
@@ -116,11 +126,18 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * Scan for GitHub Actions in the repository.
      */
-    let { directories, scanResult, lockfiles } = await scanRepository({
-      recursive: options.recursive,
-      directories: options.dir,
-      cwd: process.cwd(),
-    })
+    let { lockedFiles, directories, scanResult, lockfiles } =
+      await scanRepository({
+        recursive: options.recursive,
+        directories: options.dir,
+        cwd: process.cwd(),
+      })
+
+    /**
+     * Entries a workflow lockfile pins are updated only when gh-actions-lock
+     * can regenerate the one lockfile that pins them once they are written.
+     */
+    let relockBlockers = findRelockBlockers(lockedFiles)
 
     /**
      * Write the current CLI state as a machine-readable JSON report.
@@ -133,6 +150,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       actionsToCheckCount,
       blockedByMode = [],
       blockedByAge = [],
+      lockTool = null,
       outdated = [],
       skipped = [],
       status,
@@ -148,12 +166,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             blockedAsDowngrade,
             includeBranches,
             blockedByTrust,
+            relockBlockers,
             blockedByMode,
             blockedByAge,
             directories,
             preferTags,
             scanResult,
             lockfiles,
+            lockTool,
             outdated,
             skipped,
             status,
@@ -204,6 +224,11 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             relative(process.cwd(), lockfile.path),
             lockfile.error,
           )
+        } else if (lockfile.unreadable !== null) {
+          printUntracedWarning(
+            relative(process.cwd(), lockfile.unreadable),
+            relative(process.cwd(), lockfile.path),
+          )
         }
       }
     }
@@ -248,7 +273,21 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       spinner = createSpinner('Checking for updates...').start()
     }
 
+    /**
+     * The tool is looked for only when a lockfile that can be regenerated pins
+     * a scanned entry.
+     */
+    let relockableFiles = new Set(
+      lockedFiles.keys().filter(file => !relockBlockers.has(file)),
+    )
+    let lockTool: LockTool | null =
+      relockableFiles.size > 0 ? await findLockTool(process.cwd()) : null
+
     let plan = await createUpdatePlan(scanResult, {
+      canRelock:
+        lockTool === 'available' ?
+          (action: GitHubAction) => relockableFiles.has(action.file!)
+        : undefined,
       token: process.env['GITHUB_TOKEN'],
       minAge: options.minAge,
       includeBranches,
@@ -265,6 +304,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         writeJsonReport({
           status: 'nothing-to-check',
           actionsToCheckCount: 0,
+          lockTool,
         })
         return
       }
@@ -312,7 +352,12 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     function printWarnings(): void {
       if (!quiet) {
         if (skipped.length > 0) {
-          printSkippedWarning(skipped, includeBranches, style)
+          printSkippedWarning(skipped, {
+            includeBranches,
+            relockBlockers,
+            lockTool,
+            style,
+          })
         }
         if (blockedByMode.length > 0) {
           printModeWarning(blockedByMode, mode)
@@ -331,7 +376,18 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
 
     if (outdated.length === 0) {
-      spinner?.success('All actions are up to date!')
+      /**
+       * Updates a workflow lockfile pins may be left to apply, so the run does
+       * not claim that everything is up to date while it skipped them.
+       */
+      let lockfileSkipped = skipped.filter(
+        update => update.skipReason === 'lockfile',
+      ).length
+      spinner?.success(
+        lockfileSkipped > 0 ?
+          'No updates to apply'
+        : 'All actions are up to date!',
+      )
       if (json) {
         writeJsonReport({
           actionsToCheckCount: plan.actionsChecked,
@@ -340,13 +396,24 @@ async function runUpdate(options: CLIOptions): Promise<void> {
           blockedByTrust,
           blockedByMode,
           blockedByAge,
+          lockTool,
           skipped,
         })
         printTrustWarning(trustEntries)
         return
       }
       printWarnings()
-      if (trustEntries.length === 0) {
+      if (lockfileSkipped > 0) {
+        console.info(
+          colors.yellow(
+            `\n${lockfileSkipped} ${pluralize(
+              lockfileSkipped,
+              'update pinned by a workflow lockfile was',
+              'updates pinned by a workflow lockfile were',
+            )} skipped\n`,
+          ),
+        )
+      } else if (trustEntries.length === 0) {
         console.info(
           colors.green('\n✨ Everything is already at the latest version!\n'),
         )
@@ -376,6 +443,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         blockedByTrust,
         blockedByMode,
         blockedByAge,
+        lockTool,
         outdated,
         skipped,
       })
@@ -398,6 +466,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             `${update.action.name}: ${colors.redBright(update.currentVersion)} → ${colors.green(
               target,
             )}\n`,
+        )
+      }
+
+      for (let { lockfile } of planRelocks(lockedFiles, outdated)) {
+        console.info(
+          colors.gray(
+            `${relative(process.cwd(), lockfile.path)} would be regenerated with gh actions-lock`,
+          ),
         )
       }
 
@@ -460,31 +536,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       requested = selected
     }
 
-    let unwritten = await applyUpdates(requested)
-
-    if (unwritten.length === 0) {
-      console.info(colors.green('\n✓ Updates applied successfully!'))
-      return
-    }
-
-    /**
-     * An entry the writer could not find where the scan reported it was not
-     * applied, so the run reports it and fails instead of claiming success.
-     */
-    let writtenCount = requested.length - unwritten.length
-    if (writtenCount > 0) {
-      console.info(
-        colors.green(
-          `\n✓ ${writtenCount} of ${requested.length} ${pluralize(
-            requested.length,
-            'entry',
-            'entries',
-          )} applied`,
-        ),
-      )
-    }
-    printUnwrittenWarning(unwritten, requested.length)
-    process.exitCode = 1
+    await applyRequestedUpdates(requested, lockedFiles)
   } catch (error) {
     spinner?.error('Failed')
 

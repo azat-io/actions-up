@@ -7,6 +7,12 @@ const CHECKOUT_SHA = '11d5960a326750d5838078e36cf38b85af677262'
 
 const CACHE_SHA = '0057852bfaa89a56745cba8c7296529d2fc39830'
 
+/**
+ * Commit of a repository in the SHA-256 object format.
+ */
+const SHA256_COMMIT =
+  '3c4f1d2e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d'
+
 describe('parseLockfile', () => {
   it.each(['v0.0.2', 'v0.0.3'])(
     'reads the tracked workflows of a %s lockfile',
@@ -29,6 +35,17 @@ describe('parseLockfile', () => {
       )
 
       expect(result).toStrictEqual({
+        pins: new Map([
+          [
+            '.github/workflows/ci.yml',
+            ['actions/cache@v4.3.0', 'actions/checkout@v4.4.0'],
+          ],
+          ['.github/workflows/reuse.yml', []],
+        ]),
+        commits: new Map([
+          ['actions/checkout@v4.4.0', CHECKOUT_SHA],
+          ['actions/cache@v4.3.0', CACHE_SHA],
+        ]),
         workflows: ['.github/workflows/ci.yml', '.github/workflows/reuse.yml'],
         kind: 'parsed',
         version,
@@ -44,13 +61,15 @@ describe('parseLockfile', () => {
     },
   ])('reads $case as tracking nothing', ({ text }) => {
     expect(parseLockfile(text)).toStrictEqual({
+      commits: new Map(),
       version: 'v0.0.3',
+      pins: new Map(),
       kind: 'parsed',
       workflows: [],
     })
   })
 
-  it('reads the tracked workflows whatever the pins and their entries hold', () => {
+  it('reads the tracked workflows and the commit of each reference whatever the pins and their entries hold', () => {
     let result = parseLockfile(
       [
         "version: 'v0.0.3'",
@@ -58,6 +77,7 @@ describe('parseLockfile', () => {
         "    '.github/workflows/ci.yml':",
         "        - 'Actions/Checkout@V4.4.0'",
         "        - 'a pin this release cannot read'",
+        '        - 4',
         'dependencies:',
         "    'Actions/Checkout@V4.4.0':",
         "        hostname: 'github.com'",
@@ -66,11 +86,28 @@ describe('parseLockfile', () => {
         '        uses:',
         "            - 'actions/cache@v4.3.0'",
         '        field_of_a_newer_release: true',
+        "    'actions/cache@v4.3.0': 'a pin this release cannot read'",
+        "    'actions/setup-node@v4':",
+        '        commit: 4',
+        "    'actions/upload-artifact@v4':",
+        `        commit: '${CACHE_SHA.toUpperCase()}'`,
+        "    'my-org/tool@v1':",
+        `        commit: 'sha256-${SHA256_COMMIT}'`,
+        "    'a key without a reference':",
+        `        commit: 'sha1-${CHECKOUT_SHA}'`,
         '',
       ].join('\n'),
     )
 
     expect(result).toStrictEqual({
+      commits: new Map([
+        ['actions/checkout@V4.4.0', CHECKOUT_SHA],
+        ['actions/upload-artifact@v4', CACHE_SHA],
+        ['my-org/tool@v1', SHA256_COMMIT],
+      ]),
+      pins: new Map([
+        ['.github/workflows/ci.yml', ['actions/checkout@V4.4.0']],
+      ]),
       workflows: ['.github/workflows/ci.yml'],
       version: 'v0.0.3',
       kind: 'parsed',

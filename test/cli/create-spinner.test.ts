@@ -266,6 +266,58 @@ describe('createSpinner', () => {
     expect(process.listenerCount('SIGTERM')).toBe(terminations)
   })
 
+  it('only erases the frame and shows the cursor on SIGINT when the caller ends the process', () => {
+    let interrupts = process.listenerCount('SIGINT')
+    let spinner = createSpinner('Regenerating actions.lock...', {
+      exitOnSignal: false,
+    }).start()
+    takeOutput()
+
+    sendSignal('SIGINT')
+
+    expect(takeOutput()).toBe(`${LINE_START}${ERASE_LINE}${SHOW_CURSOR}`)
+    expect(exitSpy).not.toHaveBeenCalled()
+    expect(process.listenerCount('SIGINT')).toBe(interrupts)
+
+    spinner.error('Stopped regenerating actions.lock')
+
+    expect(takeOutput()).toBe(
+      `${LINE_START}${colors.red('✖')} Stopped regenerating actions.lock\n${SHOW_CURSOR}`,
+    )
+  })
+
+  it.each([
+    {
+      terminal: 'an interactive terminal',
+      erase: LINE_START + ERASE_LINE,
+      interactive: true,
+    },
+    { interactive: false, terminal: 'a log', erase: '' },
+  ])(
+    'replaces the frame with the line it waits with on SIGINT when the caller ends the process, in $terminal',
+    ({ interactive, erase }) => {
+      vi.mocked(isInteractiveTerminal).mockReturnValue(interactive)
+      let spinner = createSpinner('Regenerating actions.lock...', {
+        waitText: 'Waiting for gh actions-lock to finish...',
+        exitOnSignal: false,
+      }).start()
+      takeOutput()
+
+      sendSignal('SIGINT')
+
+      expect(takeOutput()).toBe(
+        `${erase}${colors.gray('Waiting for gh actions-lock to finish...')}\n${interactive ? SHOW_CURSOR : ''}`,
+      )
+      expect(exitSpy).not.toHaveBeenCalled()
+
+      spinner.error('Stopped regenerating actions.lock')
+
+      expect(takeOutput()).toBe(
+        `${interactive ? LINE_START : ''}${colors.red('✖')} Stopped regenerating actions.lock\n${interactive ? SHOW_CURSOR : ''}`,
+      )
+    },
+  )
+
   it('exits with 143 on SIGTERM, without output outside an interactive terminal', () => {
     vi.mocked(isInteractiveTerminal).mockReturnValue(false)
     createSpinner('Checking for updates...').start()
