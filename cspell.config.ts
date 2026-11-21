@@ -26,6 +26,7 @@ export default defineConfig({
     'relocks',
     'rolldown',
     'segs',
+    'unstub',
     'worktree',
     'xlarge',
     'zipball',

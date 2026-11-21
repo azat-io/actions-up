@@ -184,6 +184,39 @@ describe('findPinMismatches', () => {
     ])
   })
 
+  it('reports a reference whose pin moved from a third commit the lockfile recorded for it as moved, not as kept', () => {
+    expect(
+      findPinMismatches(
+        writtenBy(makeUpdate()),
+        {
+          pins: [makePin('actions/checkout', 'v4', RECORDED_SHA)],
+          refusals: [],
+        },
+        new Map([['actions/checkout@v4', UPLOAD_SHA]]),
+      ),
+    ).toStrictEqual([
+      {
+        reference: 'actions/checkout@v4',
+        kind: 'other-commit',
+        pinned: RECORDED_SHA,
+        checked: CHECKED_SHA,
+      },
+    ])
+  })
+
+  it('does not take a pin of another reference at the checked commit for the written one', () => {
+    expect(
+      findPinMismatches(
+        writtenBy(makeUpdate()),
+        {
+          pins: [makePin('actions/checkout', 'v4.3.1', CHECKED_SHA)],
+          refusals: [],
+        },
+        new Map(),
+      ),
+    ).toStrictEqual([{ reference: 'actions/checkout@v4', kind: 'missing' }])
+  })
+
   it('accepts a reference pinned under the new name of its repository at the checked commit, but not at another one', () => {
     let renamedSha = 'b4ffde65f46336ab88eb53be808477a3936bae11'
 
@@ -346,6 +379,71 @@ describe('findPinMismatches', () => {
       ),
     ).toStrictEqual([
       { reference: 'actions/upload-artifact@v4', kind: 'missing' },
+    ])
+  })
+
+  it('reports a refused reference that no workflow pins as refused alone', () => {
+    expect(
+      findPinMismatches(
+        writtenBy(makeUpdate()),
+        {
+          refusals: [
+            makeRefusal('.github/workflows/ci.yml', 'actions/checkout'),
+          ],
+          pins: [],
+        },
+        new Map(),
+      ),
+    ).toStrictEqual([
+      {
+        workflow: '.github/workflows/ci.yml',
+        reference: 'actions/checkout@v4',
+        kind: 'refused',
+      },
+    ])
+  })
+
+  it('matches a refusal with the reference whatever case the workflow names its repository in', () => {
+    expect(
+      findPinMismatches(
+        writtenBy(makeUpdate({}, { name: 'Actions/Checkout' })),
+        {
+          refusals: [
+            makeRefusal('.github/workflows/ci.yml', 'actions/checkout'),
+          ],
+          pins: [makePin('actions/checkout', 'v4', CHECKED_SHA)],
+        },
+        new Map(),
+      ),
+    ).toStrictEqual([
+      {
+        workflow: '.github/workflows/ci.yml',
+        reference: 'Actions/Checkout@v4',
+        kind: 'refused',
+      },
+    ])
+  })
+
+  it('counts a refusal for the workflows of every file a reference was written to, the first one included', () => {
+    let release = '/repo/.github/workflows/release.yml'
+
+    expect(
+      findPinMismatches(
+        writtenBy(makeUpdate(), makeUpdate({}, { file: release })),
+        {
+          refusals: [
+            makeRefusal('.github/workflows/ci.yml', 'actions/checkout'),
+          ],
+          pins: [makePin('actions/checkout', 'v4', CHECKED_SHA)],
+        },
+        new Map(),
+      ),
+    ).toStrictEqual([
+      {
+        workflow: '.github/workflows/ci.yml',
+        reference: 'actions/checkout@v4',
+        kind: 'refused',
+      },
     ])
   })
 

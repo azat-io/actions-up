@@ -298,7 +298,7 @@ describe('scanRepository', () => {
     ).toStrictEqual([true, undefined])
   })
 
-  it('marks an action of a definition that is a symbolic link to one a tracked workflow runs', async () => {
+  it('marks an action of a definition that is a symbolic link to one a tracked workflow runs, and relocks that workflow for it', async () => {
     let alias = '/repo/.github/actions/setup-legacy/action.yml'
     vi.mocked(scanGitHubActions).mockResolvedValue({
       ...makeScanResult(),
@@ -306,11 +306,19 @@ describe('scanRepository', () => {
     })
     arrangeLinks({ [alias]: '../setup/action.yml' })
 
-    let { scanResult } = await scanRepository({ cwd: '/repo' })
+    let { lockedFiles, scanResult } = await scanRepository({ cwd: '/repo' })
 
     expect(scanResult.actions).toStrictEqual([
       { name: 'actions/cache', type: 'external', locked: true, file: alias },
     ])
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [
+          alias,
+          [{ workflows: ['.github/workflows/ci.yml'], lockfile: LOCKFILE }],
+        ],
+      ]),
+    )
     expect(readEnclosingLockfiles).toHaveBeenCalledExactlyOnceWith(
       new Set([
         '/repo/.github/actions/setup-legacy',

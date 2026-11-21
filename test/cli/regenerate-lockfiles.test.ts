@@ -352,6 +352,7 @@ describe('regenerateLockfiles', () => {
         { exitOnSignal: false },
       ],
     ])
+    expect(spinnerMock.start).toHaveBeenCalledTimes(2)
     expect(vi.mocked(spinnerMock.success).mock.calls).toStrictEqual([
       ['Regenerated .github/workflows/actions.lock'],
       ['Regenerated vendor/tool/.github/workflows/actions.lock'],
@@ -776,6 +777,29 @@ describe('regenerateLockfiles', () => {
           'Stopped, so vendor/tool/.github/workflows/actions.lock may not match the updated files',
       }),
     )
+  })
+
+  it('ends with the code of a signal that arrived while every lockfile was regenerated as checked', async () => {
+    vi.mocked(relockWorkflows).mockImplementation(() => {
+      signals.signal = 'SIGINT'
+      return Promise.resolve({
+        pins: TARGET_PINS,
+        kind: 'relocked',
+        refusals: [],
+      })
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 130,
+    })
+    expect(spinnerMock.success).toHaveBeenCalledExactlyOnceWith(
+      'Regenerated .github/workflows/actions.lock',
+    )
+    expect(printRelockNotice).not.toHaveBeenCalled()
   })
 
   it('puts back nothing for a run the CLI was stopped during, even one that pinned other commits, and gives no command that would pin them again', async () => {

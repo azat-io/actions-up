@@ -83,6 +83,9 @@ describe('findLockTool', () => {
   ])(
     'does not ask to install a gh that could not be started %s',
     async (_description, startError) => {
+      vi.mocked(stat).mockImplementation(
+        createFakeFileSystem({ '/repo': { kind: 'directory' } }).stat,
+      )
       vi.mocked(runGh).mockResolvedValue(
         makeGhResult({ exitCode: null, started: false, startError }),
       )
@@ -104,6 +107,10 @@ describe('findLockTool', () => {
     [
       'the list fails, as before 2.10 without extensions',
       makeGhResult({ stderr: 'no extensions installed\n', exitCode: 1 }),
+    ],
+    [
+      'the list fails after it named the extension',
+      makeGhResult({ stdout: listWith('v0.5.1'), exitCode: 1 }),
     ],
   ])('reports the extension missing when %s', async (_description, list) => {
     vi.mocked(runGh).mockResolvedValue(list)
