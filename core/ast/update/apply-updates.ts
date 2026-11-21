@@ -188,9 +188,9 @@ export async function writeUpdates(updates: ActionUpdate[]): Promise<{
  *
  * @param updates - Array of updates to apply.
  * @returns Updates that were meant to be written but were not, in the given
- *   order: the reference was no longer found where the scan reported it, or the
- *   update named no file or no valid target. Skipped and held-back entries are
- *   never written and never reported.
+ *   order: the reference was no longer found where the scan reported it, the
+ *   file is not valid UTF-8, or the update named no file or no valid target.
+ *   Skipped and held-back entries are never written and never reported.
  */
 export async function applyUpdates(
   updates: ActionUpdate[],
