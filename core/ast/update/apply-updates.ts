@@ -83,10 +83,20 @@ const RUNNER_LABEL_VALUE = /^[a-z]+-\d+(?:\.\d+)?$/u
 const AFTER_VALUE = /^(?<after>[\t ,\]{}]*)(?<comment>#[^\n\r]*)?/u
 
 /**
+ * Decoder that rejects bytes that are not UTF-8, instead of replacing them, and
+ * keeps a byte order mark as a character, so that the text encodes back to the
+ * bytes it was read from.
+ */
+const UTF8 = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true })
+
+/**
  * Apply updates the way `applyUpdates` does, and tell which files changed.
  *
  * The text of each rewritten file before and after the change lets the caller
- * put a file back later, but only while it still holds what was written.
+ * put a file back later, but only while it still holds what was written. A file
+ * is read as UTF-8, the way GitHub reads a workflow; one that is not valid
+ * UTF-8 is left as it is, with its updates unwritten, since writing its text
+ * back would replace the bytes that are not with others.
  *
  * @param updates - Array of updates to apply.
  * @returns Updates that were meant to be written but were not, as
@@ -131,7 +141,16 @@ export async function writeUpdates(updates: ActionUpdate[]): Promise<{
          * unwritten, and the other files are written all the same.
          */
         try {
-          let content = await readFile(filePath, 'utf8')
+          let content = decodeUtf8(await readFile(filePath))
+          if (content === null) {
+            console.error(
+              `${filePath} is not valid UTF-8, so it was left as it is`,
+            )
+            for (let update of fileUpdates) {
+              unwritten.add(update)
+            }
+            return null
+          }
           let updated = applyFileUpdates(content, fileUpdates, unwritten)
           if (updated === content) {
             return null
@@ -531,4 +550,18 @@ function looksLikeInlineVersionComment(comment: string): boolean {
   return /^#\s*[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?\s*$/u.test(
     comment.trim(),
   )
+}
+
+/**
+ * Read bytes as UTF-8 text.
+ *
+ * @param bytes - Bytes of a file.
+ * @returns The text, or null when the bytes are not valid UTF-8.
+ */
+function decodeUtf8(bytes: Buffer): string | null {
+  try {
+    return UTF8.decode(bytes)
+  } catch {
+    return null
+  }
 }
