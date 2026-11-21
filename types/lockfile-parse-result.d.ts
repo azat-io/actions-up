@@ -12,6 +12,13 @@ export type LockfileParseResult =
       commits: Map<string, string>
 
       /**
+       * Keys of the pins of each tracked workflow, `owner/repo@ref` with the
+       * repository in lower case, by the path of the workflow; an entry that
+       * names no reference is left out.
+       */
+      pins: Map<string, string[]>
+
+      /**
        * Paths of the tracked workflows, relative to the repository root.
        */
       workflows: string[]

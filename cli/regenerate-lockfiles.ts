@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { relative } from 'node:path'
 
+import type { LockfileParseResult } from '../types/lockfile-parse-result'
 import type { RelockTarget } from '../types/relock-target'
 import type { HeldSignals } from '../types/held-signals'
 import type { PinMismatch } from '../types/pin-mismatch'
@@ -66,15 +67,16 @@ interface Run {
  * A lockfile counts as regenerated only when gh-actions-lock exits with success
  * and the lockfile pins every written reference, for each workflow, to the
  * commit Actions Up checked, or to the one it already pinned the reference to,
- * which a notice names. Otherwise the workflows it tracks would run something
- * else than the run announced, or fail to start. When the tool exited on its
- * own and left the lockfile as it was, the written files are put back to match
- * it again, each only while it still holds what was written. The run never
- * writes a lockfile: once the tool changed one, what it wrote is known only
- * from the disk, where another writer may have changed it too, so the files
- * stay with it, and the notice says what it does not pin as checked. The plan
- * skips files that more than one lockfile pins, so each lockfile is regenerated
- * for files of its own.
+ * which a notice names, both as the tool reports it and as the lockfile on disk
+ * records it. Otherwise the workflows it tracks would run something else than
+ * the run announced, or fail to start. When the tool exited on its own and left
+ * the lockfile as it was, the written files are put back to match it again,
+ * each only while it still holds what was written. The run never writes a
+ * lockfile: once the tool changed one, what it wrote is known only from the
+ * disk, where another writer may have changed it too, so the files stay with
+ * it, and the notice says what it does not pin as checked. The plan skips files
+ * that more than one lockfile pins, so each lockfile is regenerated for files
+ * of its own.
  *
  * The caller holds stop signals back from the time the files are written. The
  * first SIGINT or SIGTERM keeps `gh` from starting again and stops the
@@ -144,31 +146,6 @@ async function relockAndCheck(
     exitOnSignal: false,
   }).start()
   let result = await relockWorkflows(target.lockfile, target.workflows)
-  let mismatches =
-    result.kind === 'relocked' ?
-      findPinMismatches(target, result, readRecordedCommits(before))
-    : []
-
-  /**
-   * A reference that keeps the commit the lockfile pinned before matches its
-   * files, so the lockfile counts as regenerated, but the notice names it: it
-   * runs another commit than the one the run announced.
-   */
-  let kept = mismatches.filter(({ kind }) => kind === 'kept-commit')
-  if (result.kind === 'relocked' && kept.length === mismatches.length) {
-    spinner.success(`Regenerated ${lockfile}`)
-    if (kept.length > 0) {
-      printRelockNotice({
-        heading: `gh actions-lock kept earlier pins in ${lockfile}`,
-        details: kept.map(describeMismatch),
-        unrestored: [],
-        command: null,
-        restored: [],
-        left: [],
-      })
-    }
-    return { regenerated: true, unrestored: [], restored: [] }
-  }
 
   /**
    * A signal that ended `gh` without reaching the CLI came from elsewhere, so
@@ -188,12 +165,6 @@ async function relockAndCheck(
     )
   }
 
-  spinner.error(
-    result.kind === 'relocked' ?
-      `Regenerated ${lockfile}, but not as checked`
-    : `Could not regenerate ${lockfile}`,
-  )
-
   /**
    * The tool exited on its own, so it is done writing. The files match a
    * lockfile it left as it was once they are put back, unless the run was
@@ -207,6 +178,7 @@ async function relockAndCheck(
   let restore = unchanged && signals.signal === null
 
   if (result.kind === 'failed') {
+    spinner.error(`Could not regenerate ${lockfile}`)
     return finish(target, written, {
       heading: `gh actions-lock did not regenerate ${lockfile}: ${result.reason}`,
       details: result.findings.map(describeFinding),
@@ -216,14 +188,82 @@ async function relockAndCheck(
   }
 
   /**
+   * What the lockfile pins is checked as it is on disk, too, so a lockfile that
+   * cannot be read back fails, and running the relock again would not help.
+   */
+  let regenerated = readLockfile(after)
+  if (regenerated.kind === 'unsupported') {
+    spinner.error(`Regenerated ${lockfile}, but could not check it`)
+    return finish(target, written, {
+      heading: `gh actions-lock regenerated ${lockfile}, but it cannot be read (${regenerated.reason}), so Actions Up could not check what it pins`,
+      rerun: false,
+      details: [],
+      restore,
+    })
+  }
+
+  let recorded = readLockfile(before)
+  let mismatches = findPinMismatches(target, result, {
+    recorded:
+      recorded.kind === 'parsed' ? recorded.commits : new Map<string, string>(),
+    written: regenerated,
+  })
+
+  /**
+   * A reference that keeps the commit the lockfile pinned before matches its
+   * files, so the lockfile counts as regenerated, but the notice names it: it
+   * runs another commit than the one the run announced.
+   */
+  let kept = mismatches.filter(({ kind }) => kind === 'kept-commit')
+  if (kept.length === mismatches.length) {
+    spinner.success(`Regenerated ${lockfile}`)
+    if (kept.length > 0) {
+      printRelockNotice({
+        heading: `gh actions-lock kept earlier pins in ${lockfile}`,
+        details: kept.map(describeMismatch),
+        unrestored: [],
+        command: null,
+        restored: [],
+        left: [],
+      })
+    }
+    return { regenerated: true, unrestored: [], restored: [] }
+  }
+
+  /**
    * Running the relock again pins the same, so the notice gives no command.
    */
+  spinner.error(`Regenerated ${lockfile}, but not as checked`)
   return finish(target, written, {
     heading: `gh actions-lock did not pin what Actions Up checked in ${lockfile}`,
     details: mismatches.map(describeMismatch),
     rerun: false,
     restore,
   })
+}
+
+/**
+ * Describe a reference the lockfile does not pin as checked, with what fixes
+ * it.
+ *
+ * @param mismatch - The reference and what the lockfile pins for it.
+ * @returns The description.
+ */
+function describeMismatch(mismatch: PinMismatch): string {
+  if (mismatch.kind === 'refused') {
+    return `${mismatch.reference} is not pinned for ${mismatch.workflow}: its entry in the lockfile did not track the action, and gh actions-lock adds it only without --no-onboard`
+  }
+  if (mismatch.kind === 'not-on-disk') {
+    return `${mismatch.reference} is not recorded for ${mismatch.workflow} in the lockfile on disk, though gh actions-lock reported it as pinned`
+  }
+  if (mismatch.kind === 'missing') {
+    return `${mismatch.reference} is not pinned: gh actions-lock left it out of the lockfile`
+  }
+  let pinned = mismatch.pinned.slice(0, 7)
+  let checked = mismatch.checked.slice(0, 7)
+  return mismatch.kind === 'kept-commit' ?
+      `${mismatch.reference} stays pinned to ${pinned}, which the lockfile pinned before, not to the checked ${checked}; gh actions-lock --relock moves it forward`
+    : `${mismatch.reference} is pinned to ${pinned}, not to the checked ${checked}: it moved after Actions Up checked it, so the pinned commit skipped the cool-down and trust checks; review it, or undo the changes with Git`
 }
 
 /**
@@ -281,27 +321,6 @@ async function finish(
 }
 
 /**
- * Describe a reference the lockfile does not pin as checked, with what fixes
- * it.
- *
- * @param mismatch - The reference and what the lockfile pins for it.
- * @returns The description.
- */
-function describeMismatch(mismatch: PinMismatch): string {
-  if (mismatch.kind === 'refused') {
-    return `${mismatch.reference} is not pinned for ${mismatch.workflow}: its entry in the lockfile did not track the action, and gh actions-lock adds it only without --no-onboard`
-  }
-  if (mismatch.kind === 'missing') {
-    return `${mismatch.reference} is not pinned: gh actions-lock left it out of the lockfile`
-  }
-  let pinned = mismatch.pinned.slice(0, 7)
-  let checked = mismatch.checked.slice(0, 7)
-  return mismatch.kind === 'kept-commit' ?
-      `${mismatch.reference} stays pinned to ${pinned}, which the lockfile pinned before, not to the checked ${checked}; gh actions-lock --relock moves it forward`
-    : `${mismatch.reference} is pinned to ${pinned}, not to the checked ${checked}: it moved after Actions Up checked it, so the pinned commit skipped the cool-down and trust checks; review it, or undo the changes with Git`
-}
-
-/**
  * Say that a lockfile may not match its files, since the run or `gh` was
  * stopped before it was regenerated.
  *
@@ -355,15 +374,15 @@ async function regenerate(target: RelockTarget, run: Run): Promise<Outcome> {
 }
 
 /**
- * Read the commit a lockfile pinned each reference to before the relock.
+ * Read what a lockfile records from its bytes.
  *
  * @param bytes - Bytes of the lockfile, null when it could not be read.
- * @returns The commits in lower case, by `owner/repo@ref` with the repository
- *   in lower case; none when the lockfile cannot be read.
+ * @returns What it records, or why it cannot be read.
  */
-function readRecordedCommits(bytes: Buffer | null): Map<string, string> {
-  let parsed = bytes === null ? null : parseLockfile(bytes.toString('utf8'))
-  return parsed?.kind === 'parsed' ? parsed.commits : new Map<string, string>()
+function readLockfile(bytes: Buffer | null): LockfileParseResult {
+  return bytes === null ?
+      { reason: 'unreadable file', kind: 'unsupported', version: null }
+    : parseLockfile(bytes.toString('utf8'))
 }
 
 /**

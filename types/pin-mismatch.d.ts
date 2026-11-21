@@ -30,6 +30,24 @@ export type PinMismatch =
     }
   | {
       /**
+       * The relock reported the reference as pinned, but the lockfile on disk
+       * does not record it for a workflow, or records another commit for it.
+       */
+      kind: 'not-on-disk'
+
+      /**
+       * Reference, `owner/repo@ref`, as the updates name it.
+       */
+      reference: string
+
+      /**
+       * Workflow the reference is not pinned for, relative to the repository
+       * root.
+       */
+      workflow: string
+    }
+  | {
+      /**
        * Reference, `owner/repo@ref`, as the updates name it.
        */
       reference: string

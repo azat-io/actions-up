@@ -29,6 +29,13 @@ describe('parseLockfile', () => {
       )
 
       expect(result).toStrictEqual({
+        pins: new Map([
+          [
+            '.github/workflows/ci.yml',
+            ['actions/cache@v4.3.0', 'actions/checkout@v4.4.0'],
+          ],
+          ['.github/workflows/reuse.yml', []],
+        ]),
         commits: new Map([
           ['actions/checkout@v4.4.0', CHECKOUT_SHA],
           ['actions/cache@v4.3.0', CACHE_SHA],
@@ -50,6 +57,7 @@ describe('parseLockfile', () => {
     expect(parseLockfile(text)).toStrictEqual({
       commits: new Map(),
       version: 'v0.0.3',
+      pins: new Map(),
       kind: 'parsed',
       workflows: [],
     })
@@ -63,6 +71,7 @@ describe('parseLockfile', () => {
         "    '.github/workflows/ci.yml':",
         "        - 'Actions/Checkout@V4.4.0'",
         "        - 'a pin this release cannot read'",
+        '        - 4',
         'dependencies:',
         "    'Actions/Checkout@V4.4.0':",
         "        hostname: 'github.com'",
@@ -86,6 +95,9 @@ describe('parseLockfile', () => {
       commits: new Map([
         ['actions/checkout@V4.4.0', CHECKOUT_SHA],
         ['actions/upload-artifact@v4', CACHE_SHA],
+      ]),
+      pins: new Map([
+        ['.github/workflows/ci.yml', ['actions/checkout@V4.4.0']],
       ]),
       workflows: ['.github/workflows/ci.yml'],
       version: 'v0.0.3',

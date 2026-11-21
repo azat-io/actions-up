@@ -4,6 +4,7 @@ import { relative } from 'node:path'
 import type { RelockTarget } from '../../../types/relock-target'
 import type { ActionUpdate } from '../../../types/action-update'
 import type { GitHubAction } from '../../../types/github-action'
+import type { PinMismatch } from '../../../types/pin-mismatch'
 import type { LockRefusal } from '../../../types/lock-refusal'
 import type { LockPin } from '../../../types/lock-pin'
 
@@ -58,6 +59,51 @@ function makeUpdate(
 }
 
 /**
+ * Lockfile on disk that records every reported pin for every workflow the
+ * lockfile was regenerated for, as a release that writes what it reports does.
+ *
+ * @param target - What the lockfile was regenerated for.
+ * @param pins - What gh-actions-lock reported as pinned.
+ * @returns What the lockfile records on disk.
+ */
+function writtenAs(
+  target: Pick<RelockTarget, 'files'>,
+  pins: LockPin[],
+): { commits: Map<string, string>; pins: Map<string, string[]> } {
+  let keys = pins.map(pin => `${pin.repository}@${pin.ref}`)
+  return {
+    pins: new Map(
+      target.files
+        .values()
+        .flatMap(workflows => workflows.map(workflow => [workflow, keys])),
+    ),
+    commits: new Map(
+      pins.map(pin => [`${pin.repository}@${pin.ref}`, pin.sha]),
+    ),
+  }
+}
+
+/**
+ * Find the mismatches of a regenerated lockfile that records on disk what
+ * gh-actions-lock reported.
+ *
+ * @param target - What the lockfile was regenerated for.
+ * @param relocked - What gh-actions-lock reported.
+ * @param recorded - Commits the lockfile pinned before the relock.
+ * @returns What is not pinned as checked.
+ */
+function findMismatches(
+  target: Pick<RelockTarget, 'updates' | 'files'>,
+  relocked: { refusals: LockRefusal[]; pins: LockPin[] },
+  recorded: Map<string, string>,
+): PinMismatch[] {
+  return findPinMismatches(target, relocked, {
+    written: writtenAs(target, relocked.pins),
+    recorded,
+  })
+}
+
+/**
  * What a lockfile was regenerated for: the given updates, each written to a
  * workflow the lockfile records under its own key.
  *
@@ -106,7 +152,7 @@ describe('findPinMismatches', () => {
     let setupNodeSha = '49933ea5288caeca8642d1e84afbd3f7d6820020'
 
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(
           makeUpdate({}, { name: 'Actions/Checkout' }),
           makeUpdate(
@@ -145,7 +191,7 @@ describe('findPinMismatches', () => {
     'reports a reference the lockfile pins to another commit than the checked one, which it pinned before %s',
     (_description, recorded) => {
       expect(
-        findPinMismatches(
+        findMismatches(
           writtenBy(makeUpdate()),
           {
             pins: [makePin('actions/checkout', 'v4', RECORDED_SHA)],
@@ -166,7 +212,7 @@ describe('findPinMismatches', () => {
 
   it('tells a reference pinned to the older commit the lockfile already pinned, as for another workflow, apart from one that moved', () => {
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(makeUpdate()),
         {
           pins: [makePin('actions/checkout', 'v4', RECORDED_SHA)],
@@ -186,7 +232,7 @@ describe('findPinMismatches', () => {
 
   it('reports a reference whose pin moved from a third commit the lockfile recorded for it as moved, not as kept', () => {
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(makeUpdate()),
         {
           pins: [makePin('actions/checkout', 'v4', RECORDED_SHA)],
@@ -206,7 +252,7 @@ describe('findPinMismatches', () => {
 
   it('does not take a pin of another reference at the checked commit for the written one', () => {
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(makeUpdate()),
         {
           pins: [makePin('actions/checkout', 'v4.3.1', CHECKED_SHA)],
@@ -221,7 +267,7 @@ describe('findPinMismatches', () => {
     let renamedSha = 'b4ffde65f46336ab88eb53be808477a3936bae11'
 
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(
           makeUpdate(
             { latestSha: renamedSha, targetRef: 'v2' },
@@ -243,7 +289,7 @@ describe('findPinMismatches', () => {
 
   it('reports a reference the lockfile does not pin, once however many updates wrote it', () => {
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(
           makeUpdate(
             { latestSha: UPLOAD_SHA },
@@ -270,7 +316,7 @@ describe('findPinMismatches', () => {
 
   it('accepts any pin of a reference whose checked commit is unknown, but not a missing one', () => {
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(
           makeUpdate({ latestSha: null }),
           makeUpdate({ latestSha: null }, { name: 'actions/cache' }),
@@ -296,7 +342,7 @@ describe('findPinMismatches', () => {
     ]
 
     expect(
-      findPinMismatches(
+      findMismatches(
         {
           files: new Map([
             ['/repo/.github/workflows/ci.yml', ['.github/workflows/ci.yml']],
@@ -350,7 +396,7 @@ describe('findPinMismatches', () => {
     let release = '.github/workflows/release.yml'
 
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(
           makeUpdate(),
           makeUpdate(
@@ -384,7 +430,7 @@ describe('findPinMismatches', () => {
 
   it('reports a refused reference that no workflow pins as refused alone', () => {
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(makeUpdate()),
         {
           refusals: [
@@ -405,7 +451,7 @@ describe('findPinMismatches', () => {
 
   it('matches a refusal with the reference whatever case the workflow names its repository in', () => {
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(makeUpdate({}, { name: 'Actions/Checkout' })),
         {
           refusals: [
@@ -428,7 +474,7 @@ describe('findPinMismatches', () => {
     let release = '/repo/.github/workflows/release.yml'
 
     expect(
-      findPinMismatches(
+      findMismatches(
         writtenBy(makeUpdate(), makeUpdate({}, { file: release })),
         {
           refusals: [
@@ -447,9 +493,154 @@ describe('findPinMismatches', () => {
     ])
   })
 
-  it('skips an update that names no reference or no repository', () => {
+  it('reports a reference gh-actions-lock reported as pinned that the lockfile on disk does not record for a workflow, or records at another commit', () => {
+    let release = '/repo/.github/workflows/release.yml'
+    let setup = '/repo/.github/actions/setup/action.yml'
+
     expect(
       findPinMismatches(
+        {
+          files: new Map([
+            [
+              setup,
+              ['.github/workflows/ci.yml', '.github/workflows/deploy.yml'],
+            ],
+            ['/repo/.github/workflows/ci.yml', ['.github/workflows/ci.yml']],
+            [release, ['.github/workflows/release.yml']],
+          ]),
+          updates: [
+            makeUpdate(),
+            makeUpdate({}, { file: release }),
+            makeUpdate(
+              { latestSha: UPLOAD_SHA },
+              { name: 'actions/upload-artifact', file: setup },
+            ),
+          ],
+        },
+        {
+          pins: [
+            makePin('actions/checkout', 'v4', CHECKED_SHA),
+            makePin('actions/upload-artifact', 'v4', UPLOAD_SHA),
+          ],
+          refusals: [],
+        },
+        {
+          written: {
+            pins: new Map([
+              [
+                '.github/workflows/ci.yml',
+                ['actions/checkout@v4', 'actions/upload-artifact@v4'],
+              ],
+              ['.github/workflows/deploy.yml', ['actions/upload-artifact@v4']],
+            ]),
+            commits: new Map([
+              ['actions/upload-artifact@v4', RECORDED_SHA],
+              ['actions/checkout@v4', CHECKED_SHA],
+            ]),
+          },
+          recorded: new Map(),
+        },
+      ),
+    ).toStrictEqual([
+      {
+        workflow: '.github/workflows/release.yml',
+        reference: 'actions/checkout@v4',
+        kind: 'not-on-disk',
+      },
+      {
+        reference: 'actions/upload-artifact@v4',
+        workflow: '.github/workflows/ci.yml',
+        kind: 'not-on-disk',
+      },
+      {
+        workflow: '.github/workflows/deploy.yml',
+        reference: 'actions/upload-artifact@v4',
+        kind: 'not-on-disk',
+      },
+    ])
+  })
+
+  it('accepts a reference the lockfile on disk records under the new name of its repository at the checked commit, but not at another one', () => {
+    let renamedSha = 'b4ffde65f46336ab88eb53be808477a3936bae11'
+    let relocked = {
+      pins: [
+        makePin('my-org/new-name', 'v2', renamedSha),
+        makePin('my-org/new-tool', 'v4', CHECKED_SHA),
+      ],
+      refusals: [],
+    }
+    let target = writtenBy(
+      makeUpdate(
+        { latestSha: renamedSha, targetRef: 'v2' },
+        { name: 'my-org/old-name' },
+      ),
+      makeUpdate({}, { name: 'my-org/old-tool' }),
+    )
+
+    expect(
+      findPinMismatches(target, relocked, {
+        written: {
+          pins: new Map([
+            [
+              '.github/workflows/ci.yml',
+              ['my-org/new-name@v2', 'my-org/new-tool@v4'],
+            ],
+          ]),
+          commits: new Map([
+            ['my-org/new-tool@v4', RECORDED_SHA],
+            ['my-org/new-name@v2', renamedSha],
+          ]),
+        },
+        recorded: new Map(),
+      }),
+    ).toStrictEqual([
+      {
+        workflow: '.github/workflows/ci.yml',
+        reference: 'my-org/old-tool@v4',
+        kind: 'not-on-disk',
+      },
+    ])
+  })
+
+  it('does not report on disk a reference already reported as refused or as missing', () => {
+    let release = '/repo/.github/workflows/release.yml'
+
+    expect(
+      findPinMismatches(
+        writtenBy(
+          makeUpdate(),
+          makeUpdate({}, { file: release }),
+          makeUpdate({ latestSha: UPLOAD_SHA }, { name: 'actions/cache' }),
+        ),
+        {
+          refusals: [
+            makeRefusal('.github/workflows/release.yml', 'actions/checkout'),
+          ],
+          pins: [makePin('actions/checkout', 'v4', CHECKED_SHA)],
+        },
+        {
+          written: {
+            pins: new Map([
+              ['.github/workflows/ci.yml', ['actions/checkout@v4']],
+            ]),
+            commits: new Map([['actions/checkout@v4', CHECKED_SHA]]),
+          },
+          recorded: new Map(),
+        },
+      ),
+    ).toStrictEqual([
+      {
+        workflow: '.github/workflows/release.yml',
+        reference: 'actions/checkout@v4',
+        kind: 'refused',
+      },
+      { reference: 'actions/cache@v4', kind: 'missing' },
+    ])
+  })
+
+  it('skips an update that names no reference or no repository', () => {
+    expect(
+      findMismatches(
         writtenBy(
           makeUpdate({ targetRef: null, latestSha: null }),
           makeUpdate({}, { name: 'checkout' }),
