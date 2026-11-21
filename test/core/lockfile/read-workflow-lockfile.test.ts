@@ -56,7 +56,10 @@ function installFileSystem(entries: Record<string, FakeEntry | string>): void {
 describe('readWorkflowLockfile', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    vi.mocked(traceLocalActions).mockResolvedValue(REACHED)
+    vi.mocked(traceLocalActions).mockResolvedValue({
+      unreadable: null,
+      reached: REACHED,
+    })
   })
 
   it('reads the workflows the lockfile tracks as absolute paths', async () => {
@@ -87,6 +90,7 @@ describe('readWorkflowLockfile', () => {
       path: LOCKFILE_PATH,
       version: 'v0.0.3',
       reached: REACHED,
+      unreadable: null,
       root: '/repo',
     })
     expect(traceLocalActions).toHaveBeenCalledExactlyOnceWith(
@@ -136,6 +140,7 @@ describe('readWorkflowLockfile', () => {
       path: LOCKFILE_PATH,
       version: 'v0.0.4',
       reached: REACHED,
+      unreadable: null,
       root: '/repo',
       keys: null,
     })
@@ -154,6 +159,7 @@ describe('readWorkflowLockfile', () => {
       error: 'invalid YAML',
       path: LOCKFILE_PATH,
       reached: REACHED,
+      unreadable: null,
       version: null,
       root: '/repo',
       keys: null,
@@ -178,6 +184,7 @@ describe('readWorkflowLockfile', () => {
         error: 'unreadable file',
         path: LOCKFILE_PATH,
         reached: REACHED,
+        unreadable: null,
         version: null,
         root: '/repo',
         keys: null,
@@ -196,6 +203,7 @@ describe('readWorkflowLockfile', () => {
     expect(lockfile).toStrictEqual({
       error: 'unreadable file',
       path: LOCKFILE_PATH,
+      unreadable: null,
       workflows: null,
       version: null,
       reached: null,
@@ -203,6 +211,26 @@ describe('readWorkflowLockfile', () => {
       keys: null,
     })
     expect(traceLocalActions).not.toHaveBeenCalled()
+  })
+
+  it('names the first workflow or action that could not be traced', async () => {
+    installFileSystem({
+      [LOCKFILE_PATH]: makeLockfileText({
+        workflows: { '.github/workflows/ci.yml': [] },
+      }),
+      '/repo/.github/workflows/ci.yml': 'jobs: [\n',
+    })
+    vi.mocked(traceLocalActions).mockResolvedValue({
+      unreadable: '/repo/.github/workflows/ci.yml',
+      reached: null,
+    })
+
+    let lockfile = await readWorkflowLockfile('/repo')
+
+    expect(lockfile).toMatchObject({
+      unreadable: '/repo/.github/workflows/ci.yml',
+      reached: null,
+    })
   })
 
   it('names the lockfile by the real path of its directory', async () => {

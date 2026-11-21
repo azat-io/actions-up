@@ -73,10 +73,13 @@ export async function readWorkflowLockfile(
       ),
     )
 
+  let traced = workflows && (await traceLocalActions(root, workflows))
+
   return {
     ...contents,
-    reached: workflows ? await traceLocalActions(root, workflows) : null,
     path: join(await toRealPath(workflowsDirectory), LOCKFILE_NAME),
+    unreadable: traced ? traced.unreadable : null,
+    reached: traced ? traced.reached : null,
     workflows,
     keys,
     root,

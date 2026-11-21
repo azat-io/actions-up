@@ -84,16 +84,20 @@ const DOCKER_PREFIX = 'docker://'
  * @param workflows - Absolute real paths of the tracked workflows.
  * @returns Real paths of the definitions the workflows reach, each with the
  *   workflows that reach it and whether the lockfile records what it runs under
- *   each of them, or null when a workflow or a definition could not be read. A
- *   definition that runs no remote action is listed only for the workflows that
- *   reach it through `$/` references alone, and an action the repository does
- *   not hold only for those that reach it through `./`, by the path its
- *   definition would have.
+ *   each of them, or null when a workflow or a definition could not be read,
+ *   with the path of the first that could not be, in the order of the
+ *   workflows. A definition that runs no remote action is listed only for the
+ *   workflows that reach it through `$/` references alone, and an action the
+ *   repository does not hold only for those that reach it through `./`, by the
+ *   path its definition would have.
  */
 export async function traceLocalActions(
   root: string,
   workflows: Set<string>,
-): Promise<Map<string, Map<string, boolean>> | null> {
+): Promise<
+  | { reached: Map<string, Map<string, boolean>>; unreadable: null }
+  | { unreadable: string; reached: null }
+> {
   let manifests = new Map<string, Promise<Manifest | null>>()
   let reached = new Map<string, Map<string, boolean>>()
 
@@ -147,19 +151,20 @@ export async function traceLocalActions(
    *   the lockfile records what it runs for the workflow.
    * @param visited - Directories read for the workflow, each with whether the
    *   lockfile records what it runs.
-   * @returns False when a definition could not be read.
+   * @returns Path of the first definition that could not be read, null when
+   *   every one could.
    */
   async function follow(
     workflow: string,
     steps: Map<string, boolean>,
     visited: Map<string, boolean>,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     let fresh = [...steps].filter(
       ([directory, recorded]) =>
         !visited.has(directory) || (recorded && !visited.get(directory)),
     )
     if (fresh.length === 0) {
-      return true
+      return null
     }
     for (let [directory, recorded] of fresh) {
       visited.set(directory, recorded)
@@ -172,7 +177,7 @@ export async function traceLocalActions(
       ),
     )
     let next = new Map<string, boolean>()
-    let complete = true
+    let unreadable: string | null = null
 
     /**
      * Gh-actions-lock refuses a `$/` reference to an action the repository does
@@ -193,30 +198,32 @@ export async function traceLocalActions(
             next.set(directory, next.get(directory) === true || followed)
           }
         } else {
-          complete = false
+          unreadable ??= manifest.path
         }
       }
     }
 
-    return (await follow(workflow, next, visited)) && complete
+    return unreadable ?? (await follow(workflow, next, visited))
   }
 
   let traced = await Promise.all(
-    [...workflows].map(async workflow => {
+    [...workflows].map(async (workflow): Promise<string | null> => {
       let references: string[] | null
       try {
         references = await readReferences(workflow)
       } catch (error) {
-        return isMissingFileError(error)
+        return isMissingFileError(error) ? null : workflow
       }
-      return (
-        references !== null &&
-        follow(workflow, localSteps(references, true), new Map())
-      )
+      return references === null ? workflow : (
+          follow(workflow, localSteps(references, true), new Map())
+        )
     }),
   )
 
-  return traced.every(Boolean) ? reached : null
+  let unreadable = traced.find(path => path !== null)
+  return unreadable === undefined ?
+      { unreadable: null, reached }
+    : { reached: null, unreadable }
 }
 
 /**

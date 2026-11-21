@@ -867,6 +867,9 @@ describe('lockfile flow', () => {
         `   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- ${CI_KEY}`,
         '⚠️ Interrupted by SIGINT',
       ])
+      expect(spinnerLines()).toContain(
+        'Waiting for gh actions-lock to finish...',
+      )
       expect(process.exitCode).toBe(130)
       await vi.waitFor(() => {
         expect(process.listeners('SIGINT')).toStrictEqual(listeners)

@@ -91,19 +91,23 @@ export interface Spinner {
  * line when it stops. While it runs, SIGINT and SIGTERM erase it and show the
  * cursor before the process exits. A spinner over work that must finish its own
  * way, such as a child process that writes files, can leave the exit to the
- * caller instead: the signal then only erases it.
+ * caller instead: the signal then only erases it, or replaces it with a line
+ * that says what the run waits for.
  *
  * @param text - Message next to the animation.
  * @param options - How the spinner behaves.
  * @param options.exitOnSignal - Whether SIGINT and SIGTERM end the process.
  *   Defaults to true.
+ * @param options.waitText - Line printed in place of the frame when a signal
+ *   arrives and the process goes on; nothing is printed when it is omitted.
  * @returns Controls of the spinner.
  */
 export function createSpinner(
   text: string,
-  options: { exitOnSignal?: boolean } = {},
+  options: { exitOnSignal?: boolean; waitText?: string } = {},
 ): Spinner {
   let exitOnSignal = options.exitOnSignal ?? true
+  let { waitText } = options
   let stream = process.stderr
   let isInteractive = isInteractiveTerminal()
   let isUnicode = isUnicodeSupported()
@@ -169,7 +173,11 @@ export function createSpinner(
         process.on(
           signal,
           (listener = () => {
-            stop('')
+            stop(
+              exitOnSignal || waitText === undefined ?
+                ''
+              : `${colors.gray(waitText)}\n`,
+            )
             if (exitOnSignal) {
               process.exit(code)
             }

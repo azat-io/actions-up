@@ -18,6 +18,7 @@ import { printUnwrittenWarning } from './print-unwritten-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
 import { normalizePatternList } from './normalize-pattern-list'
 import { writeUpdates } from '../core/ast/update/apply-updates'
+import { printUntracedWarning } from './print-untraced-warning'
 import { printLockfileWarning } from './print-lockfile-warning'
 import { findLockTool } from '../core/lockfile/find-lock-tool'
 import { scanRepository } from '../core/plan/scan-repository'
@@ -229,6 +230,11 @@ async function runUpdate(options: CLIOptions): Promise<void> {
             relative(process.cwd(), lockfile.path),
             lockfile.error,
           )
+        } else if (lockfile.unreadable !== null) {
+          printUntracedWarning(
+            relative(process.cwd(), lockfile.unreadable),
+            relative(process.cwd(), lockfile.path),
+          )
         }
       }
     }
@@ -376,7 +382,18 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     }
 
     if (outdated.length === 0) {
-      spinner?.success('All actions are up to date!')
+      /**
+       * Updates a workflow lockfile pins may be left to apply, so the run does
+       * not claim that everything is up to date while it skipped them.
+       */
+      let lockfileSkipped = skipped.filter(
+        update => update.skipReason === 'lockfile',
+      ).length
+      spinner?.success(
+        lockfileSkipped > 0 ?
+          'No updates to apply'
+        : 'All actions are up to date!',
+      )
       if (json) {
         writeJsonReport({
           actionsToCheckCount: plan.actionsChecked,
@@ -392,7 +409,17 @@ async function runUpdate(options: CLIOptions): Promise<void> {
         return
       }
       printWarnings()
-      if (trustEntries.length === 0) {
+      if (lockfileSkipped > 0) {
+        console.info(
+          colors.yellow(
+            `\n${lockfileSkipped} ${pluralize(
+              lockfileSkipped,
+              'update pinned by a workflow lockfile was',
+              'updates pinned by a workflow lockfile were',
+            )} skipped\n`,
+          ),
+        )
+      } else if (trustEntries.length === 0) {
         console.info(
           colors.green('\n✨ Everything is already at the latest version!\n'),
         )

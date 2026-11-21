@@ -377,11 +377,17 @@ describe('regenerateLockfiles', () => {
     expect(createSpinnerMock.mock.calls).toStrictEqual([
       [
         'Regenerating .github/workflows/actions.lock...',
-        { exitOnSignal: false },
+        {
+          waitText: 'Waiting for gh actions-lock to finish...',
+          exitOnSignal: false,
+        },
       ],
       [
         'Regenerating vendor/tool/.github/workflows/actions.lock...',
-        { exitOnSignal: false },
+        {
+          waitText: 'Waiting for gh actions-lock to finish...',
+          exitOnSignal: false,
+        },
       ],
     ])
     expect(spinnerMock.start).toHaveBeenCalledTimes(2)
