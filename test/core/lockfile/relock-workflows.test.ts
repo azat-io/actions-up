@@ -138,7 +138,7 @@ const BLOCKED_OUTPUT = `{
       "dependency": "actions/checkout@v4",
       "detail": "lockfile pins actions/checkout@v4, which the workflow no longer uses"
     },
-    { "severity": "error", "category": "stale" },
+    { "severity": "error", "category": "stale", "dependency": "actions/cache@v3" },
     { "severity": "error", "detail": "lockfile cannot be written" },
     { "workflow": ".github/workflows/ci.yml", "category": "invalid-workflow" },
     "not a finding"
@@ -256,6 +256,12 @@ describe('relockWorkflows', () => {
           category: 'ref-missing',
         },
         {
+          workflow: '.github/workflows/release.yml',
+          detail: 'workflow has no lockfile entry',
+          category: 'not-pinned',
+          docUrl: null,
+        },
+        {
           detail: 'lockfile cannot be written',
           category: '',
           docUrl: null,
@@ -281,6 +287,7 @@ describe('relockWorkflows', () => {
             {
               detail: 'workflow uses ref "v5" but lockfile pins "v4"',
               workflow: '.github/workflows/ci.yml',
+              dependency: 'actions/checkout@v5',
               category: 'ref-changed',
               severity: 'error',
             },
@@ -300,6 +307,42 @@ describe('relockWorkflows', () => {
     })
   })
 
+  it('reports a finding of a kind the relock fixes on its own that names no dependency, as it is not about a written reference', async () => {
+    vi.mocked(runGh).mockResolvedValue(
+      makeGhResult({
+        stdout: JSON.stringify({
+          findings: [
+            {
+              detail:
+                'composite action rv/broken@v2.0.0: uses: rv/cache@v4@oops has more than one @; the Actions backend expects {owner}/{repo}[/path]@ref',
+              workflow: '.github/workflows/a.yml',
+              category: 'not-pinned',
+              confidence: 'high',
+              severity: 'error',
+            },
+          ],
+        }),
+        exitCode: 1,
+      }),
+    )
+
+    await expect(
+      relockWorkflows(makeWorkflowLockfile(), ['.github/workflows/a.yml']),
+    ).resolves.toStrictEqual({
+      findings: [
+        {
+          detail:
+            'composite action rv/broken@v2.0.0: uses: rv/cache@v4@oops has more than one @; the Actions backend expects {owner}/{repo}[/path]@ref',
+          workflow: '.github/workflows/a.yml',
+          category: 'not-pinned',
+          docUrl: null,
+        },
+      ],
+      reason: 'it found problems that block the lockfile',
+      kind: 'failed',
+    })
+  })
+
   it('blames the tool failure, not what the relock fixes on its own, when gh fails after printing the lockfile as it was', async () => {
     vi.mocked(runGh).mockResolvedValue(
       makeGhResult({
@@ -308,6 +351,7 @@ describe('relockWorkflows', () => {
             {
               detail: 'workflow uses ref v5, but the lockfile pins v4',
               workflow: '.github/workflows/ci.yml',
+              dependency: 'actions/checkout@v5',
               category: 'ref-changed',
               severity: 'error',
             },
