@@ -275,6 +275,10 @@ describe('printSkippedWarning', () => {
       'unlisted',
       'gh could not list its extensions, so gh-actions-lock was not looked for',
     ] as const,
+    [
+      'unauthenticated',
+      'run gh auth login or set GH_TOKEN, so that gh can run gh-actions-lock, to update them',
+    ] as const,
   ])(
     'says how to get gh-actions-lock for references a lockfile pins when it is %s',
     (lockTool, hint) => {

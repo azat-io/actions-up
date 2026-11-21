@@ -296,11 +296,11 @@ interface JsonReport {
 
   /**
    * Whether gh-actions-lock can regenerate the workflow lockfiles that pin
-   * scanned entries, and why not when it cannot: `no-gh`, `unlisted`, `missing`
-   * or `outdated`. Updates of the entries they pin are listed only when it can,
-   * and skipped with the reason `lockfile` otherwise. Null when no lockfile
-   * that can be regenerated pins a scanned entry, so the run did not look for
-   * it.
+   * scanned entries, and why not when it cannot: `no-gh`, `unauthenticated`,
+   * `unlisted`, `missing` or `outdated`. Updates of the entries they pin are
+   * listed only when it can, and skipped with the reason `lockfile` otherwise.
+   * Null when no lockfile that can be regenerated pins a scanned entry, so the
+   * run did not look for it.
    */
   lockTool: LockTool | null
 

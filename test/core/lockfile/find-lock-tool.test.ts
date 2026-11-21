@@ -118,6 +118,18 @@ describe('findLockTool', () => {
     await expect(findLockTool('/repo')).resolves.toBe('missing')
   })
 
+  it('reports the GitHub CLI unauthenticated when it refuses the list for want of credentials', async () => {
+    vi.mocked(runGh).mockResolvedValue(
+      makeGhResult({
+        stderr:
+          'To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.\n',
+        exitCode: 4,
+      }),
+    )
+
+    await expect(findLockTool('/repo')).resolves.toBe('unauthenticated')
+  })
+
   it.each([
     [
       'the last release whose relock drops edges of composite actions',

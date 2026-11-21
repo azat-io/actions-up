@@ -17,6 +17,11 @@ const COMMAND = 'gh actions-lock'
 const LIST_TIMEOUT = 30_000
 
 /**
+ * Exit code of `gh` for a command it does not run for want of credentials.
+ */
+const NO_CREDENTIALS = 4
+
+/**
  * Find gh-actions-lock, the GitHub CLI extension that regenerates workflow
  * lockfiles.
  *
@@ -26,9 +31,10 @@ const LIST_TIMEOUT = 30_000
  * build from source, is accepted. Nothing is installed or upgraded here; a
  * missing or outdated tool is reported for the caller to say what fixes it. A
  * list that fails counts as one without the extension, as with the GitHub CLI
- * before 2.10, which fails the list when no extension is installed. Only a `gh`
- * that is not found counts as not installed: one that is there but cannot be
- * started, as without the permission to run it, needs another fix.
+ * before 2.10, which fails the list when no extension is installed, unless `gh`
+ * refused it for want of credentials, which it needs for any command. Only a
+ * `gh` that is not found counts as not installed: one that is there but cannot
+ * be started, as without the permission to run it, needs another fix.
  *
  * @param cwd - Directory to run `gh` in.
  * @returns Whether the extension can be run, and why not when it cannot.
@@ -50,6 +56,10 @@ export async function findLockTool(cwd: string): Promise<LockTool> {
    */
   if (list.exitCode === null) {
     return 'unlisted'
+  }
+
+  if (list.exitCode === NO_CREDENTIALS) {
+    return 'unauthenticated'
   }
 
   let version = list.exitCode === 0 ? findListedVersion(list.stdout) : null

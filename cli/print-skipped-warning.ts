@@ -15,6 +15,8 @@ const LOCK_TOOL_HINTS: Record<Exclude<LockTool, 'available'>, string> = {
   'no-gh':
     'install the GitHub CLI from https://cli.github.com and run gh extension install github/gh-actions-lock to update them',
   outdated: `run gh extension upgrade gh-actions-lock --force to update them; v${MIN_LOCK_TOOL_VERSION} or later is needed`,
+  unauthenticated:
+    'run gh auth login or set GH_TOKEN, so that gh can run gh-actions-lock, to update them',
   unlisted:
     'gh could not list its extensions, so gh-actions-lock was not looked for',
   missing: 'run gh extension install github/gh-actions-lock to update them',
