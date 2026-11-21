@@ -25,6 +25,7 @@ import { printSkippedWarning } from './print-skipped-warning'
 import { regenerateLockfiles } from './regenerate-lockfiles'
 import { printMinAgeWarning } from './print-min-age-warning'
 import { validateCliOptions } from './validate-cli-options'
+import { ignoreOutputErrors } from './ignore-output-errors'
 import { printTrustWarning } from './print-trust-warning'
 import { printModeWarning } from './print-mode-warning'
 import { holdStopSignals } from './hold-stop-signals'
@@ -517,10 +518,11 @@ async function runUpdate(options: CLIOptions): Promise<void> {
     /**
      * A stop signal waits for the writes and for the regeneration of the
      * lockfiles they leave stale, so that the notices can name what it left
-     * undone. The workflow lockfiles that pin written entries are regenerated,
-     * and the files of a lockfile that could not be are put back when that is
-     * safe.
+     * undone, and so does an output that is gone, as when its reader quit. The
+     * workflow lockfiles that pin written entries are regenerated, and the
+     * files of a lockfile that could not be are put back when that is safe.
      */
+    ignoreOutputErrors()
     signals = holdStopSignals()
     let { unwritten, files } = await writeUpdates(requested)
     let written = requested.filter(update => !unwritten.includes(update))
