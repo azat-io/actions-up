@@ -3,6 +3,7 @@ import { realpath, stat } from 'node:fs/promises'
 
 import { isMissingFileError } from '../fs/is-missing-file-error'
 import { readYamlDocument } from '../fs/read-yaml-document'
+import { isRecord } from '../parsing/is-record'
 import { ACTION_MANIFESTS } from '../constants'
 
 /**
@@ -71,9 +72,10 @@ const DOCKER_PREFIX = 'docker://'
  * and each definition is read once. Workflows and definitions are read as data,
  * the way GitHub reads them, so a reference written through a YAML alias
  * counts, and so does one in a group of steps, such as `parallel`, that the
- * scan of the repository does not look into. A workflow or a definition that
- * cannot be read may run any action, and a workflow that no longer exists runs
- * none.
+ * scan of the repository does not look into. A definition runs the `uses` of
+ * its steps only when it defines a composite action, whatever case it writes
+ * the kind in, as the runner reads it. A workflow or a definition that cannot
+ * be read may run any action, and a workflow that no longer exists runs none.
  *
  * @param root - Root of the repository.
  * @param workflows - Absolute real paths of the tracked workflows.
@@ -205,7 +207,7 @@ export async function traceLocalActions(
     [...workflows].map(async (workflow): Promise<string | null> => {
       let references: string[] | null
       try {
-        references = await readReferences(workflow)
+        references = await readReferences(workflow, collectReferences)
       } catch (error) {
         return isMissingFileError(error) ? null : workflow
       }
@@ -257,13 +259,38 @@ async function findManifest(directory: string): Promise<Manifest | null> {
 
   try {
     let [references, real] = await Promise.all([
-      readReferences(path),
+      readReferences(path, collectStepReferences),
       realpath(path),
     ])
     return { absent: false, path: real, references }
   } catch {
     return { references: null, absent: false, path }
   }
+}
+
+/**
+ * Collect the references the steps of a composite action run: the `uses` value
+ * of each step. A definition of another kind runs no step, whatever it holds,
+ * and so does a `uses` key that does not belong to a step, such as an input of
+ * one. The runner reads the kind in any case.
+ *
+ * @param definition - Definition of an action, read as data.
+ * @returns The `uses` value of each step that has one, in the order of the
+ *   steps.
+ */
+function collectStepReferences(definition: unknown): string[] {
+  let runs = isRecord(definition) ? definition['runs'] : null
+  if (
+    !isRecord(runs) ||
+    typeof runs['using'] !== 'string' ||
+    runs['using'].toLowerCase() !== 'composite' ||
+    !Array.isArray(runs['steps'])
+  ) {
+    return []
+  }
+  return (runs['steps'] as unknown[]).flatMap(step =>
+    isRecord(step) && typeof step['uses'] === 'string' ? [step['uses']] : [],
+  )
 }
 
 /**
@@ -287,13 +314,16 @@ function collectReferences(value: unknown): string[] {
 }
 
 /**
- * Read every reference a workflow or the definition of an action runs: each
- * `uses` value in it, at any depth.
+ * Read the references a workflow or the definition of an action runs.
  *
  * @param path - Absolute path of the file.
+ * @param collect - Collects the references from the file, read as data.
  * @returns The references, or null when the file is not valid YAML.
  */
-async function readReferences(path: string): Promise<string[] | null> {
+async function readReferences(
+  path: string,
+  collect: (data: unknown) => string[],
+): Promise<string[] | null> {
   let { document } = await readYamlDocument(path)
   if (document.errors.length > 0) {
     return null
@@ -306,7 +336,7 @@ async function readReferences(path: string): Promise<string[] | null> {
     return null
   }
 
-  return collectReferences(data)
+  return collect(data)
 }
 
 /**
