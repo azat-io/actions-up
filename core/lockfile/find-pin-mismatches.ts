@@ -35,6 +35,22 @@ interface WrittenReference {
 }
 
 /**
+ * What a workflow lockfile records once regenerated, as read from the disk.
+ */
+interface WrittenLockfile {
+  /**
+   * Commit each pin resolves to, in lower case, by its key, `owner/repo@ref`
+   * with the repository in lower case.
+   */
+  commits: Map<string, string>
+
+  /**
+   * Keys of the pins of each tracked workflow, by the path of the workflow.
+   */
+  pins: Map<string, string[]>
+}
+
+/**
  * Find the written references that a regenerated workflow lockfile does not pin
  * the way Actions Up checked them.
  *
@@ -56,6 +72,13 @@ interface WrittenReference {
  * Any other commit means the reference moved after the check. The lockfile
  * names the repository of a pin in lower case.
  *
+ * What gh-actions-lock reports is checked against the lockfile it wrote, too:
+ * for each workflow it was not refused for, a reference it reports as pinned
+ * has to be among the pins of the workflow on disk, or under the new name of
+ * its repository with the same reference at the checked commit, and at the
+ * commit it reports. So a release that reports pins it did not write fails as
+ * well.
+ *
  * @param target - What the lockfile was regenerated for.
  * @param target.updates - Written updates of the actions the lockfile pins.
  * @param target.files - Written files, each with the workflows the lockfile
@@ -64,17 +87,20 @@ interface WrittenReference {
  *   workflows, and the references the relock refused to pin for a workflow.
  * @param relocked.pins - What the lockfile pins.
  * @param relocked.refusals - What the relock refused to pin.
- * @param recorded - Commit the lockfile pinned each reference to before the
- *   relock, in lower case, by `owner/repo@ref` with the repository in lower
- *   case.
+ * @param lockfile - What the lockfile records before and after the relock.
+ * @param lockfile.recorded - Commit the lockfile pinned each reference to
+ *   before the relock, in lower case, by `owner/repo@ref` with the repository
+ *   in lower case.
+ * @param lockfile.written - What the lockfile on disk records once regenerated.
  * @returns What is not pinned as checked, once for each reference and workflow,
  *   in the order of the updates.
  */
 export function findPinMismatches(
   target: Pick<RelockTarget, 'updates' | 'files'>,
   relocked: { refusals: LockRefusal[]; pins: LockPin[] },
-  recorded: Map<string, string>,
+  lockfile: { recorded: Map<string, string>; written: WrittenLockfile },
 ): PinMismatch[] {
+  let { recorded, written } = lockfile
   let pinned = new Map(
     relocked.pins.map(pin => [`${pin.repository}@${pin.ref}`, pin.sha]),
   )
@@ -110,6 +136,16 @@ export function findPinMismatches(
           pinned: sha,
           checked,
         })
+      }
+      if (sha !== undefined) {
+        for (let workflow of workflows) {
+          if (
+            !refusedFor.has(workflow) &&
+            !isWritten(written, workflow, { reference, checked, sha, key })
+          ) {
+            mismatches.push({ kind: 'not-on-disk', reference: name, workflow })
+          }
+        }
       }
       return mismatches
     })
@@ -147,4 +183,41 @@ function groupWritten(
     }
   }
   return written
+}
+
+/**
+ * Tell whether the lockfile on disk pins a reference for a workflow at the
+ * commit gh-actions-lock reported: under its key, or under the new name of its
+ * repository with the same reference at the checked commit.
+ *
+ * @param written - What the lockfile on disk records.
+ * @param workflow - Workflow, as the lockfile names it.
+ * @param pin - The reference, and the commits it was checked and reported at.
+ * @param pin.key - Key the lockfile pins it under, with the repository in lower
+ *   case.
+ * @param pin.reference - Reference, as written after `@`.
+ * @param pin.checked - Commit the plan checked for it, when it is known.
+ * @param pin.sha - Commit gh-actions-lock reported for it.
+ * @returns True when the workflow pins the reference at that commit.
+ */
+function isWritten(
+  written: WrittenLockfile,
+  workflow: string,
+  pin: {
+    checked: undefined | string
+    reference: string
+    sha: string
+    key: string
+  },
+): boolean {
+  let keys = written.pins.get(workflow) ?? []
+  let found =
+    keys.includes(pin.key) ?
+      pin.key
+    : keys.find(
+        key =>
+          key.slice(key.indexOf('@') + 1) === pin.reference &&
+          written.commits.get(key) === pin.checked,
+      )
+  return found !== undefined && written.commits.get(found) === pin.sha
 }

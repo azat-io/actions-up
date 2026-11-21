@@ -182,6 +182,32 @@ const VENDORED_TARGET: RelockTarget = {
 }
 
 /**
+ * Text of a lockfile that records the given pins for both tracked workflows of
+ * `/repo`, the CI workflow of the vendored repository included.
+ *
+ * @param pins - What the lockfile pins.
+ * @returns Content of the lockfile.
+ */
+function makeLockfileWith(...pins: LockPin[]): string {
+  let keys = pins.map(pin => `${pin.repository}@${pin.ref}`)
+  return makeLockfileText({
+    dependencies: Object.fromEntries(
+      pins.map(pin => [`${pin.repository}@${pin.ref}`, pin.sha]),
+    ),
+    workflows: {
+      '.github/workflows/release.yml': keys,
+      '.github/workflows/ci.yml': keys,
+    },
+  })
+}
+
+/**
+ * Lockfile that records what was checked for every target, as gh-actions-lock
+ * writes it once it pinned what it reported.
+ */
+const AS_CHECKED = makeLockfileWith(...TARGET_PINS, ...VENDORED_PINS)
+
+/**
  * Files the updater rewrote.
  */
 const WRITTEN: WrittenFile[] = [
@@ -305,7 +331,7 @@ describe('regenerateLockfiles', () => {
     createSpinnerMock.mockReturnValue(spinnerMock)
     vi.spyOn(process, 'cwd').mockReturnValue('/repo')
     signals = { release: vi.fn<() => void>(), signal: null }
-    vi.mocked(readFile).mockResolvedValue(Buffer.from('lock\n'))
+    vi.mocked(readFile).mockResolvedValue(Buffer.from(AS_CHECKED))
     vi.mocked(restoreWrittenFiles).mockImplementation(files =>
       Promise.resolve({
         restored: files.map(file => file.path),
@@ -368,6 +394,10 @@ describe('regenerateLockfiles', () => {
         workflows: { '.github/workflows/release.yml': ['actions/checkout@v4'] },
         dependencies: { 'actions/checkout@v4': RECORDED_SHA },
       }),
+      makeLockfileWith(
+        makePin('actions/checkout', 'v4', RECORDED_SHA),
+        makePin('actions/cache', 'v5', CACHE_SHA),
+      ),
     )
     vi.mocked(relockWorkflows).mockResolvedValue({
       pins: [
@@ -408,7 +438,10 @@ describe('regenerateLockfiles', () => {
         },
         dependencies: { 'actions/checkout@v4.0.0': RECORDED_SHA },
       }),
-      'new lock\n',
+      makeLockfileWith(
+        makePin('actions/checkout', 'v4', RECORDED_SHA),
+        makePin('actions/cache', 'v5', CACHE_SHA),
+      ),
     )
     vi.mocked(relockWorkflows).mockResolvedValue({
       pins: [
@@ -437,7 +470,10 @@ describe('regenerateLockfiles', () => {
         workflows: { '.github/workflows/release.yml': ['actions/checkout@v4'] },
         dependencies: { 'actions/checkout@v4': RECORDED_SHA },
       }),
-      'new lock\n',
+      makeLockfileWith(
+        makePin('actions/checkout', 'v4', RECORDED_SHA),
+        makePin('actions/cache', 'v5', SETUP_NODE_SHA),
+      ),
     )
     vi.mocked(relockWorkflows).mockResolvedValue({
       pins: [
@@ -586,7 +622,13 @@ describe('regenerateLockfiles', () => {
   ])(
     'leaves the files with a lockfile gh-actions-lock %s while it pinned a commit it did not pin before, other than the checked one',
     async (_description, before) => {
-      arrangeLockfileReads(before, 'new lock\n')
+      arrangeLockfileReads(
+        before,
+        makeLockfileWith(
+          makePin('actions/checkout', 'v4', RECORDED_SHA),
+          makePin('actions/cache', 'v5', CACHE_SHA),
+        ),
+      )
       vi.mocked(relockWorkflows).mockResolvedValue({
         pins: [
           makePin('actions/checkout', 'v4', RECORDED_SHA),
@@ -645,7 +687,7 @@ describe('regenerateLockfiles', () => {
   })
 
   it('fails a lockfile that pins a written reference for one workflow while it was refused for another that runs the written file', async () => {
-    arrangeLockfileReads('old lock\n', 'new lock\n')
+    arrangeLockfileReads('old lock\n', AS_CHECKED)
     vi.mocked(relockWorkflows).mockResolvedValue({
       refusals: [
         {
@@ -703,6 +745,81 @@ describe('regenerateLockfiles', () => {
       left: [],
     })
   })
+
+  it('puts back the files of a lockfile that does not record on disk what gh-actions-lock reported as pinned, which left it as it was', async () => {
+    let stale = makeLockfileWith(
+      makePin('actions/checkout', 'v3', CHECKOUT_SHA),
+    )
+    arrangeLockfileReads(stale, stale)
+    vi.mocked(relockWorkflows).mockResolvedValue({
+      pins: TARGET_PINS,
+      kind: 'relocked',
+      refusals: [],
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      restored: new Set([SETUP_ACTION, CI_WORKFLOW]),
+      unrestored: new Set(),
+      exitCode: 1,
+    })
+    expect(spinnerMock.error).toHaveBeenCalledExactlyOnceWith(
+      'Regenerated .github/workflows/actions.lock, but not as checked',
+    )
+    expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+      details: [
+        'actions/checkout@v4 is not recorded for .github/workflows/ci.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
+        'actions/cache@v5 is not recorded for .github/workflows/ci.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
+        'actions/cache@v5 is not recorded for .github/workflows/release.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
+      ],
+      heading: NOT_AS_CHECKED_HEADING,
+      restored: TARGET_FILES,
+      unrestored: [],
+      command: null,
+      left: [],
+    })
+  })
+
+  it.each([
+    ['cannot be read', null, 'unreadable file'],
+    ['holds no lockfile', 'Pruned 2 deleted workflows\n', 'not a mapping'],
+    [
+      'names a schema version this release does not know',
+      makeLockfileText({ version: 'v0.0.4' }),
+      'unsupported schema version v0.0.4',
+    ],
+  ])(
+    'fails a lockfile gh-actions-lock regenerated that %s, keeping the files',
+    async (_description, after, reason) => {
+      arrangeLockfileReads(AS_CHECKED, after)
+      vi.mocked(relockWorkflows).mockResolvedValue({
+        pins: TARGET_PINS,
+        kind: 'relocked',
+        refusals: [],
+      })
+
+      await expect(
+        regenerateLockfiles([TARGET], WRITTEN, signals),
+      ).resolves.toStrictEqual({
+        unrestored: new Set(),
+        restored: new Set(),
+        exitCode: 1,
+      })
+      expect(restoreWrittenFiles).not.toHaveBeenCalled()
+      expect(spinnerMock.error).toHaveBeenCalledExactlyOnceWith(
+        'Regenerated .github/workflows/actions.lock, but could not check it',
+      )
+      expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+        heading: `gh actions-lock regenerated .github/workflows/actions.lock, but it cannot be read (${reason}), so Actions Up could not check what it pins`,
+        left: TARGET_FILES,
+        unrestored: [],
+        command: null,
+        restored: [],
+        details: [],
+      })
+    },
+  )
 
   it('stops at Ctrl+C, naming each lockfile that may not match its files without putting anything back', async () => {
     vi.mocked(relockWorkflows).mockImplementation(() => {
@@ -803,6 +920,10 @@ describe('regenerateLockfiles', () => {
   })
 
   it('puts back nothing for a run the CLI was stopped during, even one that pinned other commits, and gives no command that would pin them again', async () => {
+    arrangeLockfileReads(
+      AS_CHECKED,
+      makeLockfileWith(makePin('actions/checkout', 'v4', RECORDED_SHA)),
+    )
     vi.mocked(relockWorkflows).mockImplementation(() => {
       signals.signal = 'SIGINT'
       return Promise.resolve({

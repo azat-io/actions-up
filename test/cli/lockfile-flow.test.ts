@@ -259,6 +259,35 @@ const RELOCKED_CI_LOCKFILE = makeLockfileText({
 })
 
 /**
+ * Lockfile that tracks the CI and release workflows.
+ */
+const TWO_WORKFLOWS_LOCKFILE = makeLockfileText({
+  dependencies: {
+    'actions/setup-node@v3': RECORDED_CHECKOUT_SHA,
+    'actions/checkout@v3': RECORDED_CHECKOUT_SHA,
+  },
+  workflows: {
+    [RELEASE_KEY]: ['actions/setup-node@v3'],
+    [CI_KEY]: ['actions/checkout@v3'],
+  },
+})
+
+/**
+ * Lockfile of the CI and release workflows once the CI workflow is relocked for
+ * the update of checkout.
+ */
+const RELOCKED_TWO_WORKFLOWS_LOCKFILE = makeLockfileText({
+  dependencies: {
+    [`actions/checkout@${CHECKOUT_SHA}`]: CHECKOUT_SHA,
+    'actions/setup-node@v3': RECORDED_CHECKOUT_SHA,
+  },
+  workflows: {
+    [CI_KEY]: [`actions/checkout@${CHECKOUT_SHA}`],
+    [RELEASE_KEY]: ['actions/setup-node@v3'],
+  },
+})
+
+/**
  * Bytes of the byte order mark a UTF-8 file may start with.
  */
 const BYTE_ORDER_MARK = Buffer.from([0xef, 0xbb, 0xbf])
@@ -529,6 +558,32 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
+    'puts back a workflow whose lockfile gh-actions-lock reports as regenerated but leaves as it was',
+    async () => {
+      let workflow = makeWorkflowText(['actions/checkout@v3'])
+      await writeRepository({
+        [LOCKFILE_KEY]: CI_LOCKFILE,
+        [CI_KEY]: workflow,
+      })
+      await arrangeGh({
+        report: makeReport(['actions/checkout', CHECKOUT_SHA, CHECKOUT_SHA]),
+      })
+
+      await runCli('--yes')
+
+      expect(String(await readRepository(CI_KEY))).toBe(workflow)
+      expect(String(await readRepository(LOCKFILE_KEY))).toBe(CI_LOCKFILE)
+      expect(printedErrors()).toStrictEqual([
+        `⚠️ gh actions-lock did not pin what Actions Up checked in ${LOCKFILE_KEY}`,
+        `   • actions/checkout@${CHECKOUT_SHA} is not recorded for ${CI_KEY} in the lockfile on disk, though gh actions-lock reported it as pinned`,
+        '   Restored 1 file to match the lockfile again:',
+        `   • ${CI_KEY}`,
+      ])
+      expect(process.exitCode).toBe(1)
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
     'puts back the bytes of a workflow whose lockfile gh-actions-lock did not regenerate, with its byte order mark, CRLF line breaks and text beyond ASCII',
     async () => {
       let workflow = Buffer.concat([
@@ -574,24 +629,15 @@ describe('lockfile flow', () => {
         '    - uses: actions/cache@v3',
         '',
       ].join('\n')
-      let lockfile = makeLockfileText({
-        dependencies: {
-          'actions/setup-node@v3': RECORDED_CHECKOUT_SHA,
-          'actions/checkout@v3': RECORDED_CHECKOUT_SHA,
-        },
-        workflows: {
-          [RELEASE_KEY]: ['actions/setup-node@v3'],
-          [CI_KEY]: ['actions/checkout@v3'],
-        },
-      })
       await writeRepository({
         [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
         '.github/actions/build/action.yml': build,
-        [LOCKFILE_KEY]: lockfile,
+        [LOCKFILE_KEY]: TWO_WORKFLOWS_LOCKFILE,
         [RELEASE_KEY]: release,
       })
       await arrangeGh({
         report: makeReport(['actions/checkout', CHECKOUT_SHA, CHECKOUT_SHA]),
+        writes: { [LOCKFILE_KEY]: RELOCKED_TWO_WORKFLOWS_LOCKFILE },
       })
 
       await runCli('--yes')
@@ -618,21 +664,13 @@ describe('lockfile flow', () => {
     async () => {
       let edited = makeWorkflowText(['actions/setup-node@v3.9.1'])
       await writeRepository({
-        [LOCKFILE_KEY]: makeLockfileText({
-          dependencies: {
-            'actions/setup-node@v3': RECORDED_CHECKOUT_SHA,
-            'actions/checkout@v3': RECORDED_CHECKOUT_SHA,
-          },
-          workflows: {
-            [RELEASE_KEY]: ['actions/setup-node@v3'],
-            [CI_KEY]: ['actions/checkout@v3'],
-          },
-        }),
         [RELEASE_KEY]: makeWorkflowText(['actions/setup-node@v3']),
         [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
+        [LOCKFILE_KEY]: TWO_WORKFLOWS_LOCKFILE,
       })
       await arrangeGh({
         report: makeReport(['actions/checkout', CHECKOUT_SHA, CHECKOUT_SHA]),
+        writes: { [LOCKFILE_KEY]: RELOCKED_TWO_WORKFLOWS_LOCKFILE },
       })
 
       /**
