@@ -331,7 +331,13 @@ describe('regenerateLockfiles', () => {
     createSpinnerMock.mockReturnValue(spinnerMock)
     vi.spyOn(process, 'cwd').mockReturnValue('/repo')
     signals = { release: vi.fn<() => void>(), signal: null }
-    vi.mocked(readFile).mockResolvedValue(Buffer.from(AS_CHECKED))
+    vi.mocked(readFile).mockImplementation(path =>
+      Promise.resolve(
+        Buffer.from(
+          WRITTEN.find(file => file.path === path)?.after ?? AS_CHECKED,
+        ),
+      ),
+    )
     vi.mocked(restoreWrittenFiles).mockImplementation(files =>
       Promise.resolve({
         restored: files.map(file => file.path),
@@ -895,6 +901,59 @@ describe('regenerateLockfiles', () => {
         command: null,
         restored: [],
         details: [],
+      })
+    },
+  )
+
+  it.each([
+    {
+      setup: Buffer.from('uses: my-org/cache@v5\n'),
+      rewritten: TARGET_FILES,
+      files: '2 files',
+    },
+    {
+      rewritten: ['.github/workflows/ci.yml'],
+      files: '1 file',
+      setup: null,
+    },
+  ])(
+    'names the $files gh-actions-lock rewrote while it regenerated the lockfile as checked, but not a file it cannot read',
+    async ({ rewritten, setup, files }) => {
+      vi.mocked(readFile).mockImplementation(path => {
+        if (path === SETUP_ACTION) {
+          return setup ?
+              Promise.resolve(setup)
+            : Promise.reject(new Error('ENOENT'))
+        }
+        return Promise.resolve(
+          Buffer.from(
+            path === CI_WORKFLOW ? 'uses: my-org/checkout@v4\r\n' : AS_CHECKED,
+          ),
+        )
+      })
+      vi.mocked(relockWorkflows).mockResolvedValue({
+        pins: TARGET_PINS,
+        kind: 'relocked',
+        refusals: [],
+      })
+
+      await expect(
+        regenerateLockfiles([TARGET], WRITTEN, signals),
+      ).resolves.toStrictEqual({
+        unrestored: new Set(),
+        restored: new Set(),
+        exitCode: 0,
+      })
+      expect(spinnerMock.success).toHaveBeenCalledExactlyOnceWith(
+        'Regenerated .github/workflows/actions.lock',
+      )
+      expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+        heading: `gh actions-lock also rewrote ${files}: a repository that moved is renamed in the workflow, which drops the comment of that line`,
+        details: rewritten,
+        unrestored: [],
+        command: null,
+        restored: [],
+        left: [],
       })
     },
   )
