@@ -164,17 +164,20 @@ describe('relockWorkflows', () => {
     ).resolves.toStrictEqual({
       refusals: [
         {
+          dependency: 'actions/upload-artifact@v4',
           repository: 'actions/upload-artifact',
           workflow: '.github/workflows/ci.yml',
           ref: 'v4',
         },
         {
+          dependency: 'GitHub/CodeQL-Action/init@v4',
           workflow: '.github/workflows/release.yml',
           repository: 'github/codeql-action',
           ref: 'v4',
         },
         {
           workflow: '.github/workflows/release.yml',
+          dependency: 'my-org/tool@release@2026',
           repository: 'my-org/tool',
           ref: 'release@2026',
         },
