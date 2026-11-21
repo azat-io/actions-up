@@ -319,14 +319,15 @@ and regenerates it with
 [gh actions-lock](https://github.com/github/gh-actions-lock) v0.5.0 or later:
 after writing the updates it runs `gh actions-lock --no-onboard --no-narrow` for
 the affected workflows and checks that every updated reference is pinned to the
-commit it checked. `gh` has to be authenticated (`gh auth login`, `GH_TOKEN` or
-`GITHUB_TOKEN`).
+commit it checked or to the one the lockfile already had. `gh` has to be
+authenticated (`gh auth login`, `GH_TOKEN` or `GITHUB_TOKEN`).
 
-If the lockfile cannot be regenerated, the updated files are put back and the
-run exits with code 1. Without the extension such updates are skipped, with a
-hint on how to get it. Updates are also skipped in workflows that run, only
-through `./`, a local action that uses remote actions or is not part of the
-repository, and in those actions: gh actions-lock does not lock what they run.
+If the lockfile cannot be regenerated, the run exits with code 1 and puts the
+updated files back, unless they or the lockfile changed meanwhile. Without the
+extension such updates are skipped, with a hint on how to get it. Updates are
+also skipped in workflows that run, only through `./`, a local action that uses
+remote actions or is not part of the repository, and in those actions: gh
+actions-lock does not lock what they run.
 
 By default Actions Up pins commit SHAs, also in workflows a lockfile tracks. gh
 actions-lock reports such references as `sha-as-ref` warnings and turns them
