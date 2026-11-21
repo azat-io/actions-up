@@ -2,12 +2,15 @@ import { colors } from '../core/interactive/colors'
 
 /**
  * Prints why a workflow lockfile was not regenerated as checked, and what
- * became of the updated files.
+ * became of the updated files, or what the regeneration of a lockfile did
+ * beyond what the run announced, as when it kept an earlier pin, left a
+ * reference unpinned or rewrote a file.
  *
- * The notice goes to stderr and is printed even with `--quiet`, since the run
- * did not do everything it announced. Files that keep their updates may no
- * longer match the lockfile, so the notice then ends with the command that
- * regenerates it, unless that command would pin the same again.
+ * The notice goes to stderr and is printed even with `--quiet`, since the
+ * lockfile or the files then differ from what the run announced. Files that
+ * keep their updates may no longer match the lockfile, so the notice then ends
+ * with the command that regenerates it, unless that command would pin the same
+ * again.
  *
  * @param notice - What happened.
  * @param notice.heading - What went wrong, in one line.

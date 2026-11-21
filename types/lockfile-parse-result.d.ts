@@ -1,6 +1,6 @@
 /**
- * Which workflows a workflow lockfile tracks and which commit it pins each
- * reference to, or why it cannot be read.
+ * Which workflows a workflow lockfile tracks, which references each of them
+ * pins and which commit it pins each reference to, or why it cannot be read.
  */
 export type LockfileParseResult =
   | {

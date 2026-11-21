@@ -363,7 +363,8 @@ You can integrate Actions Up into your CI/CD pipeline to automatically check for
 outdated actions on every pull request. This helps maintain security and ensures
 your team stays aware of available updates. Updates of actions a workflow
 lockfile pins count in `summary.totalUpdates` only when the runner has gh
-actions-lock (`gh extension install github/gh-actions-lock`).
+actions-lock (`gh extension install github/gh-actions-lock`), which, like gh
+itself, needs `GH_TOKEN` or `GITHUB_TOKEN` in the environment of its step.
 
 <details>
 <summary>Create <code>.github/workflows/check-actions-updates.yml</code>.</summary>

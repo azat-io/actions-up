@@ -26,8 +26,8 @@ const FILE_KEYS = new Set(['dependencies', 'workflows', 'version'])
  * at. A document whose aliases expand beyond reason is unreadable too.
  *
  * @param text - Content of `.github/workflows/actions.lock`.
- * @returns The tracked workflows and the pinned commits, or why the file cannot
- *   be read.
+ * @returns The tracked workflows with the keys of their pins and the pinned
+ *   commits, or why the file cannot be read.
  */
 export function parseLockfile(text: string): LockfileParseResult {
   let document = parseDocument(text)
