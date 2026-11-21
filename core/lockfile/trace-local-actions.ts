@@ -16,6 +16,13 @@ interface Manifest {
   references: string[] | null
 
   /**
+   * Whether gh-actions-lock reads its steps, which it does for a composite
+   * action whose kind is written in lower case alone, while the runner runs
+   * them whatever the case.
+   */
+  recordable: boolean
+
+  /**
    * Whether the repository holds no definition of the action, which then is
    * whatever the workspace holds once the workflow runs.
    */
@@ -178,19 +185,21 @@ export async function traceLocalActions(
 
     /**
      * Gh-actions-lock refuses a `$/` reference to an action the repository does
-     * not hold by itself.
+     * not hold by itself, and records what an action reached through `$/` runs
+     * only when it reads the steps of that action.
      */
     for (let [manifest, recorded] of found) {
       if (manifest && (!recorded || !manifest.absent)) {
-        if (recorded || runsRemoteActions(manifest)) {
+        let records = recorded && manifest.recordable
+        if (records || runsRemoteActions(manifest)) {
           let runs = reached.get(manifest.path) ?? new Map<string, boolean>()
           reached.set(manifest.path, runs)
-          runs.set(workflow, runs.get(workflow) === true || recorded)
+          runs.set(workflow, runs.get(workflow) === true || records)
         }
         if (manifest.references) {
           for (let [directory, followed] of localSteps(
             manifest.references,
-            recorded,
+            records,
           )) {
             next.set(directory, next.get(directory) === true || followed)
           }
@@ -242,10 +251,16 @@ async function findManifest(directory: string): Promise<Manifest | null> {
   let others = [directory, ...DOCKER_FILES.map(name => join(directory, name))]
   let found: (string | null)[]
 
+  let unreadable = {
+    recordable: false,
+    references: null,
+    absent: false,
+  }
+
   try {
     found = await Promise.all([...candidates, ...others].map(findFile))
   } catch {
-    return { path: candidates[0]!, references: null, absent: false }
+    return { ...unreadable, path: candidates[0]! }
   }
 
   let path = found
@@ -253,32 +268,44 @@ async function findManifest(directory: string): Promise<Manifest | null> {
     .find(candidate => candidate !== null)
   if (!path) {
     return found.some(Boolean) ? null : (
-        { path: candidates[0]!, references: [], absent: true }
+        {
+          path: candidates[0]!,
+          recordable: false,
+          references: [],
+          absent: true,
+        }
       )
   }
 
   try {
-    let [references, real] = await Promise.all([
-      readReferences(path, collectStepReferences),
+    let [steps, real] = await Promise.all([
+      readReferences(path, readSteps),
       realpath(path),
     ])
-    return { absent: false, path: real, references }
+    return steps ?
+        { ...steps, absent: false, path: real }
+      : { ...unreadable, path: real }
   } catch {
-    return { references: null, absent: false, path }
+    return { ...unreadable, path }
   }
 }
 
 /**
- * Collect the references the steps of a composite action run: the `uses` value
- * of each step. A definition of another kind runs no step, whatever it holds,
- * and so does a `uses` key that does not belong to a step, such as an input of
- * one. The runner reads the kind in any case.
+ * Read the steps of the definition of an action: the references they run, the
+ * `uses` value of each step of a composite action, and whether gh-actions-lock
+ * reads them. A definition of another kind runs no step, whatever it holds, and
+ * so does a `uses` key that does not belong to a step, such as an input of one.
+ * The runner reads the kind in any case, while gh-actions-lock reads only
+ * `composite` in lower case.
  *
  * @param definition - Definition of an action, read as data.
  * @returns The `uses` value of each step that has one, in the order of the
- *   steps.
+ *   steps, and whether gh-actions-lock reads them.
  */
-function collectStepReferences(definition: unknown): string[] {
+function readSteps(definition: unknown): {
+  references: string[]
+  recordable: boolean
+} {
   let runs = isRecord(definition) ? definition['runs'] : null
   if (
     !isRecord(runs) ||
@@ -286,11 +313,14 @@ function collectStepReferences(definition: unknown): string[] {
     runs['using'].toLowerCase() !== 'composite' ||
     !Array.isArray(runs['steps'])
   ) {
-    return []
+    return { recordable: false, references: [] }
   }
-  return (runs['steps'] as unknown[]).flatMap(step =>
-    isRecord(step) && typeof step['uses'] === 'string' ? [step['uses']] : [],
-  )
+  return {
+    references: (runs['steps'] as unknown[]).flatMap(step =>
+      isRecord(step) && typeof step['uses'] === 'string' ? [step['uses']] : [],
+    ),
+    recordable: runs['using'] === 'composite',
+  }
 }
 
 /**
@@ -318,12 +348,13 @@ function collectReferences(value: unknown): string[] {
  *
  * @param path - Absolute path of the file.
  * @param collect - Collects the references from the file, read as data.
- * @returns The references, or null when the file is not valid YAML.
+ * @returns What `collect` makes of the file, or null when the file is not valid
+ *   YAML.
  */
-async function readReferences(
+async function readReferences<References>(
   path: string,
-  collect: (data: unknown) => string[],
-): Promise<string[] | null> {
+  collect: (data: unknown) => References,
+): Promise<References | null> {
   let { document } = await readYamlDocument(path)
   if (document.errors.length > 0) {
     return null
