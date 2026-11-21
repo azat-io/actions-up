@@ -3,6 +3,7 @@ import { parseDocument } from 'yaml'
 import type { LockfileParseResult } from '../../types/lockfile-parse-result'
 
 import { SUPPORTED_LOCKFILE_VERSIONS } from '../constants'
+import { isRecord } from '../parsing/is-record'
 
 /**
  * Keys the top level of a lockfile may hold. Every supported version rejects
@@ -147,14 +148,4 @@ function isSection(
 function normalizeKey(key: string): string | null {
   let at = key.indexOf('@')
   return at > 0 ? `${key.slice(0, at).toLowerCase()}${key.slice(at)}` : null
-}
-
-/**
- * Tell a YAML mapping apart from the other values a document can hold.
- *
- * @param value - Value read from the document.
- * @returns True when the value is a mapping.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

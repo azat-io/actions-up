@@ -16,15 +16,8 @@ import { findPinMismatches } from '../core/lockfile/find-pin-mismatches'
 import { restoreWrittenFiles } from '../core/fs/restore-written-files'
 import { parseLockfile } from '../core/lockfile/parse-lockfile'
 import { printRelockNotice } from './print-relock-notice'
+import { SIGNAL_EXIT_CODES } from '../core/constants'
 import { createSpinner } from './create-spinner'
-
-/**
- * Exit codes shells report for a process that a signal ended.
- */
-const SIGNAL_EXIT_CODES: Record<NonNullable<HeldSignals['signal']>, number> = {
-  SIGTERM: 143,
-  SIGINT: 130,
-}
 
 /**
  * What the regeneration of one lockfile did.

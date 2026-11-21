@@ -11,6 +11,24 @@ export const ACTIONS_DIRECTORY = 'actions' as const
 export const LOCKFILE_NAME = 'actions.lock' as const
 
 /**
+ * Names of the file that defines an action, in the order the runner looks for
+ * them.
+ */
+export const ACTION_MANIFESTS: readonly string[] = ['action.yml', 'action.yaml']
+
+/**
+ * Signals that stop the CLI from a terminal or a supervisor.
+ */
+export const STOP_SIGNALS = ['SIGINT', 'SIGTERM'] as const
+
+/**
+ * Exit codes shells report for a process that a stop signal ended.
+ */
+export const SIGNAL_EXIT_CODES: Readonly<
+  Record<(typeof STOP_SIGNALS)[number], number>
+> = { SIGTERM: 143, SIGINT: 130 }
+
+/**
  * Schema versions of the workflow lockfile this release reads. The format is
  * still before 1.0 and may change, so a file in any other version is not read
  * but treated as unreadable.

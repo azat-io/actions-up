@@ -1,9 +1,6 @@
 import type { HeldSignals } from '../types/held-signals'
 
-/**
- * Signals that stop the CLI from a terminal or a supervisor.
- */
-const STOP_SIGNALS = ['SIGINT', 'SIGTERM'] as const
+import { STOP_SIGNALS } from '../core/constants'
 
 /**
  * Milliseconds after the first signal during which the next ones are held back

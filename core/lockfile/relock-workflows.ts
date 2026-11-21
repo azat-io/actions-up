@@ -7,6 +7,7 @@ import type { LockFinding } from '../../types/lock-finding'
 import type { GhResult } from '../../types/gh-result'
 import type { LockPin } from '../../types/lock-pin'
 
+import { isRecord } from '../parsing/is-record'
 import { runGh } from './run-gh'
 
 /**
@@ -340,16 +341,6 @@ function readString(
 ): string | null {
   let value = entry[key]
   return typeof value === 'string' && value !== '' ? value : null
-}
-
-/**
- * Tell a JSON object apart from the other values a document can hold.
- *
- * @param value - Value read from the document.
- * @returns True when the value is an object.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

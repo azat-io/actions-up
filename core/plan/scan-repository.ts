@@ -1,5 +1,5 @@
 import { basename, dirname, resolve, join } from 'node:path'
-import { realpath, readlink } from 'node:fs/promises'
+import { readlink } from 'node:fs/promises'
 
 import type { WorkflowLockfile } from '../../types/workflow-lockfile'
 import type { LockedFile } from '../../types/locked-file'
@@ -13,6 +13,7 @@ import { findRepositoryRoot } from '../fs/find-repository-root'
 import { scanGitHubActions } from '../scan-github-actions'
 import { mergeScanResults } from './merge-scan-results'
 import { scanRecursive } from '../scan-recursive'
+import { toRealPath } from '../fs/to-real-path'
 
 /**
  * Everything a repository scan found.
@@ -238,18 +239,4 @@ async function findNames(file: string, links = 0): Promise<string[]> {
   return links < MAX_SYMBOLIC_LINKS ?
       [name, ...(await findNames(resolve(dirname(file), target), links + 1))]
     : [name]
-}
-
-/**
- * Resolve the symbolic links of a path.
- *
- * @param path - Absolute path.
- * @returns Real path, or the path as given when it cannot be resolved.
- */
-async function toRealPath(path: string): Promise<string> {
-  try {
-    return await realpath(path)
-  } catch {
-    return path
-  }
 }

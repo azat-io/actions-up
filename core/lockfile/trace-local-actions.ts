@@ -3,6 +3,7 @@ import { realpath, stat } from 'node:fs/promises'
 
 import { isMissingFileError } from '../fs/is-missing-file-error'
 import { readYamlDocument } from '../fs/read-yaml-document'
+import { ACTION_MANIFESTS } from '../constants'
 
 /**
  * Definition of an action of the repository.
@@ -26,12 +27,6 @@ interface Manifest {
    */
   path: string
 }
-
-/**
- * Names of the file that defines an action, in the order the runner looks for
- * them.
- */
-const ACTION_MANIFESTS = ['action.yml', 'action.yaml']
 
 /**
  * Names of the file that defines a Docker action on its own, without an action

@@ -1,3 +1,4 @@
+import { SIGNAL_EXIT_CODES, STOP_SIGNALS } from '../core/constants'
 import { isInteractiveTerminal } from './is-interactive-terminal'
 import { isUnicodeSupported } from './is-unicode-supported'
 import { countTerminalRows } from './count-terminal-rows'
@@ -47,15 +48,6 @@ const ERASE_LINE = '\u{1B}[2K\u{1B}[1G'
  * Moves the cursor one row up.
  */
 const MOVE_UP = '\u{1B}[1A'
-
-/**
- * Signals that end the process while the spinner runs, with the exit codes a
- * shell reports for them.
- */
-const SIGNAL_EXIT_CODES: [signal: NodeJS.Signals, code: number][] = [
-  ['SIGINT', 130],
-  ['SIGTERM', 143],
-]
 
 /**
  * Progress indicator shown while the CLI scans files and checks for updates.
@@ -164,7 +156,7 @@ export function createSpinner(
 
   let spinner: Spinner = {
     start() {
-      for (let [signal, code] of SIGNAL_EXIT_CODES) {
+      for (let signal of STOP_SIGNALS) {
         let listener: () => void
         /**
          * The listener is written right in the call: unicorn/no-process-exit
@@ -179,7 +171,7 @@ export function createSpinner(
               : `${colors.gray(waitText)}\n`,
             )
             if (exitOnSignal) {
-              process.exit(code)
+              process.exit(SIGNAL_EXIT_CODES[signal])
             }
           }),
         )
