@@ -3,7 +3,6 @@ import { relative } from 'node:path'
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
 import type { GitHubAction } from '../types/github-action'
-import type { HeldSignals } from '../types/held-signals'
 import type { CLIOptions } from './parse-arguments'
 import type { LockTool } from '../types/lock-tool'
 
@@ -14,22 +13,18 @@ import { normalizeUpdateStyle } from '../core/plan/normalize-update-style'
 import { normalizeUpdateMode } from '../core/plan/normalize-update-mode'
 import { createUpdatePlan } from '../core/plan/create-update-plan'
 import { printRateLimitWarning } from './print-rate-limit-warning'
-import { printUnwrittenWarning } from './print-unwritten-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
+import { applyRequestedUpdates } from './apply-requested-updates'
 import { normalizePatternList } from './normalize-pattern-list'
-import { writeUpdates } from '../core/ast/update/apply-updates'
 import { printUntracedWarning } from './print-untraced-warning'
 import { printLockfileWarning } from './print-lockfile-warning'
 import { findLockTool } from '../core/lockfile/find-lock-tool'
 import { scanRepository } from '../core/plan/scan-repository'
 import { printSkippedWarning } from './print-skipped-warning'
-import { regenerateLockfiles } from './regenerate-lockfiles'
 import { printMinAgeWarning } from './print-min-age-warning'
 import { validateCliOptions } from './validate-cli-options'
-import { ignoreOutputErrors } from './ignore-output-errors'
 import { printTrustWarning } from './print-trust-warning'
 import { printModeWarning } from './print-mode-warning'
-import { holdStopSignals } from './hold-stop-signals'
 import { colors } from '../core/interactive/colors'
 import { parseArguments } from './parse-arguments'
 import { createSpinner } from './create-spinner'
@@ -112,7 +107,6 @@ async function runUpdate(options: CLIOptions): Promise<void> {
   let json = options.json ?? false
   let quiet = options.quiet ?? false
   let spinner: ReturnType<typeof createSpinner> | null = null
-  let signals: HeldSignals | null = null
 
   try {
     let includeBranches = options.includeBranches ?? false
@@ -542,59 +536,8 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       requested = selected
     }
 
-    /**
-     * A stop signal waits for the writes and for the regeneration of the
-     * lockfiles they leave stale, so that the notices can name what it left
-     * undone, and so does an output that is gone, as when its reader quit. The
-     * workflow lockfiles that pin written entries are regenerated, and the
-     * files of a lockfile that could not be are put back when that is safe.
-     */
-    ignoreOutputErrors()
-    signals = holdStopSignals()
-    let { unwritten, files } = await writeUpdates(requested)
-    let written = requested.filter(update => !unwritten.includes(update))
-    let relock = await regenerateLockfiles(
-      planRelocks(lockedFiles, written),
-      files,
-      signals,
-    )
-    signals.release()
-
-    if (unwritten.length === 0 && relock.exitCode === 0) {
-      console.info(colors.green('\n✓ Updates applied successfully!'))
-      return
-    }
-
-    /**
-     * An entry the writer could not find where the scan reported it was not
-     * applied, and neither was one whose file was put back because its lockfile
-     * could not be regenerated, or could not be put back and may be cut short,
-     * so the run reports them and fails instead of claiming success. A signal
-     * that stopped the run is named, to explain its exit code.
-     */
-    let writtenCount = written.filter(
-      ({ action }) =>
-        !relock.restored.has(action.file!) &&
-        !relock.unrestored.has(action.file!),
-    ).length
-    if (writtenCount > 0) {
-      console.info(
-        colors.green(
-          `\n✓ ${writtenCount} of ${requested.length} ${pluralize(
-            requested.length,
-            'entry',
-            'entries',
-          )} applied`,
-        ),
-      )
-    }
-    printUnwrittenWarning(unwritten, requested.length)
-    if (signals.signal !== null) {
-      console.error(colors.yellow(`\n⚠️ Interrupted by ${signals.signal}`))
-    }
-    process.exitCode = Math.max(relock.exitCode, 1)
+    await applyRequestedUpdates(requested, lockedFiles)
   } catch (error) {
-    signals?.release()
     spinner?.error('Failed')
 
     /**

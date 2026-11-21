@@ -1,4 +1,4 @@
-import { realpath, readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { dirname, resolve, join } from 'node:path'
 
 import type { WorkflowLockfile } from '../../types/workflow-lockfile'
@@ -11,6 +11,7 @@ import {
 import { isMissingFileError } from '../fs/is-missing-file-error'
 import { traceLocalActions } from './trace-local-actions'
 import { parseLockfile } from './parse-lockfile'
+import { toRealPath } from '../fs/to-real-path'
 import { isYamlFile } from '../fs/is-yaml-file'
 
 /**
@@ -150,19 +151,5 @@ async function listWorkflows(directory: string): Promise<Set<string> | null> {
     )
   } catch {
     return null
-  }
-}
-
-/**
- * Resolve the symbolic links of a path.
- *
- * @param path - Absolute path.
- * @returns Real path, or the path as given when it cannot be resolved.
- */
-async function toRealPath(path: string): Promise<string> {
-  try {
-    return await realpath(path)
-  } catch {
-    return path
   }
 }
