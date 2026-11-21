@@ -558,6 +558,39 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
+    'names a workflow gh-actions-lock rewrote for a repository that moved, which keeps the lockfile regenerated',
+    async () => {
+      let renamed = makeWorkflowText([`my-org/checkout@${CHECKOUT_SHA}`])
+      await writeRepository({
+        [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
+        [LOCKFILE_KEY]: CI_LOCKFILE,
+      })
+      await arrangeGh({
+        writes: {
+          [LOCKFILE_KEY]: makeLockfileText({
+            dependencies: {
+              [`my-org/checkout@${CHECKOUT_SHA}`]: CHECKOUT_SHA,
+            },
+            workflows: { [CI_KEY]: [`my-org/checkout@${CHECKOUT_SHA}`] },
+          }),
+          [CI_KEY]: renamed,
+        },
+        report: makeReport(['my-org/checkout', CHECKOUT_SHA, CHECKOUT_SHA]),
+      })
+
+      await runCli('--yes')
+
+      expect(String(await readRepository(CI_KEY))).toBe(renamed)
+      expect(printedErrors()).toStrictEqual([
+        '⚠️ gh actions-lock also rewrote 1 file: a repository that moved is renamed in the workflow, which drops the comment of that line',
+        `   • ${CI_KEY}`,
+      ])
+      expect(printedLines().at(-1)).toBe('✓ Updates applied successfully!')
+      expect(process.exitCode).toBeUndefined()
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
     'regenerates the lockfile when standard error is gone once the files are being written',
     async () => {
       let gone = false

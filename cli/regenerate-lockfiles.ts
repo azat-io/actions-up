@@ -253,6 +253,29 @@ async function relockAndCheck(
         left: [],
       })
     }
+
+    /**
+     * Even without narrowing, the relock renames a repository that moved in the
+     * workflow, and the line it rewrites loses its comment, such as the version
+     * comment of a SHA, and its line break turns into LF. The files match the
+     * lockfile all the same, so the notice only names them.
+     */
+    let rewritten = await findRewritten(
+      written.filter(file => target.files.has(file.path)),
+    )
+    if (rewritten.length > 0) {
+      let pluralRules = new Intl.PluralRules('en-US', { type: 'cardinal' })
+      let noun =
+        pluralRules.select(rewritten.length) === 'one' ? 'file' : 'files'
+      printRelockNotice({
+        heading: `gh actions-lock also rewrote ${rewritten.length} ${noun}: a repository that moved is renamed in the workflow, which drops the comment of that line`,
+        details: rewritten.map(toDisplayPath),
+        unrestored: [],
+        command: null,
+        restored: [],
+        left: [],
+      })
+    }
     return { regenerated: true, unrestored: [], restored: [] }
   }
 
@@ -344,6 +367,25 @@ async function finish(
   })
 
   return { unrestored: failed.keys().toArray(), regenerated: false, restored }
+}
+
+/**
+ * Find the written files that hold other bytes than the ones written.
+ *
+ * @param files - Files the updater rewrote.
+ * @returns Paths of the files that hold something else now, in the given order;
+ *   a file that cannot be read is left out.
+ */
+async function findRewritten(files: WrittenFile[]): Promise<string[]> {
+  let rewritten = await Promise.all(
+    files.map(async ({ after, path }) => {
+      let bytes = await readBytes(path)
+      return bytes === null || bytes.equals(Buffer.from(after, 'utf8')) ?
+          []
+        : [path]
+    }),
+  )
+  return rewritten.flat()
 }
 
 /**
