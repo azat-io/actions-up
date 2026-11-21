@@ -14,10 +14,12 @@ import { colors } from '../core/interactive/colors'
  * leave stale, and say how it went.
  *
  * A stop signal waits for the writes and for the regeneration of the lockfiles
- * they leave stale, so that the notices can name what it left undone, and so
- * does an output that is gone, as when its reader quit. The workflow lockfiles
- * that pin written entries are regenerated, and the files of a lockfile that
- * could not be are put back when that is safe.
+ * they leave stale, so that the notices can name what it left undone. So does
+ * an output that is gone, as when its reader quit, once an update a workflow
+ * lockfile pins is to be written; without one, nothing is left stale, and such
+ * an output ends the run as it always did. The workflow lockfiles that pin
+ * written entries are regenerated, and the files of a lockfile that could not
+ * be are put back when that is safe.
  *
  * An entry the writer could not find where the scan reported it was not
  * applied, and neither was one whose file was put back because its lockfile
@@ -34,7 +36,9 @@ export async function applyRequestedUpdates(
   requested: ActionUpdate[],
   lockedFiles: Map<string, LockedFile[]>,
 ): Promise<void> {
-  ignoreOutputErrors()
+  if (planRelocks(lockedFiles, requested).length > 0) {
+    ignoreOutputErrors()
+  }
   let signals = holdStopSignals()
   let outcome: {
     relock: Awaited<ReturnType<typeof regenerateLockfiles>>
