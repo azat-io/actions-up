@@ -655,6 +655,41 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
+    'names a problem of a composite action the relock cannot fix, though it comes as a kind the relock fixes on its own',
+    async () => {
+      await writeRepository({
+        [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
+        [LOCKFILE_KEY]: CI_LOCKFILE,
+      })
+      await arrangeGh({
+        report: {
+          findings: [
+            {
+              detail:
+                'composite action rv/broken@v2.0.0: uses: rv/cache@v4@oops has more than one @; the Actions backend expects {owner}/{repo}[/path]@ref',
+              category: 'not-pinned',
+              confidence: 'high',
+              severity: 'error',
+              workflow: CI_KEY,
+            },
+          ],
+        },
+        status: 1,
+      })
+
+      await runCli('--yes')
+
+      expect(printedErrors()).toStrictEqual([
+        `⚠️ gh actions-lock did not regenerate ${LOCKFILE_KEY}: it found problems that block the lockfile`,
+        `   • ${CI_KEY}: composite action rv/broken@v2.0.0: uses: rv/cache@v4@oops has more than one @; the Actions backend expects {owner}/{repo}[/path]@ref (not-pinned)`,
+        '   Restored 1 file to match the lockfile again:',
+        `   • ${CI_KEY}`,
+      ])
+      expect(process.exitCode).toBe(1)
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
     'writes and relocks only the workflow that runs no action of the repository through ./',
     async () => {
       let release = makeWorkflowText([

@@ -33,7 +33,10 @@ const RELOCK_FLAGS = ['--no-onboard', '--no-narrow']
 
 /**
  * Kinds of finding a relock fixes on its own: a written reference the lockfile
- * does not pin yet, and a pin no workflow uses any longer.
+ * does not pin yet, and a pin no workflow uses any longer. Such a finding
+ * always names its dependency; one of these kinds that names none, such as a
+ * reference a composite action writes with more than one `@`, is something
+ * else.
  */
 const SELF_FIXED = new Set(['ref-changed', 'not-pinned', 'stale'])
 
@@ -196,8 +199,9 @@ function readRefusals(report: Record<string, unknown>): LockRefusal[] {
  * prints. A finding without a severity counts as blocking.
  *
  * A run that fails reports the lockfile as it was before the fix, so each
- * written reference shows up as a finding the relock would fix on its own. Such
- * findings are left out: they blame the update rather than what blocked it.
+ * written reference shows up as a finding the relock would fix on its own,
+ * naming the reference as its dependency. Such findings are left out: they
+ * blame the update rather than what blocked it.
  *
  * @param report - JSON the command printed.
  * @returns The blocking findings.
@@ -207,7 +211,7 @@ function readFindings(report: Record<string, unknown>): LockFinding[] {
     let category = readString(finding, 'category') ?? ''
     if (
       (finding['severity'] ?? 'error') !== 'error' ||
-      SELF_FIXED.has(category)
+      (SELF_FIXED.has(category) && readString(finding, 'dependency') !== null)
     ) {
       return []
     }
