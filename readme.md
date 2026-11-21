@@ -308,7 +308,7 @@ updating to the latest resolved SHA and are never converted to tags.
 Actions Up updates actions pinned by a
 [workflow lockfile](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles)
 and regenerates it with
-[gh actions-lock](https://github.com/github/gh-actions-lock) v0.3.0 or later.
+[gh actions-lock](https://github.com/github/gh-actions-lock) v0.5.0 or later.
 Without it, such updates are skipped. So are updates in workflows that run local
 actions only through `./`, which gh actions-lock does not lock, and in those
 actions.

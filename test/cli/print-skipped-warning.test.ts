@@ -265,7 +265,7 @@ describe('printSkippedWarning', () => {
     ] as const,
     [
       'outdated',
-      'run gh extension upgrade gh-actions-lock to update them; v0.3.0 or later is needed',
+      'run gh extension upgrade gh-actions-lock --force to update them; v0.5.0 or later is needed',
     ] as const,
     [
       'no-gh',
