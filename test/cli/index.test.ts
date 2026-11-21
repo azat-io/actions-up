@@ -2821,6 +2821,70 @@ describe('run', () => {
       })
     })
 
+    it.each([
+      {
+        line: '1 update pinned by a workflow lockfile was skipped',
+        identifiers: ['   • actions/checkout@v3'],
+        updates: [makeUpdate(makeAction())],
+        notice: LOCKFILE_NOTICE,
+      },
+      {
+        updates: [
+          makeUpdate(makeAction()),
+          makeUpdate(makeAction({ name: 'actions/setup-node', line: 20 })),
+        ],
+        identifiers: ['   • actions/checkout@v3', '   • actions/setup-node@v3'],
+        line: '2 updates pinned by a workflow lockfile were skipped',
+        notice: LOCKFILE_NOTICE.replace('1 action', '2 actions'),
+      },
+    ])(
+      'says that $line instead of claiming that everything is up to date',
+      async ({ identifiers, updates, notice, line }) => {
+        arrangeRun({ updates })
+        arrangeLockfile()
+
+        await runCli('--yes')
+
+        expect(spinnerResults()).toContain('No updates to apply')
+        expect(printedLines()).toStrictEqual([
+          BANNER,
+          notice,
+          ...identifiers,
+          line,
+        ])
+        expect(writeUpdates).not.toHaveBeenCalled()
+        expect(process.exitCode).toBeUndefined()
+      },
+    )
+
+    it('names a workflow it cannot trace, on stderr, unless the lockfile cannot be read anyway or the report is JSON', async () => {
+      arrangeRun({ updates: [makeUpdate(makeAction())] })
+      vi.mocked(readEnclosingLockfiles).mockResolvedValue([
+        makeWorkflowLockfile({
+          workflows: new Set([WORKFLOW_FILE]),
+          unreadable: RELEASE_WORKFLOW_FILE,
+          reached: null,
+        }),
+        makeWorkflowLockfile({
+          path: '/repo/vendor/tool/.github/workflows/actions.lock',
+          unreadable: '/repo/vendor/tool/.github/workflows/ci.yml',
+          root: '/repo/vendor/tool',
+          error: 'invalid YAML',
+          version: null,
+          reached: null,
+          keys: null,
+        }),
+      ])
+
+      await runCli('--yes')
+      await runCli('--json')
+
+      expect(printedWarnings()).toStrictEqual([
+        '⚠️  .github/workflows/release.yml cannot be read, so the updates pinned by .github/workflows/actions.lock are skipped',
+        '⚠️  vendor/tool/.github/workflows/actions.lock cannot be read (invalid YAML), so the updates of every workflow next to it and of the actions they run are skipped',
+      ])
+    })
+
     it('looks for gh-actions-lock only when a lockfile that can be regenerated pins an entry', async () => {
       arrangeRun({ updates: [makeUpdate(makeAction())] })
       arrangeLockfile({ error: 'invalid YAML', version: null, keys: null })
@@ -2923,6 +2987,7 @@ describe('run', () => {
             skipReason: 'lockfile',
           },
         ],
+        status: 'up-to-date',
         lockTool: 'missing',
         updates: [],
       })

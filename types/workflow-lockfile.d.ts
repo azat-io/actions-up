@@ -34,6 +34,14 @@ export interface WorkflowLockfile {
   workflows: Set<string> | null
 
   /**
+   * Absolute path of the first tracked workflow, or definition of an action of
+   * the repository such a workflow runs, that could not be read, which leaves
+   * `reached` null; null when every one could, or when the workflows could not
+   * even be listed.
+   */
+  unreadable: string | null
+
+  /**
    * Schema version the file names, null when it names none.
    */
   version: string | null

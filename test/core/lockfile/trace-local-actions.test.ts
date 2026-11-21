@@ -101,7 +101,7 @@ describe('traceLocalActions', () => {
       [LINT_ACTION]: makeActionText('actions/cache@v4'),
     })
 
-    let reached = await traceLocalActions(
+    let { reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, DOCS_WORKFLOW, CI_WORKFLOW]),
     )
@@ -130,7 +130,7 @@ describe('traceLocalActions', () => {
       [LINT_ACTION]: makeActionText('actions/cache@v4'),
     })
 
-    let reached = await traceLocalActions(
+    let { reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, DOCS_WORKFLOW, CI_WORKFLOW]),
     )
@@ -157,7 +157,10 @@ describe('traceLocalActions', () => {
       [SETUP_ACTION]: makeActionText('$/tools/lint'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([RELEASE_WORKFLOW]))
+    let { reached } = await traceLocalActions(
+      '/repo',
+      new Set([RELEASE_WORKFLOW]),
+    )
 
     expect(reached).toStrictEqual(
       new Map([[LINT_ACTION, new Map([[RELEASE_WORKFLOW, false]])]]),
@@ -171,7 +174,7 @@ describe('traceLocalActions', () => {
       [LINT_ACTION]: makeActionText('actions/cache@v4'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
     expect(reached).toStrictEqual(
       new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, false]])]]),
@@ -194,7 +197,7 @@ describe('traceLocalActions', () => {
       '/repo/tools/container/Dockerfile': 'FROM alpine:3\n',
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
     expect(reached).toStrictEqual(
       new Map([
@@ -215,7 +218,7 @@ describe('traceLocalActions', () => {
       [SETUP_ACTION]: makeActionText('$/tools/lint'),
     })
 
-    let reached = await traceLocalActions(
+    let { reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
     )
@@ -245,7 +248,7 @@ describe('traceLocalActions', () => {
         [CI_WORKFLOW]: makeWorkflowText(...references),
       })
 
-      let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
       expect(reached).toStrictEqual(
         new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, true]])]]),
@@ -266,7 +269,7 @@ describe('traceLocalActions', () => {
         [SETUP_ACTION]: makeActionText('$/tools/lint'),
       })
 
-      let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
       expect(reached?.get(LINT_ACTION)).toStrictEqual(
         new Map([[CI_WORKFLOW, true]]),
@@ -281,7 +284,7 @@ describe('traceLocalActions', () => {
       [SETUP_ACTION]: makeActionText('$/'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
     expect(reached).toStrictEqual(
       new Map([
@@ -298,7 +301,7 @@ describe('traceLocalActions', () => {
       [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
     expect(reached).toStrictEqual(
       new Map([
@@ -344,7 +347,7 @@ describe('traceLocalActions', () => {
       [CI_WORKFLOW]: text,
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
     expect(reached).toStrictEqual(new Map([[SETUP_ACTION, recording]]))
   })
@@ -362,7 +365,7 @@ describe('traceLocalActions', () => {
       '/outside/action.yml': makeActionText('actions/cache@v4'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
     expect(reached).toStrictEqual(new Map())
   })
@@ -372,7 +375,7 @@ describe('traceLocalActions', () => {
       [RELEASE_WORKFLOW]: makeWorkflowText('actions/checkout@v4'),
     })
 
-    let reached = await traceLocalActions(
+    let { reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
     )
@@ -401,12 +404,12 @@ describe('traceLocalActions', () => {
         [CI_WORKFLOW]: entry,
       })
 
-      let reached = await traceLocalActions(
+      let traced = await traceLocalActions(
         '/repo',
         new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
       )
 
-      expect(reached).toBeNull()
+      expect(traced).toStrictEqual({ unreadable: CI_WORKFLOW, reached: null })
     },
   )
 
@@ -427,9 +430,9 @@ describe('traceLocalActions', () => {
       : lookUp(path),
     )
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toBeNull()
+    expect(traced).toStrictEqual({ unreadable: SETUP_ACTION, reached: null })
   })
 
   it.each([
@@ -456,9 +459,9 @@ describe('traceLocalActions', () => {
         [SETUP_ACTION]: entry,
       })
 
-      let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-      expect(reached).toBeNull()
+      expect(traced).toStrictEqual({ unreadable: SETUP_ACTION, reached: null })
     },
   )
 })

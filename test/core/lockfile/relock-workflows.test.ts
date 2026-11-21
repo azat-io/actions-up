@@ -367,7 +367,7 @@ describe('relockWorkflows', () => {
       relockWorkflows(makeWorkflowLockfile(), ['.github/workflows/ci.yml']),
     ).resolves.toStrictEqual({
       reason:
-        'planning pins: cannot rewrite actions/old-name during a partial workflow scan',
+        'planning pins: cannot rewrite actions/old-name during a partial workflow scan (exit code 2)',
       kind: 'failed',
       findings: [],
     })
@@ -404,7 +404,39 @@ describe('relockWorkflows', () => {
       relockWorkflows(makeWorkflowLockfile(), ['.github/workflows/ci.yml']),
     ).resolves.toStrictEqual({
       reason:
-        'failed to run extension: fork/exec /home/me/.local/share/gh/extensions/gh-actions-lock/gh-actions-lock: exec format error',
+        'failed to run extension: fork/exec /home/me/.local/share/gh/extensions/gh-actions-lock/gh-actions-lock: exec format error (exit code 1)',
+      kind: 'failed',
+      findings: [],
+    })
+  })
+
+  it('reports the progress a stopped tool wrote last with its exit code, so that it does not read as the cause', async () => {
+    vi.mocked(runGh).mockResolvedValue(
+      makeGhResult({ stderr: 'Scanning 1 workflow\n', exitCode: 2 }),
+    )
+
+    await expect(
+      relockWorkflows(makeWorkflowLockfile(), ['.github/workflows/ci.yml']),
+    ).resolves.toStrictEqual({
+      reason: 'Scanning 1 workflow (exit code 2)',
+      kind: 'failed',
+      findings: [],
+    })
+  })
+
+  it('reports gh-actions-lock as not installed when gh no longer knows the command', async () => {
+    vi.mocked(runGh).mockResolvedValue(
+      makeGhResult({
+        stderr:
+          'unknown command "actions-lock" for "gh"\n\nWork seamlessly with GitHub from the command line.\n\nLEARN MORE\n  Learn about accessibility experiences using `gh help accessibility`\n',
+        exitCode: 1,
+      }),
+    )
+
+    await expect(
+      relockWorkflows(makeWorkflowLockfile(), ['.github/workflows/ci.yml']),
+    ).resolves.toStrictEqual({
+      reason: 'gh-actions-lock is not installed',
       kind: 'failed',
       findings: [],
     })
@@ -424,7 +456,7 @@ describe('relockWorkflows', () => {
       relockWorkflows(makeWorkflowLockfile(), ['.github/workflows/ci.yml']),
     ).resolves.toStrictEqual({
       reason:
-        'opening lockfile: lockfile version v0.0.9 is newer than supported',
+        'opening lockfile: lockfile version v0.0.9 is newer than supported (exit code 2)',
       kind: 'failed',
       findings: [],
     })

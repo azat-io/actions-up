@@ -18,6 +18,7 @@ export function makeWorkflowLockfile(
     path: '/repo/.github/workflows/actions.lock',
     reached: new Map(),
     version: 'v0.0.3',
+    unreadable: null,
     root: '/repo',
     ...overrides,
   }

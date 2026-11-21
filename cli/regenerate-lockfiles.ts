@@ -140,9 +140,11 @@ async function relockAndCheck(
 
   /**
    * A signal does not end the process here, so that the notice can say what
-   * became of the files.
+   * became of the files; until `gh` is done, a line says what the run waits
+   * for.
    */
   let spinner = createSpinner(`Regenerating ${lockfile}...`, {
+    waitText: 'Waiting for gh actions-lock to finish...',
     exitOnSignal: false,
   }).start()
   let result = await relockWorkflows(target.lockfile, target.workflows)

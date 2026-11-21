@@ -41,6 +41,12 @@ const RELOCK_FLAGS = ['--no-onboard', '--no-narrow']
 const SELF_FIXED = new Set(['ref-changed', 'not-pinned', 'stale'])
 
 /**
+ * Start of what `gh` writes to standard error for a command it does not know,
+ * as for gh-actions-lock once it is uninstalled.
+ */
+const UNKNOWN_COMMAND = 'unknown command "actions-lock"'
+
+/**
  * Matches a path that a POSIX shell reads as it is written.
  */
 const PLAIN_PATH = /^[\w\-./]+$/u
@@ -231,6 +237,43 @@ function readFindings(report: Record<string, unknown>): LockFinding[] {
 }
 
 /**
+ * Say in one line why gh-actions-lock did not regenerate the lockfile.
+ *
+ * A run that blocked on findings says so, since standard error then holds only
+ * its progress. A `gh` that no longer knows the extension, which was found
+ * before the run, says it is not installed. Otherwise the tool, or `gh`, failed
+ * for itself, and the last line it wrote to standard error says why, with the
+ * exit code, as that line may be progress the tool wrote before it was
+ * stopped.
+ *
+ * @param result - How the command ended.
+ * @param blocked - Whether the run blocked on findings it reported.
+ * @returns The reason.
+ */
+function describeFailure(result: GhResult, blocked: boolean): string {
+  if (!result.started) {
+    return 'gh could not be started'
+  }
+
+  if (blocked) {
+    return 'it found problems that block the lockfile'
+  }
+
+  if (result.stderr.startsWith(UNKNOWN_COMMAND)) {
+    return 'gh-actions-lock is not installed'
+  }
+
+  let lastLine = result.stderr
+    .split('\n')
+    .map(line => line.trim())
+    .findLast(line => line !== '')
+
+  return lastLine === undefined ?
+      `it exited with code ${result.exitCode}`
+    : `${lastLine} (exit code ${result.exitCode})`
+}
+
+/**
  * Read what a regenerated lockfile pins from the JSON gh-actions-lock prints.
  *
  * @param report - JSON the command printed.
@@ -251,34 +294,6 @@ function readPins(report: Record<string, unknown>): LockPin[] {
         ]
       : []
   })
-}
-
-/**
- * Say in one line why gh-actions-lock did not regenerate the lockfile.
- *
- * A run that blocked on findings says so, since standard error then holds only
- * its progress. Otherwise the tool, or `gh`, failed for itself, and the last
- * line it wrote to standard error says why.
- *
- * @param result - How the command ended.
- * @param blocked - Whether the run blocked on findings it reported.
- * @returns The reason.
- */
-function describeFailure(result: GhResult, blocked: boolean): string {
-  if (!result.started) {
-    return 'gh could not be started'
-  }
-
-  if (blocked) {
-    return 'it found problems that block the lockfile'
-  }
-
-  let lastLine = result.stderr
-    .split('\n')
-    .map(line => line.trim())
-    .findLast(line => line !== '')
-
-  return lastLine ?? `it exited with code ${result.exitCode}`
 }
 
 /**
