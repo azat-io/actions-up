@@ -558,6 +558,47 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
+    'regenerates the lockfile when standard error is gone once the files are being written',
+    async () => {
+      let gone = false
+      consoleInfoSpy.mockImplementation(text => {
+        gone ||= String(text).includes('Updating')
+      })
+      stderrWriteSpy.mockImplementation(() => {
+        if (gone) {
+          process.stderr.emit(
+            'error',
+            Object.assign(new Error('write EPIPE'), {
+              syscall: 'write',
+              code: 'EPIPE',
+            }),
+          )
+        }
+        return true
+      })
+      await writeRepository({
+        [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
+        [LOCKFILE_KEY]: CI_LOCKFILE,
+      })
+      await arrangeGh({
+        report: makeReport(['actions/checkout', CHECKOUT_SHA, CHECKOUT_SHA]),
+        writes: { [LOCKFILE_KEY]: RELOCKED_CI_LOCKFILE },
+      })
+
+      await runCli('--yes')
+
+      expect(String(await readRepository(CI_KEY))).toBe(
+        makeWorkflowText([UPDATED_CHECKOUT]),
+      )
+      await expect(readRepository(LOCKFILE_KEY)).resolves.toStrictEqual(
+        Buffer.from(RELOCKED_CI_LOCKFILE),
+      )
+      expect(spinnerLines()).toContain(`- Regenerating ${LOCKFILE_KEY}...`)
+      expect(process.exitCode).toBeUndefined()
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
     'puts back a workflow whose lockfile gh-actions-lock reports as regenerated but leaves as it was',
     async () => {
       let workflow = makeWorkflowText(['actions/checkout@v3'])
