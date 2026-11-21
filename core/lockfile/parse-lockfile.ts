@@ -89,7 +89,12 @@ export function parseLockfile(text: string): LockfileParseResult {
                 isRecord(pin) &&
                 typeof pin['commit'] === 'string'
             ) ?
-              [[normalized, pin['commit'].replace(/^sha1-/u, '').toLowerCase()]]
+              [
+                [
+                  normalized,
+                  pin['commit'].replace(/^sha(?:1|256)-/u, '').toLowerCase(),
+                ],
+              ]
             : []
         },
       ),

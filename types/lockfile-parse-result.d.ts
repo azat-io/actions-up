@@ -5,8 +5,8 @@
 export type LockfileParseResult =
   | {
       /**
-       * Commit each pin resolves to, in lower case and without the `sha1-`
-       * prefix the file writes it with, by the key of the pin:
+       * Commit each pin resolves to, in lower case and without the `sha1-` or
+       * `sha256-` prefix the file writes it with, by the key of the pin:
        * `owner/repo@ref`, with the repository in lower case.
        */
       commits: Map<string, string>
