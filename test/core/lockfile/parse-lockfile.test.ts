@@ -7,6 +7,12 @@ const CHECKOUT_SHA = '11d5960a326750d5838078e36cf38b85af677262'
 
 const CACHE_SHA = '0057852bfaa89a56745cba8c7296529d2fc39830'
 
+/**
+ * Commit of a repository in the SHA-256 object format.
+ */
+const SHA256_COMMIT =
+  '3c4f1d2e5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d'
+
 describe('parseLockfile', () => {
   it.each(['v0.0.2', 'v0.0.3'])(
     'reads the tracked workflows of a %s lockfile',
@@ -85,6 +91,8 @@ describe('parseLockfile', () => {
         '        commit: 4',
         "    'actions/upload-artifact@v4':",
         `        commit: '${CACHE_SHA.toUpperCase()}'`,
+        "    'my-org/tool@v1':",
+        `        commit: 'sha256-${SHA256_COMMIT}'`,
         "    'a key without a reference':",
         `        commit: 'sha1-${CHECKOUT_SHA}'`,
         '',
@@ -95,6 +103,7 @@ describe('parseLockfile', () => {
       commits: new Map([
         ['actions/checkout@V4.4.0', CHECKOUT_SHA],
         ['actions/upload-artifact@v4', CACHE_SHA],
+        ['my-org/tool@v1', SHA256_COMMIT],
       ]),
       pins: new Map([
         ['.github/workflows/ci.yml', ['actions/checkout@V4.4.0']],
