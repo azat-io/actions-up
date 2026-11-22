@@ -1,6 +1,7 @@
 import { relative } from 'node:path'
 
 import type { JsonReportStatus } from './build-json-report'
+import type { GitHubClient } from '../types/github-client'
 import type { ActionUpdate } from '../types/action-update'
 import type { CLIOptions } from './parse-arguments'
 import type { LockTool } from '../types/lock-tool'
@@ -290,18 +291,21 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
     /**
      * A relock keeps the commit the lockfile already pins for the reference an
-     * update writes, so an update that would move its workflow back to such a
-     * commit is not written, though the lockfile could be regenerated.
+     * update writes. When that is another commit than the checked one, the
+     * update is written only if its workflow runs that commit already or GitHub
+     * finds it newer than the one the workflow runs, though the lockfile could
+     * be regenerated either way.
      */
     let plan = await createUpdatePlan(scanResult, {
       canRelock:
         lockTool === 'available' ?
-          (update: ActionUpdate) => {
+          async (update: ActionUpdate, client: GitHubClient) => {
             let lockfile = relockableFiles.get(update.action.file!)
             if (!lockfile) {
               return false
             }
-            return movesWorkflowBack(update, lockfile) ? 'kept' : true
+            let back = await movesWorkflowBack(update, lockfile, client)
+            return back ? 'kept' : true
           }
         : undefined,
       token: process.env['GITHUB_TOKEN'],
@@ -394,11 +398,14 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
     if (outdated.length === 0) {
       /**
-       * Updates a workflow lockfile pins may be left to apply, so the run does
-       * not claim that everything is up to date while it skipped them.
+       * Updates a workflow lockfile pins may be left to apply, those a relock
+       * could move back among them, so the run does not claim that everything
+       * is up to date while it skipped them.
        */
       let lockfileSkipped = skipped.filter(
-        update => update.skipReason === 'lockfile',
+        update =>
+          update.skipReason === 'lockfile' ||
+          update.skipReason === 'lockfile-kept',
       ).length
       spinner?.success(
         lockfileSkipped > 0 ?

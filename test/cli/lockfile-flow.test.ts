@@ -1,4 +1,4 @@
-import type { MockInstance } from 'vitest'
+import type { MockInstance, Mock } from 'vitest'
 
 import {
   writeFile,
@@ -170,6 +170,35 @@ if [ -d "$dir/writes" ]; then cp -R "$dir/writes/." .; fi
 if [ -e "$dir/report" ]; then cat "$dir/report"; fi
 exit "$(cat "$dir/status")"
 `
+
+/**
+ * Comparison of commits, answered the way GitHub compares them, for a
+ * repository in which the given commits follow one another on the default
+ * branch, oldest first: a commit compared with an earlier one of them is
+ * `ahead` of it, and one compared with a later one is `behind` it. Any other
+ * comparison finds the commit in the history of the base, as the trust checks
+ * ask about the default branch.
+ *
+ * @param history - Commits in the order they were made.
+ * @returns Mock of the comparison.
+ */
+function compareInHistory(
+  history: string[],
+): Mock<GitHubClient['compareCommits']> {
+  return vi.fn<GitHubClient['compareCommits']>(
+    (_owner, _repository, { base, head }) => {
+      let from = history.indexOf(base)
+      let to = history.indexOf(head)
+      if (from === -1 || to === -1) {
+        return Promise.resolve('behind')
+      }
+      if (from === to) {
+        return Promise.resolve('identical')
+      }
+      return Promise.resolve(from < to ? 'ahead' : 'behind')
+    },
+  )
+}
 
 /**
  * Update check answer for a scanned action of a repository `LATEST` knows.
@@ -625,13 +654,13 @@ describe('lockfile flow', () => {
       await expect(readGhCalls()).resolves.toStrictEqual([])
       expect(printedLines()).toStrictEqual([
         '🚀 Actions Up!',
-        '⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, at an older commit for other workflows',
+        '⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs',
         '   • actions/checkout@v4.2.2',
         '   This moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:',
         `   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- ${RELEASE_KEY}`,
         '⚠️  Skipped 1 action pinned by a workflow lockfile to a commit that was not compared with the latest version (gh actions-lock --relock moves such pins forward)',
         '   • actions/checkout@v4',
-        '✨ Everything is already at the latest version!',
+        '1 update pinned by a workflow lockfile was skipped',
       ])
       expect(printedErrors()).toStrictEqual([])
       expect(process.exitCode).toBeUndefined()
@@ -639,21 +668,115 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
-    'writes an upgrade to a floating tag the lockfile pins at an older commit for another workflow, and says how to move that pin forward',
+    'skips an upgrade to a floating tag the lockfile pins for another workflow at a commit older than the one the workflow runs, without running gh',
     async () => {
-      let olderSha = '692973e3d937129bcbf40652eb9f2f61becf3332'
+      /**
+       * Commits of checkout, oldest first: the release workflow pinned `v4` at
+       * the first, the CI workflow pinned `v4.2.1` at the second, and `v4.2.2`,
+       * the latest version, points at the third, as `v4` does now.
+       */
+      let floatingSha = '692973e3d937129bcbf40652eb9f2f61becf3332'
+      let runningSha = 'eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871'
+      let compareCommits = compareInHistory([
+        floatingSha,
+        runningSha,
+        CHECKOUT_SHA,
+      ])
+      let ci = makeWorkflowText(['actions/checkout@v4.2.1'])
+      let lockfile = makeLockfileText({
+        workflows: {
+          [RELEASE_KEY]: ['actions/checkout@v4'],
+          [CI_KEY]: ['actions/checkout@v4.2.1'],
+        },
+        dependencies: {
+          'actions/checkout@v4.2.1': runningSha,
+          'actions/checkout@v4': floatingSha,
+        },
+      })
+      await writeRepository({
+        [RELEASE_KEY]: makeWorkflowText(['actions/checkout@v4']),
+        [LOCKFILE_KEY]: lockfile,
+        [CI_KEY]: ci,
+      })
+      await arrangeGh({
+        writes: {
+          [LOCKFILE_KEY]: makeLockfileText({
+            workflows: {
+              [RELEASE_KEY]: ['actions/checkout@v4'],
+              [CI_KEY]: ['actions/checkout@v4'],
+            },
+            dependencies: { 'actions/checkout@v4': floatingSha },
+          }),
+        },
+        report: makeReport(['actions/checkout', 'v4', floatingSha]),
+      })
+      vi.mocked(createGitHubClient).mockReturnValue(
+        createMockClient({
+          getBranchTipAt: vi
+            .fn<GitHubClient['getBranchTipAt']>()
+            .mockResolvedValue({
+              sha: 'f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a',
+              since: new Date(ON_BRANCH_SINCE),
+            }),
+          getTagSha: vi.fn<GitHubClient['getTagSha']>(
+            (_owner, _repository, tag) =>
+              Promise.resolve(
+                tag === 'v4' || tag === 'v4.2.2' ? CHECKOUT_SHA : null,
+              ),
+          ),
+          compareCommits,
+        }),
+      )
+
+      await runCli('--yes', '--style', 'semver')
+
+      expect(String(await readRepository(CI_KEY))).toBe(ci)
+      expect(String(await readRepository(LOCKFILE_KEY))).toBe(lockfile)
+      await expect(readGhCalls()).resolves.toStrictEqual([])
+      expect(compareCommits).toHaveBeenCalledWith('actions', 'checkout', {
+        head: floatingSha,
+        base: runningSha,
+      })
+      expect(printedLines()).toStrictEqual([
+        '🚀 Actions Up!',
+        '⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs',
+        '   • actions/checkout@v4.2.1',
+        '   This moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:',
+        `   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- ${RELEASE_KEY}`,
+        '⚠️  Skipped 1 action pinned by a workflow lockfile to a commit that was not compared with the latest version (gh actions-lock --relock moves such pins forward)',
+        '   • actions/checkout@v4',
+        '1 update pinned by a workflow lockfile was skipped',
+      ])
+      expect(printedErrors()).toStrictEqual([])
+      expect(process.exitCode).toBeUndefined()
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'writes an upgrade to a floating tag the lockfile pins for another workflow at a commit newer than the one the workflow runs, though not the checked one, and says how to move that pin forward',
+    async () => {
+      /**
+       * Commit the release workflow pinned `v4` at, after the one the lockfile
+       * pins `v3` at for the CI workflow and before the latest version.
+       */
+      let floatingSha = '692973e3d937129bcbf40652eb9f2f61becf3332'
+      let compareCommits = compareInHistory([
+        RECORDED_CHECKOUT_SHA,
+        floatingSha,
+        CHECKOUT_SHA,
+      ])
       let relocked = makeLockfileText({
         workflows: {
           [RELEASE_KEY]: ['actions/checkout@v4'],
           [CI_KEY]: ['actions/checkout@v4'],
         },
-        dependencies: { 'actions/checkout@v4': olderSha },
+        dependencies: { 'actions/checkout@v4': floatingSha },
       })
       await writeRepository({
         [LOCKFILE_KEY]: makeLockfileText({
           dependencies: {
             'actions/checkout@v3': RECORDED_CHECKOUT_SHA,
-            'actions/checkout@v4': olderSha,
+            'actions/checkout@v4': floatingSha,
           },
           workflows: {
             [RELEASE_KEY]: ['actions/checkout@v4'],
@@ -664,7 +787,7 @@ describe('lockfile flow', () => {
         [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
       })
       await arrangeGh({
-        report: makeReport(['actions/checkout', 'v4', olderSha]),
+        report: makeReport(['actions/checkout', 'v4', floatingSha]),
         writes: { [LOCKFILE_KEY]: relocked },
       })
       vi.mocked(createGitHubClient).mockReturnValue(
@@ -675,12 +798,10 @@ describe('lockfile flow', () => {
               sha: 'f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a',
               since: new Date(ON_BRANCH_SINCE),
             }),
-          compareCommits: vi
-            .fn<GitHubClient['compareCommits']>()
-            .mockResolvedValue('behind'),
           getTagSha: vi
             .fn<GitHubClient['getTagSha']>()
             .mockResolvedValue(CHECKOUT_SHA),
+          compareCommits,
         }),
       )
 
@@ -693,6 +814,10 @@ describe('lockfile flow', () => {
       expect((await readGhCalls()).map(({ args }) => args)).toStrictEqual([
         [...RELOCK_ARGUMENTS, CI_KEY],
       ])
+      expect(compareCommits).toHaveBeenCalledWith('actions', 'checkout', {
+        base: RECORDED_CHECKOUT_SHA,
+        head: floatingSha,
+      })
       expect(printedErrors()).toStrictEqual([
         `⚠️ gh actions-lock kept earlier pins in ${LOCKFILE_KEY}`,
         `   • actions/checkout@v4 stays pinned to 692973e, which the lockfile pinned before, not to the checked b4ffde6; this moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:\n     GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- ${CI_KEY}`,

@@ -2711,12 +2711,13 @@ describe('run', () => {
         expect(regenerateLockfiles).not.toHaveBeenCalled()
         expect(printedLines()).toStrictEqual([
           BANNER,
-          '⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, at an older commit for other workflows',
+          '⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs',
           '   • actions/checkout@v4.2.2',
           '   This moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:',
           '   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- .github/workflows/release.yml',
-          UP_TO_DATE,
+          '1 update pinned by a workflow lockfile was skipped',
         ])
+        expect(spinnerResults()).toContain('No updates to apply')
         expect(readJsonReport()).toMatchObject({
           skipped: [
             {

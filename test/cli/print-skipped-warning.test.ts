@@ -67,7 +67,7 @@ function makeSkipped({
 const CI_WORKFLOW = '/repo/.github/workflows/ci.yml'
 
 /**
- * What follows the entries whose update would move the workflow back, up to the
+ * What follows the entries whose update may move the workflow back, up to the
  * command that moves the pin forward.
  */
 const MOVE_PIN =
@@ -430,11 +430,11 @@ describe('printSkippedWarning', () => {
       )
 
       expect(consoleInfoSpy.printedText()).toBe(
-        '\n⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, at an older commit for other workflows\n' +
+        '\n⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs\n' +
           '   • actions/checkout@v4.2.2 (×2)\n' +
           `${MOVE_PIN}\n` +
           `${RELOCK_COMMAND} .github/workflows/deploy.yml .github/workflows/release.yml\n` +
-          '\n⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/cache@v4, the reference it writes, at an older commit for other workflows\n' +
+          '\n⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins actions/cache@v4, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs\n' +
           '   • actions/cache@v4.2.3\n' +
           `${MOVE_PIN}\n` +
           `${RELOCK_COMMAND} .github/workflows/release.yml`,
@@ -476,7 +476,7 @@ describe('printSkippedWarning', () => {
       )
 
       expect(consoleInfoSpy.printedText()).toBe(
-        '\n⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins GitHub/CodeQL-Action@v3, the reference it writes, at an older commit for other workflows\n' +
+        '\n⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins GitHub/CodeQL-Action@v3, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs\n' +
           '   • GitHub/CodeQL-Action/init@v3.28.0\n' +
           `${MOVE_PIN}\n` +
           '   (cd -P ./vendor/tool && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- .github/workflows/release.yml)',
@@ -502,7 +502,7 @@ describe('printSkippedWarning', () => {
       )
 
       expect(consoleInfoSpy.printedText()).toBe(
-        '\n⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/setup-node@v4, the reference it writes, at an older commit for other workflows\n' +
+        '\n⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins actions/setup-node@v4, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs\n' +
           '   • actions/setup-node@v4.4.0',
       )
     })
@@ -533,7 +533,7 @@ describe('printSkippedWarning', () => {
       expect(consoleInfoSpy.printedText()).toBe(
         '\n⚠️  Skipped 1 action pinned by a workflow lockfile\n' +
           '   • actions/upload-artifact@v3\n' +
-          '\n⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, at an older commit for other workflows\n' +
+          '\n⚠️  Skipped 1 action whose update may move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs\n' +
           '   • actions/checkout@v4.2.2\n' +
           `${MOVE_PIN}\n` +
           `${RELOCK_COMMAND} .github/workflows/deploy.yml .github/workflows/release.yml\n` +

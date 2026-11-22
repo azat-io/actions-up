@@ -24,11 +24,13 @@ export interface ActionUpdate {
    * actions through `./` alone. `lockfile-kept` means the CLI could regenerate
    * the lockfile, but it already pins the reference the update writes, as for
    * another workflow, at another commit than the checked one, which the relock
-   * keeps, while the workflow runs the checked commit already: writing the
-   * update would move the workflow back. `planUpdates` never reports it.
-   * `lockfile-unchecked` means the tag the reference names already points at
-   * the latest version, but the lockfile may pin an older commit of it, which
-   * Actions Up does not read.
+   * keeps, and that commit is not known to be newer than the one the workflow
+   * runs: GitHub did not find it newer, the workflow runs the checked commit
+   * already, or the commit it runs is unknown. Writing the update could move
+   * the workflow back. `planUpdates` never reports it. `lockfile-unchecked`
+   * means the tag the reference names already points at the latest version, but
+   * the lockfile may pin an older commit of it, which Actions Up does not
+   * read.
    */
   skipReason?:
     | 'reachability-unknown'

@@ -332,7 +332,7 @@ describe('createUpdatePlan', () => {
         file: '/repo/.github/workflows/release.yml',
         line: 6,
       })
-      let canRelock = vi.fn(() => true)
+      let canRelock = vi.fn(() => Promise.resolve(true))
 
       let result = await plan([locked, other], { canRelock })
 
@@ -349,7 +349,35 @@ describe('createUpdatePlan', () => {
           targetRef: RELEASE_SHA,
           action: locked,
         }),
+        expect.any(Object),
       )
+    })
+
+    it('lets the check of the relock compare commits through the client the plan checks with', async () => {
+      let comparison = `${REPOSITORY}/compare/${OLDER_SHA}...${RELEASE_SHA}`
+      let api = routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+        [comparison]: ahead(),
+      })
+      let locked = makeAction({ locked: true })
+
+      let result = await plan([locked], {
+        canRelock: async (update, client) =>
+          (await client.compareCommits('actions', 'checkout', {
+            head: update.latestSha!,
+            base: OLDER_SHA,
+          })) === 'ahead',
+      })
+
+      expect(result).toMatchObject({
+        updates: [{ targetRef: RELEASE_SHA, action: locked }],
+        skipped: [],
+      })
+      expect(api.paths).toContain(comparison)
     })
 
     it('skips its update when the lockfile cannot be regenerated', async () => {
@@ -362,7 +390,9 @@ describe('createUpdatePlan', () => {
       })
       let locked = makeAction({ locked: true })
 
-      let result = await plan([locked], { canRelock: () => false })
+      let result = await plan([locked], {
+        canRelock: () => Promise.resolve(false),
+      })
 
       expect(result).toMatchObject({
         skipped: [{ skipReason: 'lockfile', action: locked }],
@@ -370,7 +400,7 @@ describe('createUpdatePlan', () => {
       })
     })
 
-    it('skips its update with its own reason when the relock would keep an older commit the lockfile pins for the new reference', async () => {
+    it('skips its update with its own reason when the relock would keep a commit the lockfile pins for the new reference that could move the workflow back', async () => {
       routeFetch({
         ...latestReleaseRoutes({
           publishedAt: TWO_YEARS_AGO,
@@ -380,7 +410,9 @@ describe('createUpdatePlan', () => {
       })
       let locked = makeAction({ locked: true })
 
-      let result = await plan([locked], { canRelock: () => 'kept' })
+      let result = await plan([locked], {
+        canRelock: () => Promise.resolve('kept'),
+      })
 
       expect(result).toMatchObject({
         skipped: [
@@ -414,7 +446,7 @@ describe('createUpdatePlan', () => {
       let locked = makeAction({ version: 'v4', locked: true })
 
       let result = await plan([locked], {
-        canRelock: () => true,
+        canRelock: () => Promise.resolve(true),
         style: 'semver',
       })
 

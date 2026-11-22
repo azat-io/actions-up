@@ -91,7 +91,7 @@ const LOCKFILE_SKIP_REASONS: [blocker: RelockBlocker, reason: string][] = [
  *   regenerated for them, each with why.
  * @param options.lockfiles - Lockfile that can be regenerated for each scanned
  *   file it pins, by the file, as the scan names it; it holds the file of each
- *   entry skipped because writing it would move its workflow back.
+ *   entry skipped because writing it could move its workflow back.
  */
 export function printSkippedWarning(
   skipped: SkippedEntry[],
@@ -283,7 +283,7 @@ export function printSkippedWarning(
 }
 
 /**
- * Print the entries skipped because writing them would move their workflows
+ * Print the entries skipped because writing them could move their workflows
  * back, in a group for each reference they would be written as, with the
  * command that moves the pin the lockfile has for it forward.
  *
@@ -310,7 +310,7 @@ function printKeptPinGroups(
   for (let { reference, updates, command } of groups.values()) {
     printSkippedGroup(
       updates,
-      `whose update would move the workflow back: the workflow lockfile pins ${reference}, the reference it writes, at an older commit for other workflows`,
+      `whose update may move the workflow back: the workflow lockfile pins ${reference}, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs`,
     )
     if (command !== null) {
       console.info(
@@ -324,9 +324,9 @@ function printKeptPinGroups(
 }
 
 /**
- * Name the reference an entry would have written, had writing it not moved its
- * workflow back, and write the command that moves forward the pin its lockfile
- * already has for that reference.
+ * Name the reference an entry would have written, had writing it not risked
+ * moving its workflow back, and write the command that moves forward the pin
+ * its lockfile already has for that reference.
  *
  * The command relocks the workflows the lockfile pins the reference for, since
  * the workflow of the entry does not run it yet.
