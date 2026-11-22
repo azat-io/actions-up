@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GitHubClient } from '../../../types/github-client'
 
 import { selectExistingTagReference } from '../../../core/updates/select-existing-tag-reference'
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { createMockClient } from '../../helpers/create-mock-client'
 
 const LATEST_SHA = '3b1f9d770a89ffb6bbcf07a1c78a6f2c564ab1c2'

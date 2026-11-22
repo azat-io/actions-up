@@ -8,7 +8,7 @@ import {
   buildJsonErrorReport,
   buildJsonReport,
 } from '../../cli/build-json-report'
-import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../core/api/github-rate-limit-error'
 import { scanWorkflowAst } from '../../core/ast/scanners/scan-workflow-ast'
 import { makeWorkflowLockfile } from '../helpers/make-workflow-lockfile'
 

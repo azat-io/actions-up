@@ -9,7 +9,7 @@ import {
   ok,
 } from '../../helpers/route-fetch'
 import { getMatchingTagReferences } from '../../../core/api/get-matching-tag-references'
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { createClientContext } from '../../helpers/create-client-context'
 
 const ACTIONS_FAMILY_PATH =

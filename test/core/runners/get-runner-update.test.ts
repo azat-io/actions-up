@@ -3,9 +3,9 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   RunnerFamily,
   RunnerImage,
-} from '../../../core/runners/known-runner-labels'
+} from '../../../core/runners/known-runner-images'
 
-import * as knownRunnerLabels from '../../../core/runners/known-runner-labels'
+import * as knownRunnerImages from '../../../core/runners/known-runner-images'
 import { getRunnerUpdate } from '../../../core/runners/get-runner-update'
 
 /**
@@ -40,7 +40,7 @@ describe('getRunnerUpdate', () => {
 
   describe('with a catalog of known images', () => {
     beforeEach(() => {
-      vi.spyOn(knownRunnerLabels, 'KNOWN_RUNNER_IMAGES', 'get').mockReturnValue(
+      vi.spyOn(knownRunnerImages, 'KNOWN_RUNNER_IMAGES', 'get').mockReturnValue(
         makeCatalog(),
       )
     })
@@ -120,7 +120,7 @@ describe('getRunnerUpdate', () => {
 
   describe('defensive branches unreachable through the public API', () => {
     it('returns null when a family has no stable image at all', () => {
-      vi.spyOn(knownRunnerLabels, 'KNOWN_RUNNER_IMAGES', 'get').mockReturnValue(
+      vi.spyOn(knownRunnerImages, 'KNOWN_RUNNER_IMAGES', 'get').mockReturnValue(
         makeCatalog({ ubuntu: [{ version: '22.04', preview: true }] }),
       )
 

@@ -3,7 +3,10 @@ import type { PathLike } from 'node:fs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readdir, lstat } from 'node:fs/promises'
 
-import type { FakeEntry } from '../../helpers/create-fake-file-system'
+import type {
+  FakeFileSystem,
+  FakeEntry,
+} from '../../helpers/create-fake-file-system'
 
 import {
   fakeUnreadableDirectory,
@@ -24,6 +27,11 @@ vi.mock(import('node:fs/promises'), () => ({
 let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
 
 /**
+ * `lstat` narrowed to the kind questions the walker asks.
+ */
+let mockedLstat = vi.mocked<FakeFileSystem['lstat']>(lstat)
+
+/**
  * Serve `readdir` and `lstat` from an in-memory tree for the running test.
  *
  * @param entries - Absolute paths mapped to file text or special entries.
@@ -31,7 +39,7 @@ let mockedReaddir = vi.mocked<(path: PathLike) => Promise<string[]>>(readdir)
 function installFileSystem(entries: Record<string, FakeEntry | string>): void {
   let fileSystem = createFakeFileSystem(entries)
   mockedReaddir.mockImplementation(fileSystem.readdir)
-  vi.mocked(lstat).mockImplementation(fileSystem.lstat)
+  mockedLstat.mockImplementation(fileSystem.lstat)
 }
 
 describe('findYamlFilesRecursive', () => {
@@ -93,7 +101,7 @@ describe('findYamlFilesRecursive', () => {
      * first `lstat` call, the one for the walked directory, answers "symbolic
      * link"; the walk would find `ci.yml` if it went on.
      */
-    vi.mocked(lstat).mockResolvedValueOnce(linkStats)
+    mockedLstat.mockResolvedValueOnce(linkStats)
 
     let files = await findYamlFilesRecursive('/repo/.github')
 

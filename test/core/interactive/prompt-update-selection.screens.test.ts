@@ -360,7 +360,7 @@ function githubFile(name: string): string {
   return path.join(process.cwd(), '.github', name)
 }
 
-describe('promptUpdateSelection on screen', () => {
+describe('promptUpdateSelection', () => {
   beforeEach(() => {
     vi.setSystemTime(NOW)
   })

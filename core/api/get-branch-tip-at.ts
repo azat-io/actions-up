@@ -1,7 +1,7 @@
 import type { GitHubClientContext } from '../../types/github-client-context'
 import type { BranchTipAt } from '../../types/branch-tip-at'
 
-import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { GitHubRateLimitError } from './github-rate-limit-error'
 import { parseTimestamp } from './parse-timestamp'
 import { makeRequest } from './make-request'
 

@@ -149,7 +149,8 @@ export async function createUpdatePlan(
 
   let githubClient = createGitHubClient(options.token)
 
-  let updates = await checkUpdates(actionsToCheck, options.token, {
+  let updates = await checkUpdates(actionsToCheck, {
+    token: options.token,
     client: githubClient,
     includeBranches,
     preferTags,

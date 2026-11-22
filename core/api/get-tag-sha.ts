@@ -1,6 +1,6 @@
 import type { GitHubClientContext } from '../../types/github-client-context'
 
-import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { GitHubRateLimitError } from './github-rate-limit-error'
 import { makeRequest } from './make-request'
 
 /**

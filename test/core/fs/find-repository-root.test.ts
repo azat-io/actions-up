@@ -2,7 +2,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { stat } from 'node:fs/promises'
 
-import type { FakeEntry } from '../../helpers/create-fake-file-system'
+import type {
+  FakeFileSystem,
+  FakeEntry,
+} from '../../helpers/create-fake-file-system'
 
 import { createFakeFileSystem } from '../../helpers/create-fake-file-system'
 import { findRepositoryRoot } from '../../../core/fs/find-repository-root'
@@ -18,7 +21,7 @@ vi.mock(import('node:fs/promises'), () => ({
  */
 function installFileSystem(entries: Record<string, FakeEntry | string>): void {
   let fileSystem = createFakeFileSystem(entries)
-  vi.mocked(stat).mockImplementation(fileSystem.stat)
+  vi.mocked<FakeFileSystem['stat']>(stat).mockImplementation(fileSystem.stat)
 }
 
 describe('findRepositoryRoot', () => {

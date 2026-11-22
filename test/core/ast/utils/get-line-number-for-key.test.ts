@@ -3,7 +3,7 @@ import type { YAMLMap, Scalar } from 'yaml'
 import { describe, expect, it } from 'vitest'
 import { parseDocument } from 'yaml'
 
-import { getLineNumberForKey } from '../../../../core/ast/utils/get-line-number'
+import { getLineNumberForKey } from '../../../../core/ast/utils/get-line-number-for-key'
 
 /**
  * Parse YAML and return the key node of the map entry at a path of keys.

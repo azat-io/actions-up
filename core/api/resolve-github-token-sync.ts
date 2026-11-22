@@ -37,9 +37,10 @@ export function resolveGitHubTokenSync(): undefined | string {
   try {
     let gitConfigPath = join(process.cwd(), '.git', 'config')
     let content = readFileSync(gitConfigPath, 'utf8')
-    let directMatch = content.match(
-      /^\s*(?:github\.(?:oauth-token|token)|hub\.oauthtoken)\s*=\s*(?<token>\S[^\n\r]*)$/mu,
-    )
+    let directMatch =
+      /^\s*(?:github\.(?:oauth-token|token)|hub\.oauthtoken)\s*=\s*(?<token>\S[^\n\r]*)$/mu.exec(
+        content,
+      )
     let directToken = directMatch?.groups?.['token']?.trim()
     if (directToken) {
       return directToken
@@ -48,21 +49,20 @@ export function resolveGitHubTokenSync(): undefined | string {
     let currentSection: string | null = null
     for (let rawLine of content.split(/\r?\n/u)) {
       let line = rawLine.trim()
-      let sectionMatch = line.match(/^\[(?<name>[^\]]+)\]$/u)
+      let sectionMatch = /^\[(?<name>[^\]]+)\]$/u.exec(line)
       if (sectionMatch?.groups) {
         currentSection = sectionMatch.groups['name']!.toLowerCase()
         continue
       }
 
       if (currentSection === 'github') {
-        let tokenMatch = line.match(
-          /^(?:oauth-token|token)\s*=\s*(?<val>\S[^\n\r]*)$/u,
-        )
+        let tokenMatch =
+          /^(?:oauth-token|token)\s*=\s*(?<val>\S[^\n\r]*)$/u.exec(line)
         if (tokenMatch?.groups?.['val']) {
           return tokenMatch.groups['val'].trim()
         }
       } else if (currentSection === 'hub') {
-        let oauthMatch = line.match(/^oauthtoken\s*=\s*(?<val>\S[^\n\r]*)$/u)
+        let oauthMatch = /^oauthtoken\s*=\s*(?<val>\S[^\n\r]*)$/u.exec(line)
         if (oauthMatch?.groups?.['val']) {
           return oauthMatch.groups['val'].trim()
         }

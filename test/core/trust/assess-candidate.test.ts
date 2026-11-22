@@ -6,7 +6,7 @@ import type { BranchTipAt } from '../../../types/branch-tip-at'
 import type { ReleaseInfo } from '../../../types/release-info'
 import type { Cooldown } from '../../../types/cooldown'
 
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { assessCandidate } from '../../../core/trust/assess-candidate'
 import { createMockClient } from '../../helpers/create-mock-client'
 

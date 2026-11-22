@@ -1,27 +1,10 @@
-import type { Document } from 'yaml'
-
-import { describe, expect, it } from 'vitest'
-import { parseDocument } from 'yaml'
+import { describe, expect, it, vi } from 'vitest'
+import { parseDocument, Document } from 'yaml'
 
 import type { GitHubAction } from '../../../../types/github-action'
 
-import { KNOWN_RUNNER_IMAGES } from '../../../../core/runners/known-runner-labels'
+import { KNOWN_RUNNER_IMAGES } from '../../../../core/runners/known-runner-images'
 import { scanWorkflowAst } from '../../../../core/ast/scanners/scan-workflow-ast'
-
-/**
- * The part of a parsed YAML document the scanner reads, for hand-built input.
- */
-interface ScannedDocument {
-  /**
-   * Root node of the document.
-   */
-  contents: unknown
-
-  /**
-   * Plain value of the whole document.
-   */
-  toJSON(): unknown
-}
 
 describe('scanWorkflowAst', () => {
   let filePath = '.github/workflows/ci.yml'
@@ -775,17 +758,13 @@ describe('scanWorkflowAst', () => {
 
   describe('defensive branches unreachable through the public API', () => {
     it('returns no actions for a workflow whose root node is not a map', () => {
-      let document: ScannedDocument = {
-        toJSON: () => ({
-          jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
-          on: 'push',
-        }),
-        contents: null,
-      }
+      let document = new Document()
+      vi.spyOn(document, 'toJSON').mockReturnValue({
+        jobs: { build: { steps: [{ uses: 'actions/checkout@v4' }] } },
+        on: 'push',
+      })
 
-      expect(scanWorkflowAst(document as Document, '', filePath)).toStrictEqual(
-        [],
-      )
+      expect(scanWorkflowAst(document, '', filePath)).toStrictEqual([])
     })
 
     it('skips a job whose value has entries but is not a YAML node', () => {
@@ -797,26 +776,17 @@ describe('scanWorkflowAst', () => {
           },
         ],
       }
-      let document: ScannedDocument = {
-        contents: {
-          items: [
-            {
-              value: {
-                items: [{ value: jobWithoutToJson, key: { value: 'call' } }],
-              },
-              key: { value: 'jobs' },
-            },
-          ],
-        },
-        toJSON: () => ({
-          jobs: { call: { uses: 'org/repo/.github/workflows/ci.yml@v1' } },
-          on: 'push',
-        }),
-      }
-
-      expect(scanWorkflowAst(document as Document, '', filePath)).toStrictEqual(
-        [],
+      let document = parseDocument(
+        [
+          'on: push',
+          'jobs:',
+          '  call:',
+          '    uses: org/repo/.github/workflows/ci.yml@v1',
+        ].join('\n'),
       )
+      document.setIn(['jobs', 'call'], jobWithoutToJson)
+
+      expect(scanWorkflowAst(document, '', filePath)).toStrictEqual([])
     })
   })
 })

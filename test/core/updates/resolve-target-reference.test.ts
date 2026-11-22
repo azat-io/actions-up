@@ -4,7 +4,7 @@ import type { ActionUpdate } from '../../../types/action-update'
 import type { GitHubClient } from '../../../types/github-client'
 
 import { resolveTargetReference } from '../../../core/updates/resolve-target-reference'
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { createMockClient } from '../../helpers/create-mock-client'
 
 const LATEST_SHA = 'bc3cc36289903834579013e80440bc6f0496dd60'

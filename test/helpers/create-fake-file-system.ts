@@ -39,12 +39,12 @@ export interface FakeFileSystem {
   /**
    * Entry kind without following symbolic links.
    */
-  lstat(path: PathLike): Promise<Stats>
+  lstat(path: PathLike): Promise<FakeStats>
 
   /**
    * Entry kind, following symbolic links.
    */
-  stat(path: PathLike): Promise<Stats>
+  stat(path: PathLike): Promise<FakeStats>
 }
 
 /**
@@ -97,6 +97,12 @@ type ReadFileOptions =
     }
   | BufferEncoding
   | null
+
+/**
+ * Part of `Stats` the fake answers: the kind questions the production code
+ * asks.
+ */
+type FakeStats = Pick<Stats, 'isSymbolicLink' | 'isDirectory' | 'isFile'>
 
 /**
  * Build an in-memory file system from absolute paths.
@@ -247,12 +253,12 @@ export function fakeDirectory(): FakeEntry {
  * @param kind - Kind of the stored entry.
  * @returns Stats-like object.
  */
-function describeEntry(kind: StoredEntry['kind']): Stats {
+function describeEntry(kind: StoredEntry['kind']): FakeStats {
   return {
     isDirectory: () => kind === 'directory' || kind === 'unreadable-directory',
     isFile: () => kind === 'file' || kind === 'unreadable-file',
     isSymbolicLink: () => kind === 'symlink',
-  } as Stats
+  }
 }
 
 /**

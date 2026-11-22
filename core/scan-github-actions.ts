@@ -414,12 +414,11 @@ async function getCurrentRepositorySlug(root: string): Promise<string | null> {
     /**
      * Prefer origin, fallback to first URL.
      */
-    let originUrlMatch = content.match(
-      /\[remote "origin"\][\s\S]*?url\s*=\s*(?<url>.+)/u,
-    )
+    let originUrlMatch =
+      /\[remote "origin"\][\s\S]*?url\s*=\s*(?<url>.+)/u.exec(content)
     let url = originUrlMatch?.groups?.['url']?.trim()
     if (!url) {
-      let anyUrlMatch = content.match(/url\s*=\s*(?<url>.+)/u)
+      let anyUrlMatch = /url\s*=\s*(?<url>.+)/u.exec(content)
       url = anyUrlMatch?.groups?.['url']?.trim()
     }
     if (!url) {
@@ -432,9 +431,8 @@ async function getCurrentRepositorySlug(root: string): Promise<string | null> {
      * Repository names may contain dots (`my.repo`), so only a trailing `.git`
      * and a trailing slash are left out of the name.
      */
-    let httpsMatch = url.match(
-      /github\.com[/:](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u,
-    )
+    let httpsMatch =
+      /github\.com[/:](?<owner>[^/]+)\/(?<repo>[^/]+?)(?:\.git)?\/?$/u.exec(url)
     if (httpsMatch?.groups) {
       return `${httpsMatch.groups['owner']}/${httpsMatch.groups['repo']}`
     }

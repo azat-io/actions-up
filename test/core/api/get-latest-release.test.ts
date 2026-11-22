@@ -10,7 +10,7 @@ import {
   notFound,
   ok,
 } from '../../helpers/route-fetch'
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { createClientContext } from '../../helpers/create-client-context'
 import { getLatestRelease } from '../../../core/api/get-latest-release'
 

@@ -3,7 +3,10 @@ import type { PathLike } from 'node:fs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { realpath, readFile, stat } from 'node:fs/promises'
 
-import type { FakeEntry } from '../../helpers/create-fake-file-system'
+import type {
+  FakeFileSystem,
+  FakeEntry,
+} from '../../helpers/create-fake-file-system'
 
 import {
   createFakeFileSystem,
@@ -41,7 +44,7 @@ function installFileSystem(entries: Record<string, FakeEntry | string>): void {
     fileSystem.readFile(path as PathLike, options),
   )
   vi.mocked(realpath).mockImplementation(path => fileSystem.realpath(path))
-  vi.mocked(stat).mockImplementation(fileSystem.stat)
+  vi.mocked<FakeFileSystem['stat']>(stat).mockImplementation(fileSystem.stat)
 }
 
 /**

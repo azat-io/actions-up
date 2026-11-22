@@ -5,9 +5,9 @@ import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
 
+import { getLineNumberForKey } from '../utils/get-line-number-for-key'
 import { isSameTagFamily } from '../../versions/is-same-tag-family'
 import { parseTagFamily } from '../../versions/parse-tag-family'
-import { getLineNumberForKey } from '../utils/get-line-number'
 
 /**
  * A `uses` or `runs-on` value written in a file.

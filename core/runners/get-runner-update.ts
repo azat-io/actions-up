@@ -1,4 +1,4 @@
-import { KNOWN_RUNNER_IMAGES } from './known-runner-labels'
+import { KNOWN_RUNNER_IMAGES } from './known-runner-images'
 import { parseRunnerLabel } from './parse-runner-label'
 
 /**

@@ -14,7 +14,7 @@ import {
   routeFetch,
   ok,
 } from '../../helpers/route-fetch'
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { checkUpdates } from '../../../core/api/check-updates'
 
 /**
@@ -60,7 +60,7 @@ interface FakeRepository {
  * Options of `checkUpdates` other than the client.
  */
 type CheckOptions = Omit<
-  NonNullable<Parameters<typeof checkUpdates>[2]>,
+  NonNullable<Parameters<typeof checkUpdates>[1]>,
   'client'
 >
 
@@ -224,7 +224,7 @@ function check(
   actions: GitHubAction[],
   options: CheckOptions = {},
 ): Promise<ActionUpdate[]> {
-  return checkUpdates(actions, undefined, { ...options, client })
+  return checkUpdates(actions, { ...options, client })
 }
 
 /**
@@ -332,7 +332,9 @@ describe('checkUpdates', () => {
     })
     let action = makeAction({ name: 'actions/checkout', version: 'v4.0.0' })
 
-    await checkUpdates([action], 'ghp_16C7e42F292c6912E7710c838347Ae178B4a')
+    await checkUpdates([action], {
+      token: 'ghp_16C7e42F292c6912E7710c838347Ae178B4a',
+    })
 
     expect(api.headers).toStrictEqual([
       expect.objectContaining({
@@ -2078,7 +2080,7 @@ describe('checkUpdates', () => {
         let client = makeClient({ latestRelease: rateLimitError })
 
         await expect(
-          checkUpdates([makeAction()], token, { client }),
+          checkUpdates([makeAction()], { client, token }),
         ).rejects.toMatchObject({
           message: `${rateLimitError.message}\n${hint}`,
           name: 'GitHubRateLimitError',

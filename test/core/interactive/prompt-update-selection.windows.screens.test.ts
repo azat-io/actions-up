@@ -87,7 +87,7 @@ async function runPrompt(close: {
   }
 }
 
-describe('promptUpdateSelection on screen on Windows', () => {
+describe('promptUpdateSelection', () => {
   afterAll(() => {
     Object.defineProperty(process, 'platform', realPlatform)
     /* Cspell:disable-next-line */

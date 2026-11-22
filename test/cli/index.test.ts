@@ -12,7 +12,7 @@ import type { Spinner } from '../../cli/create-spinner'
 
 import { promptUpdateSelection } from '../../core/interactive/prompt-update-selection'
 import { readEnclosingLockfiles } from '../../core/lockfile/read-enclosing-lockfiles'
-import { GitHubRateLimitError } from '../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../core/api/github-rate-limit-error'
 import { createGitHubClient } from '../../core/api/create-github-client'
 import { makeWorkflowLockfile } from '../helpers/make-workflow-lockfile'
 import { findRepositoryRoot } from '../../core/fs/find-repository-root'
@@ -45,11 +45,6 @@ interface RepositoryTag {
    */
   tag: string
 }
-
-/**
- * Machine-readable report printed by `--json`.
- */
-type JsonReport = ReturnType<typeof buildJsonReport>
 
 /**
  * Matches the header of a notice by the words that set it apart from the other
@@ -125,7 +120,7 @@ vi.mock(import('../../cli/create-spinner'), () => ({
  * A fixed catalog, so runner expectations do not change whenever the bundled
  * one gains or retires an image.
  */
-vi.mock(import('../../core/runners/known-runner-labels'), () => ({
+vi.mock(import('../../core/runners/known-runner-images'), () => ({
   KNOWN_RUNNER_IMAGES: {
     ubuntu: [
       { version: '22.04' },
@@ -527,6 +522,11 @@ describe('run', () => {
   }
 
   /**
+   * Machine-readable report printed by `--json`.
+   */
+  type JsonReport = ReturnType<typeof buildJsonReport>
+
+  /**
    * Report written to stdout by `--json`.
    *
    * @returns Parsed report.
@@ -873,8 +873,7 @@ describe('run', () => {
       )
       expect(checkUpdates).toHaveBeenCalledExactlyOnceWith(
         expect.any(Array),
-        'ghp_exampleToken',
-        expect.anything(),
+        expect.objectContaining({ token: 'ghp_exampleToken' }),
       )
     })
 
@@ -894,7 +893,7 @@ describe('run', () => {
 
       await runCli(...argv)
 
-      expect(vi.mocked(checkUpdates).mock.lastCall?.[2]).toMatchObject(lookup)
+      expect(vi.mocked(checkUpdates).mock.lastCall?.[1]).toMatchObject(lookup)
     })
   })
 
@@ -2153,7 +2152,7 @@ describe('run', () => {
       ])
     })
 
-    it.each([
+    it.each<{ rateLimited: boolean; failure: string; error: Error }>([
       {
         error: new GitHubRateLimitError(new Date(NOW)),
         failure: 'a rate limit',

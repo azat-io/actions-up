@@ -1,6 +1,6 @@
 import type { GitHubAction } from '../../../types/github-action'
 
-import { getLineNumberForKey } from './get-line-number'
+import { getLineNumberForKey } from './get-line-number-for-key'
 
 /**
  * Record the line a value starts on, when it is written on a later line than

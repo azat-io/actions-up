@@ -16,7 +16,7 @@ import { checkUpdates } from '../../../core/api/check-updates'
 import { planUpdates } from '../../../core/plan/plan-updates'
 import { scanRecursive } from '../../../core/scan-recursive'
 
-vi.mock(import('../../../core/runners/known-runner-labels'), () => ({
+vi.mock(import('../../../core/runners/known-runner-images'), () => ({
   KNOWN_RUNNER_IMAGES: {
     ubuntu: [{ version: '22.04' }, { version: '24.04' }],
     windows: [{ version: '2025' }],
@@ -191,10 +191,11 @@ describe('planUpdates', () => {
       '/repo',
       '.github',
     )
-    expect(checkUpdates).toHaveBeenCalledExactlyOnceWith([action], undefined, {
+    expect(checkUpdates).toHaveBeenCalledExactlyOnceWith([action], {
       client: vi.mocked(createGitHubClient).mock.results[0]?.value as unknown,
       includeBranches: false,
       preferTags: false,
+      token: undefined,
       style: 'sha',
     })
   })
@@ -274,8 +275,8 @@ describe('planUpdates', () => {
     expect(createGitHubClient).toHaveBeenCalledExactlyOnceWith('explicit-token')
     expect(checkUpdates).toHaveBeenCalledExactlyOnceWith(
       [checkout],
-      'explicit-token',
       expect.objectContaining({
+        token: 'explicit-token',
         includeBranches: true,
         style: 'preserve',
         preferTags: true,

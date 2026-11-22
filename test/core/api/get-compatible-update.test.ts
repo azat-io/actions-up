@@ -4,7 +4,7 @@ import type { GitHubClient } from '../../../types/github-client'
 import type { Cooldown } from '../../../types/cooldown'
 import type { TagInfo } from '../../../types/tag-info'
 
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { getCompatibleUpdate } from '../../../core/api/get-compatible-update'
 import { createMockClient } from '../../helpers/create-mock-client'
 

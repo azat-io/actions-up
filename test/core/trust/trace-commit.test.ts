@@ -5,7 +5,7 @@ import type { GitHubClient } from '../../../types/github-client'
 import type { BranchTipAt } from '../../../types/branch-tip-at'
 import type { BranchHead } from '../../../types/branch-head'
 
-import { GitHubRateLimitError } from '../../../core/api/internal-rate-limit-error'
+import { GitHubRateLimitError } from '../../../core/api/github-rate-limit-error'
 import { createMockClient } from '../../helpers/create-mock-client'
 import { traceCommit } from '../../../core/trust/trace-commit'
 

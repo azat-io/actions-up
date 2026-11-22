@@ -1,6 +1,6 @@
-import type { RunnerFamily } from './known-runner-labels'
+import type { RunnerFamily } from './known-runner-images'
 
-import { KNOWN_RUNNER_IMAGES } from './known-runner-labels'
+import { KNOWN_RUNNER_IMAGES } from './known-runner-images'
 
 /**
  * A `runs-on` label resolved to a known GitHub-hosted runner image.

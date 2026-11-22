@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunnerFamily } from '../../../core/runners/known-runner-labels'
+import type { RunnerFamily } from '../../../core/runners/known-runner-images'
 
-import { KNOWN_RUNNER_IMAGES } from '../../../core/runners/known-runner-labels'
+import { KNOWN_RUNNER_IMAGES } from '../../../core/runners/known-runner-images'
 
 /**
  * Runner families the readme documents as supported.
@@ -37,7 +37,7 @@ function imageKindsOf(family: RunnerFamily): string {
     .join(', ')
 }
 
-describe('kNOWN_RUNNER_IMAGES', () => {
+describe('KNOWN_RUNNER_IMAGES', () => {
   it.each(DOCUMENTED_FAMILIES)(
     'offers at least one stable image for %s',
     family => {

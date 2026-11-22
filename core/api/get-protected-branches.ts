@@ -1,7 +1,7 @@
 import type { GitHubClientContext } from '../../types/github-client-context'
 import type { BranchHead } from '../../types/branch-head'
 
-import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { GitHubRateLimitError } from './github-rate-limit-error'
 import { makeRequest } from './make-request'
 
 /**

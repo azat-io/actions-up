@@ -107,21 +107,21 @@ class GitHubRateLimitError extends Error {
  * Check for updates for GitHub Actions.
  *
  * @param actions - Array of GitHub Actions to check.
- * @param token - Optional GitHub token for authentication.
- * @param options - Additional options (e.g., include branch refs, shared
- *   client).
+ * @param options - Additional options (e.g., GitHub token for authentication,
+ *   include branch refs, shared client).
  * @returns Array of update information.
  */
 export async function checkUpdates(
   actions: GitHubAction[],
-  token?: string,
   options?: {
     includeBranches?: boolean
     client?: GitHubClient
     preferTags?: boolean
     style?: UpdateStyle
+    token?: string
   },
 ): Promise<ActionUpdate[]> {
+  let token = options?.token
   let client = options?.client ?? createGitHubClient(token)
   let includeBranches = options?.includeBranches ?? false
   let preferTags = options?.preferTags ?? false

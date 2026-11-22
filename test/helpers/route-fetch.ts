@@ -286,7 +286,7 @@ export function routeFetch(routes: Record<string, RouteAnswer>): FetchLog {
  * @returns Route answer with status 403 and the `x-ratelimit-*` headers.
  */
 export function rateLimited(
-  resetAt: Date = new Date('2026-10-03T15:00:00.000Z'),
+  resetAt: Date,
   headers: Record<string, string> = {},
 ): RouteAnswer {
   let answer = errorAnswer(403, 'Forbidden', {

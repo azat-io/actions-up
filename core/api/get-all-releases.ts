@@ -2,7 +2,7 @@ import type { GitHubClientContext } from '../../types/github-client-context'
 import type { GitHubReleasePayload } from './normalize-release'
 import type { ReleaseInfo } from '../../types/release-info'
 
-import { GitHubRateLimitError } from './internal-rate-limit-error'
+import { GitHubRateLimitError } from './github-rate-limit-error'
 import { normalizeRelease } from './normalize-release'
 import { makeRequest } from './make-request'
 

@@ -3,9 +3,9 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   RunnerFamily,
   RunnerImage,
-} from '../../../core/runners/known-runner-labels'
+} from '../../../core/runners/known-runner-images'
 
-import * as knownRunnerLabels from '../../../core/runners/known-runner-labels'
+import * as knownRunnerImages from '../../../core/runners/known-runner-images'
 import { parseRunnerLabel } from '../../../core/runners/parse-runner-label'
 
 /**
@@ -34,7 +34,7 @@ describe('parseRunnerLabel', () => {
 
   describe('with a catalog of known images', () => {
     beforeEach(() => {
-      vi.spyOn(knownRunnerLabels, 'KNOWN_RUNNER_IMAGES', 'get').mockReturnValue(
+      vi.spyOn(knownRunnerImages, 'KNOWN_RUNNER_IMAGES', 'get').mockReturnValue(
         makeCatalog(),
       )
     })
