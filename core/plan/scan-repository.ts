@@ -229,14 +229,18 @@ function findKeys(
  * A file found through symbolic links is written through them, so it is matched
  * under each name on the way: where it was found, every link it leads through
  * and the file it is in the end. Each name is taken in the real path of its
- * directory, the way a lockfile names the files it pins.
+ * directory, the way a lockfile names the files it pins. A link names its
+ * target from the directory the link is in, so a relative target is resolved
+ * against the real path of that directory, not against the path the link was
+ * found through, which may lead through links of its own.
  *
  * @param file - Absolute path of a scanned file, or of a link it leads through.
  * @param links - Links followed so far.
  * @returns The names, in the order the links are followed.
  */
 async function findNames(file: string, links = 0): Promise<string[]> {
-  let name = join(await toRealPath(dirname(file)), basename(file))
+  let directory = await toRealPath(dirname(file))
+  let name = join(directory, basename(file))
   let target: string
 
   try {
@@ -246,6 +250,6 @@ async function findNames(file: string, links = 0): Promise<string[]> {
   }
 
   return links < MAX_SYMBOLIC_LINKS ?
-      [name, ...(await findNames(resolve(dirname(file), target), links + 1))]
+      [name, ...(await findNames(resolve(directory, target), links + 1))]
     : [name]
 }

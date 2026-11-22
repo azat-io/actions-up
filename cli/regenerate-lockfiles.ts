@@ -12,9 +12,12 @@ import {
   formatRelockCommand,
   relockWorkflows,
 } from '../core/lockfile/relock-workflows'
+import {
+  isRenameRewrite,
+  findRenames,
+} from '../core/lockfile/is-rename-rewrite'
 import { findPinMismatches } from '../core/lockfile/find-pin-mismatches'
 import { restoreWrittenFiles } from '../core/fs/restore-written-files'
-import { isRenameRewrite } from '../core/lockfile/is-rename-rewrite'
 import { parseLockfile } from '../core/lockfile/parse-lockfile'
 import { printRelockNotice } from './print-relock-notice'
 import { SIGNAL_EXIT_CODES } from '../core/constants'
@@ -200,11 +203,24 @@ async function relockAndCheck(
     })
   }
 
+  /**
+   * Even without narrowing, the relock renames a repository that moved in the
+   * workflow, so a written reference of it is pinned under the name the files
+   * now hold. The line it rewrites loses its comment, such as the version
+   * comment of a SHA. A written file changed otherwise, or one that cannot be
+   * read, was changed by something else while the lockfile was regenerated, so
+   * the lockfile may not match it.
+   */
+  let { renames, renamed, changed } = await findRewritten(
+    written.filter(file => target.files.has(file.path)),
+    { pins: regenerated.pins, files: target.files },
+  )
   let recorded = readLockfile(before)
   let mismatches = findPinMismatches(target, result, {
     recorded:
       recorded.kind === 'parsed' ? recorded.commits : new Map<string, string>(),
     written: regenerated,
+    renamed: renames,
   })
 
   /**
@@ -214,18 +230,6 @@ async function relockAndCheck(
    */
   let kept = mismatches.filter(({ kind }) => kind === 'kept-commit')
   if (kept.length === mismatches.length) {
-    /**
-     * Even without narrowing, the relock renames a repository that moved in the
-     * workflow, and the line it rewrites loses its comment, such as the version
-     * comment of a SHA, and its line break turns into LF. A written file
-     * changed otherwise, or one that cannot be read, was changed by something
-     * else while the lockfile was regenerated, so the lockfile may not match
-     * it.
-     */
-    let { renamed, changed } = await findRewritten(
-      written.filter(file => target.files.has(file.path)),
-      { pins: regenerated.pins, files: target.files },
-    )
     if (changed.length > 0) {
       spinner.error(`Regenerated ${lockfile}, but could not check it`)
       return finish(target, written, {
@@ -352,6 +356,66 @@ function describeMismatch(mismatch: PinMismatch, root: string | null): string {
 }
 
 /**
+ * Find the written files that hold other bytes than the ones written: those in
+ * which gh-actions-lock renamed a repository that moved to a name the lockfile
+ * on disk pins, and those changed otherwise or that cannot be read, along with
+ * the repositories renamed in them.
+ *
+ * @param files - Files the updater rewrote.
+ * @param lockfile - What the files are checked against.
+ * @param lockfile.files - Workflows the lockfile records each file under, as it
+ *   names them.
+ * @param lockfile.pins - Keys of the pins of each tracked workflow on disk.
+ * @returns Paths of the files of each kind, in the given order, and the key
+ *   each reference renamed in them was written under, `owner/repo@ref` with the
+ *   repository in lower case, mapped to its key under the new name.
+ */
+async function findRewritten(
+  files: WrittenFile[],
+  lockfile: { files: Map<string, string[]>; pins: Map<string, string[]> },
+): Promise<{
+  renames: Map<string, string>
+  renamed: string[]
+  changed: string[]
+}> {
+  let rewrites = await Promise.all(
+    files.map(async ({ after, path }) => {
+      let bytes = await readBytes(path)
+      if (bytes?.equals(Buffer.from(after, 'utf8'))) {
+        return { renames: new Map<string, string>(), kind: 'unchanged' }
+      }
+      if (bytes === null) {
+        return { renames: new Map<string, string>(), kind: 'changed' }
+      }
+      let current = bytes.toString('utf8')
+      let workflows = lockfile.files.get(path)!
+      return {
+        kind:
+          (
+            isRenameRewrite(after, current, key =>
+              workflows.every(workflow =>
+                lockfile.pins.get(workflow)?.includes(key),
+              ),
+            )
+          ) ?
+            'renamed'
+          : 'changed',
+        renames: findRenames(after, current),
+      }
+    }),
+  )
+  let paths = Map.groupBy(
+    files.map(({ path }) => path),
+    (_path, index) => rewrites[index]!.kind,
+  )
+  return {
+    renames: new Map(rewrites.flatMap(({ renames }) => [...renames])),
+    renamed: paths.get('renamed') ?? [],
+    changed: paths.get('changed') ?? [],
+  }
+}
+
+/**
  * Put back the written files of a lockfile that was not regenerated as checked,
  * when that is safe, and say what became of them.
  *
@@ -403,51 +467,6 @@ async function finish(
   })
 
   return { unrestored: failed.keys().toArray(), regenerated: false, restored }
-}
-
-/**
- * Find the written files that hold other bytes than the ones written: those in
- * which gh-actions-lock renamed a repository that moved to a name the lockfile
- * on disk pins, and those changed otherwise or that cannot be read.
- *
- * @param files - Files the updater rewrote.
- * @param lockfile - What the files are checked against.
- * @param lockfile.files - Workflows the lockfile records each file under, as it
- *   names them.
- * @param lockfile.pins - Keys of the pins of each tracked workflow on disk.
- * @returns Paths of the files of each kind, in the given order.
- */
-async function findRewritten(
-  files: WrittenFile[],
-  lockfile: { files: Map<string, string[]>; pins: Map<string, string[]> },
-): Promise<{ renamed: string[]; changed: string[] }> {
-  let kinds = await Promise.all(
-    files.map(async ({ after, path }) => {
-      let bytes = await readBytes(path)
-      if (bytes?.equals(Buffer.from(after, 'utf8'))) {
-        return 'unchanged'
-      }
-      let workflows = lockfile.files.get(path)!
-      return (
-          bytes !== null &&
-            isRenameRewrite(after, bytes.toString('utf8'), key =>
-              workflows.every(workflow =>
-                lockfile.pins.get(workflow)?.includes(key),
-              ),
-            )
-        ) ?
-          'renamed'
-        : 'changed'
-    }),
-  )
-  let paths = Map.groupBy(
-    files.map(({ path }) => path),
-    (_path, index) => kinds[index],
-  )
-  return {
-    renamed: paths.get('renamed') ?? [],
-    changed: paths.get('changed') ?? [],
-  }
 }
 
 /**

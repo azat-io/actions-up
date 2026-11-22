@@ -456,6 +456,63 @@ describe('regenerateLockfiles', () => {
     })
   })
 
+  it('regenerates a lockfile that pins a reference of a repository that moved to the older commit it already pinned under the new name, and names both', async () => {
+    let pins = [
+      makePin('my-org/checkout', 'v4', RECORDED_SHA),
+      makePin('actions/cache', 'v5', CACHE_SHA),
+    ]
+    arrangeLockfileReads(
+      makeLockfileText({
+        workflows: {
+          '.github/workflows/release.yml': ['my-org/checkout@v4'],
+        },
+        dependencies: { 'my-org/checkout@v4': RECORDED_SHA },
+      }),
+      makeLockfileWith(...pins),
+      'uses: my-org/checkout@v4\n',
+    )
+    vi.mocked(relockWorkflows).mockResolvedValue({
+      kind: 'relocked',
+      refusals: [],
+      pins,
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 0,
+    })
+    expect(spinnerMock.success).toHaveBeenCalledExactlyOnceWith(
+      'Regenerated .github/workflows/actions.lock',
+    )
+    expect(vi.mocked(printRelockNotice).mock.calls).toStrictEqual([
+      [
+        {
+          heading:
+            'gh actions-lock kept earlier pins in .github/workflows/actions.lock',
+          details: [KEPT_COMMIT_DETAIL],
+          unrestored: [],
+          command: null,
+          restored: [],
+          left: [],
+        },
+      ],
+      [
+        {
+          heading:
+            'gh actions-lock also rewrote 1 file: a repository that moved is renamed in the workflow, which drops the comment of that line',
+          details: ['.github/workflows/ci.yml'],
+          unrestored: [],
+          command: null,
+          restored: [],
+          left: [],
+        },
+      ],
+    ])
+  })
+
   it('names the command that moves a pin the lockfile of a nested repository kept forward from the working directory', async () => {
     arrangeLockfileReads(
       makeLockfileText({
@@ -1006,23 +1063,24 @@ describe('regenerateLockfiles', () => {
 
   it.each([
     {
+      pins: [
+        makePin('my-org/checkout', 'v4', CHECKOUT_SHA),
+        makePin('my-org/cache', 'v5', CACHE_SHA),
+      ],
       setup: 'uses: my-org/cache@v5\n',
       rewritten: TARGET_FILES,
       files: '2 files',
     },
     {
+      pins: [makePin('my-org/checkout', 'v4', CHECKOUT_SHA), TARGET_PINS[1]!],
       rewritten: ['.github/workflows/ci.yml'],
       setup: WRITTEN[2]!.after,
       files: '1 file',
     },
   ])(
     'names the $files gh-actions-lock rewrote for a repository that moved while it regenerated the lockfile as checked',
-    async ({ rewritten, setup, files }) => {
-      let renamed = makeLockfileWith(
-        makePin('my-org/checkout', 'v4', CHECKOUT_SHA),
-        makePin('my-org/cache', 'v5', CACHE_SHA),
-        ...TARGET_PINS,
-      )
+    async ({ rewritten, setup, files, pins }) => {
+      let renamed = makeLockfileWith(...pins)
       let contents = [
         [CI_WORKFLOW, 'uses: my-org/checkout@v4\n'],
         [SETUP_ACTION, setup],
@@ -1033,9 +1091,9 @@ describe('regenerateLockfiles', () => {
         ),
       )
       vi.mocked(relockWorkflows).mockResolvedValue({
-        pins: TARGET_PINS,
         kind: 'relocked',
         refusals: [],
+        pins,
       })
 
       await expect(

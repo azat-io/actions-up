@@ -92,7 +92,7 @@ function writtenAs(
 
 /**
  * Find the mismatches of a regenerated lockfile that records on disk what
- * gh-actions-lock reported.
+ * gh-actions-lock reported, for files in which it renamed no repository.
  *
  * @param target - What the lockfile was regenerated for.
  * @param relocked - What gh-actions-lock reported.
@@ -106,6 +106,7 @@ function findMismatches(
 ): PinMismatch[] {
   return findPinMismatches(target, relocked, {
     written: writtenAs(target, relocked.pins),
+    renamed: new Map(),
     recorded,
   })
 }
@@ -271,30 +272,122 @@ describe('findPinMismatches', () => {
     ).toStrictEqual([{ reference: 'actions/checkout@v4', kind: 'missing' }])
   })
 
-  it('accepts a reference pinned under the new name of its repository at the checked commit, but not at another one', () => {
-    let renamedSha = 'b4ffde65f46336ab88eb53be808477a3936bae11'
+  it('looks a reference up under the new name the relock gave its repository in the written files, not under the name it was written with', () => {
+    let target = writtenBy(makeUpdate({ action: { name: 'My-Org/Old-Name' } }))
+    let pins = [
+      makePin('my-org/old-name', 'v4', RECORDED_SHA),
+      makePin('my-org/new-name', 'v4', CHECKED_SHA),
+    ]
 
+    expect(
+      findPinMismatches(
+        target,
+        { refusals: [], pins },
+        {
+          written: {
+            pins: new Map([
+              ['.github/workflows/ci.yml', ['my-org/new-name@v4']],
+            ]),
+            commits: new Map([['my-org/new-name@v4', CHECKED_SHA]]),
+          },
+          renamed: new Map([['my-org/old-name@v4', 'my-org/new-name@v4']]),
+          recorded: new Map(),
+        },
+      ),
+    ).toStrictEqual([])
+  })
+
+  it('looks a reference up under the name it was written with when the relock pinned none under the new name a written file gives it, as when something else renamed it there', () => {
+    let target = writtenBy(makeUpdate())
+    let pins = [makePin('actions/checkout', 'v4', CHECKED_SHA)]
+
+    expect(
+      findPinMismatches(
+        target,
+        { refusals: [], pins },
+        {
+          renamed: new Map([['actions/checkout@v4', 'my-org/checkout@v4']]),
+          written: writtenAs(target, pins),
+          recorded: new Map(),
+        },
+      ),
+    ).toStrictEqual([])
+  })
+
+  it('takes no pin of the same reference of another repository for one whose repository the files do not rename, at the checked commit or at the one the lockfile recorded for it', () => {
     expect(
       findMismatches(
         writtenBy(
-          makeUpdate({
-            action: { name: 'my-org/old-name' },
-            latestSha: renamedSha,
-            targetRef: 'v2',
-          }),
           makeUpdate({ action: { name: 'my-org/moved' } }),
+          makeUpdate({
+            action: { name: 'my-org/tool' },
+            latestSha: UPLOAD_SHA,
+          }),
         ),
         {
           pins: [
-            makePin('my-org/new-name', 'v2', renamedSha),
+            makePin('my-org/fork', 'v4', CHECKED_SHA),
             makePin('my-org/other', 'v4', RECORDED_SHA),
           ],
           refusals: [],
         },
         new Map([['my-org/other@v4', RECORDED_SHA]]),
       ),
-    ).toStrictEqual([{ reference: 'my-org/moved@v4', kind: 'missing' }])
+    ).toStrictEqual([
+      { reference: 'my-org/moved@v4', kind: 'missing' },
+      { reference: 'my-org/tool@v4', kind: 'missing' },
+    ])
   })
+
+  it.each([
+    [
+      'under its new name, as for another workflow',
+      new Map([['my-org/new-name@v4', RECORDED_SHA]]),
+      'kept-commit',
+    ],
+    [
+      'under the name it was written with, as for another workflow',
+      new Map([['my-org/old-name@v4', RECORDED_SHA]]),
+      'kept-commit',
+    ],
+    [
+      'for no name of its repository',
+      new Map([
+        ['my-org/new-name@v4', UPLOAD_SHA],
+        ['my-org/old-name@v4', UPLOAD_SHA],
+        ['my-org/other@v4', RECORDED_SHA],
+      ]),
+      'other-commit',
+    ],
+  ])(
+    'tells whether the lockfile pinned the older commit a reference of a repository that moved stays pinned to %s',
+    (_description, recorded, kind) => {
+      let target = writtenBy(
+        makeUpdate({ action: { name: 'my-org/old-name' } }),
+      )
+      let pins = [makePin('my-org/new-name', 'v4', RECORDED_SHA)]
+
+      expect(
+        findPinMismatches(
+          target,
+          { refusals: [], pins },
+          {
+            renamed: new Map([['my-org/old-name@v4', 'my-org/new-name@v4']]),
+            written: writtenAs(target, pins),
+            recorded,
+          },
+        ),
+      ).toStrictEqual([
+        {
+          workflows: ['.github/workflows/ci.yml'],
+          reference: 'my-org/old-name@v4',
+          pinned: RECORDED_SHA,
+          checked: CHECKED_SHA,
+          kind,
+        },
+      ])
+    },
+  )
 
   it('reports a reference the lockfile does not pin, once however many updates wrote it', () => {
     expect(
@@ -548,6 +641,7 @@ describe('findPinMismatches', () => {
             ]),
           },
           recorded: new Map(),
+          renamed: new Map(),
         },
       ),
     ).toStrictEqual([
@@ -569,7 +663,7 @@ describe('findPinMismatches', () => {
     ])
   })
 
-  it('accepts a reference the lockfile on disk records under the new name of its repository at the checked commit, but not at another one', () => {
+  it('checks a reference whose repository the relock renamed under the new name on disk, at the commit it reported', () => {
     let renamedSha = 'b4ffde65f46336ab88eb53be808477a3936bae11'
     let relocked = {
       pins: [
@@ -601,6 +695,10 @@ describe('findPinMismatches', () => {
             ['my-org/new-name@v2', renamedSha],
           ]),
         },
+        renamed: new Map([
+          ['my-org/old-name@v2', 'my-org/new-name@v2'],
+          ['my-org/old-tool@v4', 'my-org/new-tool@v4'],
+        ]),
         recorded: new Map(),
       }),
     ).toStrictEqual([
@@ -639,6 +737,7 @@ describe('findPinMismatches', () => {
             commits: new Map([['actions/checkout@v4', CHECKED_SHA]]),
           },
           recorded: new Map(),
+          renamed: new Map(),
         },
       ),
     ).toStrictEqual([

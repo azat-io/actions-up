@@ -1,4 +1,4 @@
-import { dirname } from 'node:path'
+import { dirname, win32 } from 'node:path'
 
 import type { WorkflowLockfile } from '../../types/workflow-lockfile'
 import type { RelockResult } from '../../types/relock-result'
@@ -143,6 +143,11 @@ export async function relockWorkflows(
  * reference it moves forward changes for every workflow that uses the
  * reference, since the lockfile pins each reference once.
  *
+ * The command is written for a POSIX shell, which neither Command Prompt nor
+ * PowerShell is, so on Windows a comment after it says so, which such a shell
+ * skips when the line is run as it is. There, the root is named with forward
+ * slashes, and a root on another drive by its absolute path.
+ *
  * @param workflows - Tracked workflows to relock, as the lockfile names them.
  * @param directory - Root of the repository of the lockfile, relative to the
  *   working directory; empty when it is the working directory.
@@ -164,15 +169,22 @@ export function formatRelockCommand(
     ...workflows.map(quotePath),
   ].join(' ')
   let rooted = `GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows ${command}`
-  if (directory === '') {
-    return rooted
+  let windows = process.platform === 'win32'
+  let shell = windows ? ' # in a POSIX shell' : ''
+  let path = windows ? directory.replaceAll('\\', '/') : directory
+  if (path === '') {
+    return `${rooted}${shell}`
   }
   let root = quotePath(
-    directory === '..' || directory.startsWith('../') ?
-      directory
-    : `./${directory}`,
+    (
+      path === '..' ||
+        path.startsWith('../') ||
+        (windows && win32.isAbsolute(path))
+    ) ?
+      path
+    : `./${path}`,
   )
-  return `(cd -P ${root} && ${rooted})`
+  return `(cd -P ${root} && ${rooted})${shell}`
 }
 
 /**

@@ -325,11 +325,18 @@ commit it checked or to the one the lockfile already had. `gh` has to be
 authenticated (`gh auth login`, `GH_TOKEN` or `GITHUB_TOKEN`).
 
 If the lockfile cannot be regenerated, the run exits with code 1 and puts the
-updated files back, unless they or the lockfile changed meanwhile. Without the
-extension such updates are skipped, with a hint on how to get it. Updates are
-also skipped in workflows that run, only through `./`, a local action that uses
-remote actions or is not part of the repository, and in those actions: gh
-actions-lock does not lock what they run.
+updated files back, unless they or the lockfile changed meanwhile, the lockfile
+could not be read or `gh` was ended by a signal. After SIGINT or SIGTERM the run
+keeps the updated files and exits with code 130 or 143.
+
+Without the extension such updates are skipped, with a hint on how to get it.
+Updates are also skipped in workflows that run, through `./`, a local action
+that uses remote actions or is not part of the repository, in those actions and
+in the `$/` actions such workflows run: gh actions-lock does not lock what they
+run (`unrecorded`). So are updates in files that the lockfiles of more than one
+repository root pin, such as an action of a nested repository (`shared`), and
+wherever a lockfile, a workflow it tracks or an action of the repository cannot
+be read (`unreadable`).
 
 By default Actions Up pins commit SHAs, also in workflows a lockfile tracks. gh
 actions-lock reports such references as `sha-as-ref` warnings and turns them

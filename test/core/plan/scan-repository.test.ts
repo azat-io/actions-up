@@ -730,6 +730,38 @@ describe('scanRepository', () => {
     ])
   })
 
+  it('follows a relative link from the real directory it is in, not from the linked directory it was found through', async () => {
+    let shared = '/repo/shared/ci.yml'
+    let lockfile = makeWorkflowLockfile({
+      keys: new Map([['.github/workflows/ci.yml', shared]]),
+      path: '/repo/config/github/workflows/actions.lock',
+      workflows: new Set([shared]),
+    })
+    vi.mocked(scanGitHubActions).mockResolvedValue({
+      ...makeScanResult(),
+      actions: [
+        { name: 'actions/checkout', file: CI_WORKFLOW, type: 'external' },
+      ],
+    })
+    vi.mocked(readEnclosingLockfiles).mockResolvedValue([lockfile])
+    arrangeRealPaths({ '/repo/.github': '/repo/config/github' })
+    arrangeLinks({ [CI_WORKFLOW]: '../../../shared/ci.yml' })
+
+    let { lockedFiles, scanResult } = await scanRepository({ cwd: '/repo' })
+
+    expect(readEnclosingLockfiles).toHaveBeenCalledExactlyOnceWith(
+      new Set(['/repo/config/github/workflows', '/repo/shared']),
+    )
+    expect(scanResult.actions.map(action => action.locked)).toStrictEqual([
+      true,
+    ])
+    expect(lockedFiles).toStrictEqual(
+      new Map([
+        [CI_WORKFLOW, [{ workflows: ['.github/workflows/ci.yml'], lockfile }]],
+      ]),
+    )
+  })
+
   it('lists a tracked workflow that is a symbolic link under the key the lockfile names it by', async () => {
     let lockfile = makeWorkflowLockfile({
       keys: new Map([['.github/workflows/ci.yml', '/repo/ci/main.yml']]),

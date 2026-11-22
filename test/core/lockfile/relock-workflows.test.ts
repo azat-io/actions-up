@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   formatRelockCommand,
@@ -546,4 +546,40 @@ describe('formatRelockCommand', () => {
       )
     },
   )
+
+  describe('on Windows', () => {
+    /**
+     * Real descriptor of the platform, restored after every test.
+     */
+    let realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
+
+    beforeEach(() => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', realPlatform)
+    })
+
+    it('says the command is for a POSIX shell', () => {
+      expect(formatRelockCommand(['.github/workflows/ci.yml'], '')).toBe(
+        'GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml # in a POSIX shell',
+      )
+    })
+
+    it.each([
+      ['below the working directory', String.raw`vendor\tool`, './vendor/tool'],
+      ['beside the working directory', String.raw`..\tool`, '../tool'],
+      ['on another drive', String.raw`D:\src\tool`, "'D:/src/tool'"],
+    ])(
+      'names a root %s with forward slashes',
+      (_description, directory, path) => {
+        expect(
+          formatRelockCommand(['.github/workflows/ci.yml'], directory),
+        ).toBe(
+          `(cd -P ${path} && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- .github/workflows/ci.yml) # in a POSIX shell`,
+        )
+      },
+    )
+  })
 })
