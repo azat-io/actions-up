@@ -174,7 +174,9 @@ regenerate them, or why it cannot: `no-gh`, `unauthenticated`, `unlisted`,
 `missing` or `outdated`; it is `null` when it was not looked for. Locked updates
 are listed in `updates` only when it is `available`, and otherwise in `skipped`
 with the reason `lockfile`; `action.relockBlocker` (`unreadable`, `unrecorded`
-or `shared`) tells why a lockfile cannot be regenerated for an entry at all.
+or `shared`) tells why a lockfile cannot be regenerated for an entry at all. The
+reason `lockfile-kept` means the lockfile pins the new reference at an older
+commit for other workflows, so the update would move its workflow back.
 
 ### Custom Directory
 

@@ -1,11 +1,45 @@
+import { relative } from 'node:path'
+
+import type { WorkflowLockfile } from '../types/workflow-lockfile'
 import type { RelockBlocker } from '../types/relock-blocker'
 import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
 import type { LockTool } from '../types/lock-tool'
 
+import { formatRelockCommand } from '../core/lockfile/relock-workflows'
 import { MIN_LOCK_TOOL_VERSION } from '../core/constants'
 import { groupByIdentifier } from './group-by-identifier'
 import { colors } from '../core/interactive/colors'
+
+/**
+ * Skipped entry, as the CLI hands it to the printer.
+ */
+interface SkippedEntry {
+  /**
+   * The reference as the scan found it.
+   */
+  action: {
+    version?: string | null
+    file?: string
+    uses?: string
+    name: string
+  }
+
+  /**
+   * Why the entry was skipped.
+   */
+  skipReason?: ActionUpdate['skipReason']
+
+  /**
+   * Version the entry is at.
+   */
+  currentVersion: string | null
+
+  /**
+   * Reference the update would have written.
+   */
+  targetRef?: string | null
+}
 
 /**
  * What to do so that gh-actions-lock can regenerate the lockfiles that pin the
@@ -55,20 +89,15 @@ const LOCKFILE_SKIP_REASONS: [blocker: RelockBlocker, reason: string][] = [
  *   be regenerated anyway.
  * @param options.relockBlockers - Scanned files whose lockfiles cannot all be
  *   regenerated for them, each with why.
+ * @param options.lockfiles - Lockfile that can be regenerated for each scanned
+ *   file it pins, by the file, as the scan names it; it holds the file of each
+ *   entry skipped because writing it would move its workflow back.
  */
 export function printSkippedWarning(
-  skipped: {
-    action: {
-      version?: string | null
-      file?: string
-      uses?: string
-      name: string
-    }
-    skipReason?: ActionUpdate['skipReason']
-    currentVersion: string | null
-  }[],
+  skipped: SkippedEntry[],
   options: {
     relockBlockers?: Map<string, RelockBlocker>
+    lockfiles?: Map<string, WorkflowLockfile>
     lockTool?: LockTool | null
     includeBranches: boolean
     style: UpdateStyle
@@ -76,6 +105,7 @@ export function printSkippedWarning(
 ): void {
   let {
     relockBlockers = new Map<string, RelockBlocker>(),
+    lockfiles = new Map<string, WorkflowLockfile>(),
     includeBranches,
     lockTool,
     style,
@@ -113,6 +143,9 @@ export function printSkippedWarning(
   let lockfileSkipped = skipped.filter(
     update => update.skipReason === 'lockfile',
   )
+  let lockfileKeptSkipped = skipped.filter(
+    update => update.skipReason === 'lockfile-kept',
+  )
   let lockfileUncheckedSkipped = skipped.filter(
     update => update.skipReason === 'lockfile-unchecked',
   )
@@ -130,6 +163,7 @@ export function printSkippedWarning(
     'unsupported-style',
     'not-comparable',
     'sha-unresolved',
+    'lockfile-kept',
     'check-failed',
     'tag-family',
     'not-found',
@@ -234,6 +268,8 @@ export function printSkippedWarning(
     }
   }
 
+  printKeptPinGroups(lockfileKeptSkipped, lockfiles)
+
   if (lockfileUncheckedSkipped.length > 0) {
     printSkippedGroup(
       lockfileUncheckedSkipped,
@@ -243,6 +279,91 @@ export function printSkippedWarning(
 
   if (otherSkipped.length > 0) {
     printSkippedGroup(otherSkipped, 'that could not be checked')
+  }
+}
+
+/**
+ * Print the entries skipped because writing them would move their workflows
+ * back, in a group for each reference they would be written as, with the
+ * command that moves the pin the lockfile has for it forward.
+ *
+ * @param skipped - Entries skipped for that reason.
+ * @param lockfiles - Lockfile that can be regenerated for each scanned file it
+ *   pins, by the file.
+ */
+function printKeptPinGroups(
+  skipped: SkippedEntry[],
+  lockfiles: Map<string, WorkflowLockfile>,
+): void {
+  let groups = new Map<
+    string,
+    { updates: SkippedEntry[]; command: string | null; reference: string }
+  >()
+  for (let update of skipped) {
+    let { reference, command } = describeKeptPin(update, lockfiles)
+    let key = `${reference} ${command}`
+    let group = groups.get(key) ?? { updates: [], reference, command }
+    group.updates.push(update)
+    groups.set(key, group)
+  }
+
+  for (let { reference, updates, command } of groups.values()) {
+    printSkippedGroup(
+      updates,
+      `whose update would move the workflow back: the workflow lockfile pins ${reference}, the reference it writes, at an older commit for other workflows`,
+    )
+    if (command !== null) {
+      console.info(
+        colors.gray(
+          '   This moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:',
+        ),
+      )
+      console.info(colors.gray(`   ${command}`))
+    }
+  }
+}
+
+/**
+ * Name the reference an entry would have written, had writing it not moved its
+ * workflow back, and write the command that moves forward the pin its lockfile
+ * already has for that reference.
+ *
+ * The command relocks the workflows the lockfile pins the reference for, since
+ * the workflow of the entry does not run it yet.
+ *
+ * @param update - Entry skipped for that reason.
+ * @param lockfiles - Lockfile that can be regenerated for each scanned file it
+ *   pins, by the file.
+ * @returns The reference, `owner/repo@ref`, and the command, null when the
+ *   lockfile pins the reference for no workflow.
+ */
+function describeKeptPin(
+  update: SkippedEntry,
+  lockfiles: Map<string, WorkflowLockfile>,
+): { command: string | null; reference: string } {
+  let name = update.action.name.split('/', 2).join('/')
+  let reference = `${name}@${update.targetRef}`
+
+  /**
+   * An entry is skipped this way only once its lockfile was read.
+   */
+  let lockfile = lockfiles.get(update.action.file!)!
+  let key = `${name.toLowerCase()}@${update.targetRef}`
+  let workflows = lockfile
+    .pins!.entries()
+    .filter(([, keys]) => keys.includes(key))
+    .map(([workflow]) => workflow)
+    .toArray()
+    .toSorted()
+
+  return {
+    command:
+      workflows.length > 0 ?
+        formatRelockCommand(workflows, relative(process.cwd(), lockfile.root), {
+          relock: true,
+        })
+      : null,
+    reference,
   }
 }
 

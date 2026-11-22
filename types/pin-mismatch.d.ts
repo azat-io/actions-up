@@ -14,6 +14,12 @@ export type PinMismatch =
       kind: 'other-commit' | 'kept-commit'
 
       /**
+       * Workflows the reference was written for, as the lockfile names them,
+       * sorted.
+       */
+      workflows: string[]
+
+      /**
        * Reference, `owner/repo@ref`, as the updates name it.
        */
       reference: string

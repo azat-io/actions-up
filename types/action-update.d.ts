@@ -21,9 +21,14 @@ export interface ActionUpdate {
    * workflow that holds it, or those that run its action of the repository,
    * each through `$/` references alone, which takes workflows that can be
    * traced and never holds once one runs it only through `./`, or runs remote
-   * actions through `./` alone. `lockfile-unchecked` means the tag the
-   * reference names already points at the latest version, but the lockfile may
-   * pin an older commit of it, which Actions Up does not read.
+   * actions through `./` alone. `lockfile-kept` means the CLI could regenerate
+   * the lockfile, but it already pins the reference the update writes, as for
+   * another workflow, at another commit than the checked one, which the relock
+   * keeps, while the workflow runs the checked commit already: writing the
+   * update would move the workflow back. `planUpdates` never reports it.
+   * `lockfile-unchecked` means the tag the reference names already points at
+   * the latest version, but the lockfile may pin an older commit of it, which
+   * Actions Up does not read.
    */
   skipReason?:
     | 'reachability-unknown'
@@ -33,6 +38,7 @@ export interface ActionUpdate {
     | 'unsupported-style'
     | 'not-comparable'
     | 'sha-unresolved'
+    | 'lockfile-kept'
     | 'check-failed'
     | 'tag-family'
     | 'not-found'

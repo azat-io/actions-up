@@ -206,6 +206,7 @@ describe('findPinMismatches', () => {
         ),
       ).toStrictEqual([
         {
+          workflows: ['.github/workflows/ci.yml'],
           reference: 'actions/checkout@v4',
           kind: 'other-commit',
           pinned: RECORDED_SHA,
@@ -227,6 +228,7 @@ describe('findPinMismatches', () => {
       ),
     ).toStrictEqual([
       {
+        workflows: ['.github/workflows/ci.yml'],
         reference: 'actions/checkout@v4',
         pinned: RECORDED_SHA,
         checked: CHECKED_SHA,
@@ -247,6 +249,7 @@ describe('findPinMismatches', () => {
       ),
     ).toStrictEqual([
       {
+        workflows: ['.github/workflows/ci.yml'],
         reference: 'actions/checkout@v4',
         kind: 'other-commit',
         pinned: RECORDED_SHA,
@@ -391,6 +394,7 @@ describe('findPinMismatches', () => {
       { reference: 'actions/cache@v4', workflow: release, kind: 'refused' },
       {
         reference: 'actions/cache@v4',
+        workflows: [deploy, release],
         pinned: RECORDED_SHA,
         kind: 'other-commit',
         checked: CHECKED_SHA,

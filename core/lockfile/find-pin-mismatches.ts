@@ -132,6 +132,7 @@ export function findPinMismatches(
       } else if (sha && checked && sha !== checked) {
         mismatches.push({
           kind: recorded.get(key) === sha ? 'kept-commit' : 'other-commit',
+          workflows: [...workflows].toSorted(),
           reference: name,
           pinned: sha,
           checked,

@@ -122,7 +122,8 @@ export async function relockWorkflows(
 
 /**
  * Write the command that regenerates a workflow lockfile the way Actions Up
- * does, for the user to run from the working directory.
+ * does, for the user to run from the working directory, or that also moves
+ * forward every reference of the workflows that moved, as `--relock` does.
  *
  * The command names the root of the repository of the lockfile as the root, and
  * the directory of the lockfile below it, the way Actions Up runs it, so that
@@ -136,21 +137,29 @@ export async function relockWorkflows(
  * changes to it first, through a path that starts with a dot, so that `CDPATH`
  * does not lead elsewhere and a leading dash is not read as an option. The path
  * is followed physically, since it leads from the real working directory: a
- * shell would otherwise take `..` back through the symbolic link it entered
- * by.
+ * shell would otherwise take `..` back through the symbolic link it entered by.
+ * With `--relock`, gh-actions-lock resolves every reference of the workflows
+ * again, without the cool-down and trust checks of Actions Up, and the pin of a
+ * reference it moves forward changes for every workflow that uses the
+ * reference, since the lockfile pins each reference once.
  *
  * @param workflows - Tracked workflows to relock, as the lockfile names them.
  * @param directory - Root of the repository of the lockfile, relative to the
  *   working directory; empty when it is the working directory.
+ * @param options - How the command relocks.
+ * @param options.relock - Whether it moves forward the references that moved,
+ *   instead of keeping the commits the lockfile pins.
  * @returns The command, with each path quoted when a shell would split it.
  */
 export function formatRelockCommand(
   workflows: string[],
   directory: string,
+  options: { relock?: boolean } = {},
 ): string {
   let command = [
     'gh actions-lock',
     ...RELOCK_FLAGS,
+    ...(options.relock ? ['--relock'] : []),
     '--',
     ...workflows.map(quotePath),
   ].join(' ')

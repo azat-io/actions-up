@@ -280,11 +280,25 @@ const OTHER_COMMIT_DETAIL =
   'actions/checkout@v4 is pinned to 11bd719, not to the checked 11d5960: it moved after Actions Up checked it, so the pinned commit skipped the cool-down and trust checks; review it, or undo the changes with Git'
 
 /**
+ * What follows a pin the lockfile kept when the files keep their updates, up to
+ * the command that moves it forward.
+ */
+const MOVE_KEPT_PIN =
+  'this moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:'
+
+/**
  * Line that describes `actions/checkout@v4` kept at the commit the lockfile
  * pinned before.
  */
-const KEPT_COMMIT_DETAIL =
-  'actions/checkout@v4 stays pinned to 11bd719, which the lockfile pinned before, not to the checked 11d5960; gh actions-lock --relock moves it forward'
+const KEPT_COMMIT_LINE =
+  'actions/checkout@v4 stays pinned to 11bd719, which the lockfile pinned before, not to the checked 11d5960'
+
+/**
+ * Line that describes `actions/checkout@v4` kept at the commit the lockfile
+ * pinned before, with the command that moves it forward for the CI workflow,
+ * which it was written for.
+ */
+const KEPT_COMMIT_DETAIL = `${KEPT_COMMIT_LINE}; ${MOVE_KEPT_PIN}\n     GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- .github/workflows/ci.yml`
 
 /**
  * Line that describes `actions/cache@v5` left out of the lockfile.
@@ -435,6 +449,48 @@ describe('regenerateLockfiles', () => {
       heading:
         'gh actions-lock kept earlier pins in .github/workflows/actions.lock',
       details: [KEPT_COMMIT_DETAIL],
+      unrestored: [],
+      command: null,
+      restored: [],
+      left: [],
+    })
+  })
+
+  it('names the command that moves a pin the lockfile of a nested repository kept forward from the working directory', async () => {
+    arrangeLockfileReads(
+      makeLockfileText({
+        workflows: {
+          '.github/workflows/release.yml': ['actions/setup-node@v5'],
+        },
+        dependencies: { 'actions/setup-node@v5': RECORDED_SHA },
+      }),
+      makeLockfileText({
+        workflows: {
+          '.github/workflows/release.yml': ['actions/setup-node@v5'],
+          '.github/workflows/ci.yml': ['actions/setup-node@v5'],
+        },
+        dependencies: { 'actions/setup-node@v5': RECORDED_SHA },
+      }),
+    )
+    vi.mocked(relockWorkflows).mockResolvedValue({
+      pins: [makePin('actions/setup-node', 'v5', RECORDED_SHA)],
+      kind: 'relocked',
+      refusals: [],
+    })
+
+    await expect(
+      regenerateLockfiles([VENDORED_TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      unrestored: new Set(),
+      restored: new Set(),
+      exitCode: 0,
+    })
+    expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+      details: [
+        `actions/setup-node@v5 stays pinned to 11bd719, which the lockfile pinned before, not to the checked a0853c2; ${MOVE_KEPT_PIN}\n     (cd -P ./vendor/tool && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- .github/workflows/ci.yml)`,
+      ],
+      heading:
+        'gh actions-lock kept earlier pins in vendor/tool/.github/workflows/actions.lock',
       unrestored: [],
       command: null,
       restored: [],
@@ -859,6 +915,43 @@ describe('regenerateLockfiles', () => {
     )
     expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
       details: [
+        'actions/checkout@v4 is not recorded for .github/workflows/ci.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
+        'actions/cache@v5 is not recorded for .github/workflows/ci.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
+        'actions/cache@v5 is not recorded for .github/workflows/release.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
+      ],
+      heading: NOT_AS_CHECKED_HEADING,
+      restored: TARGET_FILES,
+      unrestored: [],
+      command: null,
+      left: [],
+    })
+  })
+
+  it('names a pin the lockfile kept without a command once the files are put back', async () => {
+    let unchanged = makeLockfileText({
+      workflows: { '.github/workflows/release.yml': ['actions/checkout@v4'] },
+      dependencies: { 'actions/checkout@v4': RECORDED_SHA },
+    })
+    arrangeLockfileReads(unchanged, unchanged)
+    vi.mocked(relockWorkflows).mockResolvedValue({
+      pins: [
+        makePin('actions/checkout', 'v4', RECORDED_SHA),
+        makePin('actions/cache', 'v5', CACHE_SHA),
+      ],
+      kind: 'relocked',
+      refusals: [],
+    })
+
+    await expect(
+      regenerateLockfiles([TARGET], WRITTEN, signals),
+    ).resolves.toStrictEqual({
+      restored: new Set([SETUP_ACTION, CI_WORKFLOW]),
+      unrestored: new Set(),
+      exitCode: 1,
+    })
+    expect(printRelockNotice).toHaveBeenCalledExactlyOnceWith({
+      details: [
+        KEPT_COMMIT_LINE,
         'actions/checkout@v4 is not recorded for .github/workflows/ci.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
         'actions/cache@v5 is not recorded for .github/workflows/ci.yml in the lockfile on disk, though gh actions-lock reported it as pinned',
         'actions/cache@v5 is not recorded for .github/workflows/release.yml in the lockfile on disk, though gh actions-lock reported it as pinned',

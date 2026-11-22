@@ -343,7 +343,13 @@ describe('createUpdatePlan', () => {
         ],
         skipped: [],
       })
-      expect(canRelock).toHaveBeenCalledExactlyOnceWith(locked)
+      expect(canRelock).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          latestSha: RELEASE_SHA,
+          targetRef: RELEASE_SHA,
+          action: locked,
+        }),
+      )
     })
 
     it('skips its update when the lockfile cannot be regenerated', async () => {
@@ -360,6 +366,33 @@ describe('createUpdatePlan', () => {
 
       expect(result).toMatchObject({
         skipped: [{ skipReason: 'lockfile', action: locked }],
+        updates: [],
+      })
+    })
+
+    it('skips its update with its own reason when the relock would keep an older commit the lockfile pins for the new reference', async () => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+      })
+      let locked = makeAction({ locked: true })
+
+      let result = await plan([locked], { canRelock: () => 'kept' })
+
+      expect(result).toMatchObject({
+        skipped: [
+          {
+            skipReason: 'lockfile-kept',
+            targetRef: RELEASE_SHA,
+            status: 'skipped',
+            hasUpdate: false,
+            action: locked,
+          },
+        ],
+        blockedByTrust: [],
         updates: [],
       })
     })

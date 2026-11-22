@@ -2675,6 +2675,62 @@ describe('run', () => {
         expect(process.exitCode).toBeUndefined()
       })
 
+      it('skips an update that would move its workflow back to an older commit the lockfile pins for the new reference, and says how to move that pin forward', async () => {
+        vi.mocked(readEnclosingLockfiles).mockResolvedValue([
+          makeWorkflowLockfile({
+            pins: new Map([
+              ['.github/workflows/release.yml', ['actions/checkout@v4']],
+              ['.github/workflows/ci.yml', ['actions/checkout@v4.2.2']],
+            ]),
+            commits: new Map([
+              ['actions/checkout@v4.2.2', LATEST_SHA],
+              ['actions/checkout@v4', COMPATIBLE_SHA],
+            ]),
+            workflows: new Set([WORKFLOW_FILE]),
+          }),
+        ])
+        arrangeRun({
+          updates: [
+            makeUpdate(makeAction({ version: 'v4.2.2' }), {
+              isBreaking: false,
+            }),
+          ],
+        })
+        vi.mocked(createGitHubClient).mockReturnValue(
+          createRepositoryClient({
+            getTagSha: vi
+              .fn<GitHubClient['getTagSha']>()
+              .mockResolvedValue(LATEST_SHA),
+          }),
+        )
+
+        await runCli('--style', 'semver', '--yes')
+        await runCli('--style', 'semver', '--json')
+
+        expect(writeUpdates).not.toHaveBeenCalled()
+        expect(regenerateLockfiles).not.toHaveBeenCalled()
+        expect(printedLines()).toStrictEqual([
+          BANNER,
+          '⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, at an older commit for other workflows',
+          '   • actions/checkout@v4.2.2',
+          '   This moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:',
+          '   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- .github/workflows/release.yml',
+          UP_TO_DATE,
+        ])
+        expect(readJsonReport()).toMatchObject({
+          skipped: [
+            {
+              action: { relockBlocker: null, locked: true },
+              skipReason: 'lockfile-kept',
+              targetRef: 'v4',
+            },
+          ],
+          lockTool: 'available',
+          status: 'up-to-date',
+          updates: [],
+        })
+      })
+
       it.each([
         [
           'put back after a failed regeneration',

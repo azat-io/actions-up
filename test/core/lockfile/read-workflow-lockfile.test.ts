@@ -87,7 +87,12 @@ describe('readWorkflowLockfile', () => {
         '/repo/.github/workflows/release.yaml',
         '/repo/.github/workflows/ci.yml',
       ]),
+      pins: new Map([
+        ['.github/workflows/release.yaml', []],
+        ['.github/workflows/ci.yml', []],
+      ]),
       path: LOCKFILE_PATH,
+      commits: new Map(),
       version: 'v0.0.3',
       reached: REACHED,
       unreadable: null,
@@ -100,6 +105,34 @@ describe('readWorkflowLockfile', () => {
         '/repo/.github/workflows/ci.yml',
       ]),
     )
+  })
+
+  it('keeps the pins of each workflow and the commit each pin resolves to', async () => {
+    installFileSystem({
+      [LOCKFILE_PATH]: makeLockfileText({
+        dependencies: {
+          'actions/checkout@v4.2.2': 'b4ffde65f46336ab88eb53be808477a3936bae11',
+          'actions/checkout@v4': 'f43a0e5ff2bd294095638e18286ca9a3d1956744',
+        },
+        workflows: {
+          '.github/workflows/release.yml': ['actions/checkout@v4'],
+          '.github/workflows/ci.yml': ['actions/checkout@v4.2.2'],
+        },
+      }),
+    })
+
+    let lockfile = await readWorkflowLockfile('/repo')
+
+    expect(lockfile).toMatchObject({
+      commits: new Map([
+        ['actions/checkout@v4.2.2', 'b4ffde65f46336ab88eb53be808477a3936bae11'],
+        ['actions/checkout@v4', 'f43a0e5ff2bd294095638e18286ca9a3d1956744'],
+      ]),
+      pins: new Map([
+        ['.github/workflows/release.yml', ['actions/checkout@v4']],
+        ['.github/workflows/ci.yml', ['actions/checkout@v4.2.2']],
+      ]),
+    })
   })
 
   it('reports a repository without a lockfile as using none', async () => {
@@ -141,8 +174,10 @@ describe('readWorkflowLockfile', () => {
       version: 'v0.0.4',
       reached: REACHED,
       unreadable: null,
+      commits: null,
       root: '/repo',
       keys: null,
+      pins: null,
     })
   })
 
@@ -160,9 +195,11 @@ describe('readWorkflowLockfile', () => {
       path: LOCKFILE_PATH,
       reached: REACHED,
       unreadable: null,
+      commits: null,
       version: null,
       root: '/repo',
       keys: null,
+      pins: null,
     })
   })
 
@@ -185,9 +222,11 @@ describe('readWorkflowLockfile', () => {
         path: LOCKFILE_PATH,
         reached: REACHED,
         unreadable: null,
+        commits: null,
         version: null,
         root: '/repo',
         keys: null,
+        pins: null,
       })
     },
   )
@@ -205,10 +244,12 @@ describe('readWorkflowLockfile', () => {
       path: LOCKFILE_PATH,
       unreadable: null,
       workflows: null,
+      commits: null,
       version: null,
       reached: null,
       root: '/repo',
       keys: null,
+      pins: null,
     })
     expect(traceLocalActions).not.toHaveBeenCalled()
   })

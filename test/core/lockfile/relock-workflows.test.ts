@@ -501,6 +501,16 @@ describe('formatRelockCommand', () => {
     )
   })
 
+  it('adds --relock before the workflows when it moves forward the references that moved', () => {
+    expect(
+      formatRelockCommand(['.github/workflows/release.yml'], 'vendor/tool', {
+        relock: true,
+      }),
+    ).toBe(
+      '(cd -P ./vendor/tool && GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- .github/workflows/release.yml)',
+    )
+  })
+
   it('quotes a path a shell would split', () => {
     expect(formatRelockCommand([".github/workflows/it's ci.yml"], '')).toBe(
       String.raw`GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow -- '.github/workflows/it'\''s ci.yml'`,

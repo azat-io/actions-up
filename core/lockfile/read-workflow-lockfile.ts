@@ -17,7 +17,10 @@ import { isYamlFile } from '../fs/is-yaml-file'
 /**
  * What the lockfile says about the workflows it tracks.
  */
-interface LockfileContents extends Pick<WorkflowLockfile, 'version' | 'error'> {
+interface LockfileContents extends Pick<
+  WorkflowLockfile,
+  'commits' | 'version' | 'error' | 'pins'
+> {
   /**
    * Absolute paths of the workflows treated as tracked, null when they cannot
    * be listed.
@@ -45,7 +48,9 @@ interface LockfileContents extends Pick<WorkflowLockfile, 'version' | 'error'> {
  * leaves the lockfile stale too. The lockfile and its workflows are named by
  * their real paths, so that a file found through a symbolic link is matched
  * with the one it points to, and each workflow keeps the path the lockfile
- * names it by, so that it can be regenerated under that name.
+ * names it by, so that it can be regenerated under that name. The pins of each
+ * workflow and the commit each pin resolves to are kept too, since a relock
+ * keeps the commit the lockfile already pins for a reference.
  *
  * @param root - Root of the repository.
  * @returns The lockfile, or null when the repository has none.
@@ -92,8 +97,8 @@ export async function readWorkflowLockfile(
  *
  * @param path - Absolute path of the lockfile.
  * @param root - Root of the repository.
- * @returns The tracked workflows with the schema version, or null when there is
- *   no lockfile.
+ * @returns The tracked workflows with their pins, the pinned commits and the
+ *   schema version, or null when there is no lockfile.
  */
 async function readContents(
   path: string,
@@ -111,8 +116,10 @@ async function readContents(
     return {
       workflows: await listWorkflows(workflowsDirectory),
       error: 'unreadable file',
+      commits: null,
       version: null,
       keys: null,
+      pins: null,
     }
   }
 
@@ -123,7 +130,9 @@ async function readContents(
       workflows: await listWorkflows(workflowsDirectory),
       version: parsed.version,
       error: parsed.reason,
+      commits: null,
       keys: null,
+      pins: null,
     }
   }
 
@@ -131,8 +140,10 @@ async function readContents(
     workflows: new Set(
       parsed.workflows.map(workflow => resolve(root, workflow)),
     ),
+    commits: parsed.commits,
     version: parsed.version,
     keys: parsed.workflows,
+    pins: parsed.pins,
   }
 }
 

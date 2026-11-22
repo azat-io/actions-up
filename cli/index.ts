@@ -2,7 +2,6 @@ import { relative } from 'node:path'
 
 import type { JsonReportStatus } from './build-json-report'
 import type { ActionUpdate } from '../types/action-update'
-import type { GitHubAction } from '../types/github-action'
 import type { CLIOptions } from './parse-arguments'
 import type { LockTool } from '../types/lock-tool'
 
@@ -11,6 +10,7 @@ import { findRelockBlockers, planRelocks } from '../core/lockfile/plan-relocks'
 import { buildJsonErrorReport, buildJsonReport } from './build-json-report'
 import { normalizeUpdateStyle } from '../core/plan/normalize-update-style'
 import { normalizeUpdateMode } from '../core/plan/normalize-update-mode'
+import { movesWorkflowBack } from '../core/lockfile/moves-workflow-back'
 import { createUpdatePlan } from '../core/plan/create-update-plan'
 import { printRateLimitWarning } from './print-rate-limit-warning'
 import { printDowngradeWarning } from './print-downgrade-warning'
@@ -275,18 +275,34 @@ async function runUpdate(options: CLIOptions): Promise<void> {
 
     /**
      * The tool is looked for only when a lockfile that can be regenerated pins
-     * a scanned entry.
+     * a scanned entry. A file nothing blocks is pinned by that lockfile alone.
      */
-    let relockableFiles = new Set(
-      lockedFiles.keys().filter(file => !relockBlockers.has(file)),
+    let relockableFiles = new Map(
+      lockedFiles
+        .entries()
+        .filter(([file]) => !relockBlockers.has(file))
+        .flatMap(([file, pins]) =>
+          pins.map(({ lockfile }) => [file, lockfile] as const),
+        ),
     )
     let lockTool: LockTool | null =
       relockableFiles.size > 0 ? await findLockTool(process.cwd()) : null
 
+    /**
+     * A relock keeps the commit the lockfile already pins for the reference an
+     * update writes, so an update that would move its workflow back to such a
+     * commit is not written, though the lockfile could be regenerated.
+     */
     let plan = await createUpdatePlan(scanResult, {
       canRelock:
         lockTool === 'available' ?
-          (action: GitHubAction) => relockableFiles.has(action.file!)
+          (update: ActionUpdate) => {
+            let lockfile = relockableFiles.get(update.action.file!)
+            if (!lockfile) {
+              return false
+            }
+            return movesWorkflowBack(update, lockfile) ? 'kept' : true
+          }
         : undefined,
       token: process.env['GITHUB_TOKEN'],
       minAge: options.minAge,
@@ -353,6 +369,7 @@ async function runUpdate(options: CLIOptions): Promise<void> {
       if (!quiet) {
         if (skipped.length > 0) {
           printSkippedWarning(skipped, {
+            lockfiles: relockableFiles,
             includeBranches,
             relockBlockers,
             lockTool,

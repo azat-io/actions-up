@@ -17,6 +17,21 @@ export interface WorkflowLockfile {
   reached: Map<string, Map<string, boolean>> | null
 
   /**
+   * Commit each pin of the lockfile resolves to, in lower case, by its key,
+   * `owner/repo@ref` with the repository in lower case; null when the lockfile
+   * cannot be read. A relock without `--relock` keeps the commit recorded for a
+   * key, whichever workflow it was recorded for.
+   */
+  commits: Map<string, string> | null
+
+  /**
+   * Keys of the pins of each tracked workflow, `owner/repo@ref` with the
+   * repository in lower case, by the key of the workflow; null when the
+   * lockfile cannot be read.
+   */
+  pins: Map<string, string[]> | null
+
+  /**
    * Paths the lockfile names the workflows it tracks by, relative to the root,
    * each mapped to the real path of the workflow; null when the lockfile cannot
    * be read. A relock names each workflow by its key, since gh-actions-lock

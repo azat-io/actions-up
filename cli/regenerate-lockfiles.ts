@@ -239,8 +239,10 @@ async function relockAndCheck(
     spinner.success(`Regenerated ${lockfile}`)
     if (kept.length > 0) {
       printRelockNotice({
+        details: kept.map(mismatch =>
+          describeMismatch(mismatch, toDisplayPath(target.lockfile.root)),
+        ),
         heading: `gh actions-lock kept earlier pins in ${lockfile}`,
-        details: kept.map(describeMismatch),
         unrestored: [],
         command: null,
         restored: [],
@@ -293,11 +295,18 @@ async function relockAndCheck(
 
   /**
    * Running the relock again pins the same, so the notice gives no command.
+   * Neither is there one that moves a kept pin forward once the files are put
+   * back.
    */
   spinner.error(`Regenerated ${lockfile}, but not as checked`)
   return finish(target, written, {
+    details: mismatches.map(mismatch =>
+      describeMismatch(
+        mismatch,
+        restore ? null : toDisplayPath(target.lockfile.root),
+      ),
+    ),
     heading: `gh actions-lock did not pin what Actions Up checked in ${lockfile}`,
-    details: mismatches.map(describeMismatch),
     rerun: false,
     restore,
   })
@@ -307,10 +316,19 @@ async function relockAndCheck(
  * Describe a reference the lockfile does not pin as checked, with what fixes
  * it.
  *
+ * A pin the lockfile kept moves forward with `--relock`, which resolves every
+ * reference of the workflows it is given again, without the checks of Actions
+ * Up, so the command names only the workflows the reference was written for;
+ * the pin moves for every workflow that uses the reference all the same, as the
+ * lockfile pins each reference once.
+ *
  * @param mismatch - The reference and what the lockfile pins for it.
+ * @param root - Root of the repository of the lockfile, relative to the working
+ *   directory, for the command that moves a kept pin forward; null when the
+ *   files are put back, so that there is no command.
  * @returns The description.
  */
-function describeMismatch(mismatch: PinMismatch): string {
+function describeMismatch(mismatch: PinMismatch, root: string | null): string {
   if (mismatch.kind === 'refused') {
     return `${mismatch.reference} is not pinned for ${mismatch.workflow}: its entry in the lockfile did not track the action, and gh actions-lock adds it only without --no-onboard`
   }
@@ -322,9 +340,15 @@ function describeMismatch(mismatch: PinMismatch): string {
   }
   let pinned = mismatch.pinned.slice(0, 7)
   let checked = mismatch.checked.slice(0, 7)
-  return mismatch.kind === 'kept-commit' ?
-      `${mismatch.reference} stays pinned to ${pinned}, which the lockfile pinned before, not to the checked ${checked}; gh actions-lock --relock moves it forward`
-    : `${mismatch.reference} is pinned to ${pinned}, not to the checked ${checked}: it moved after Actions Up checked it, so the pinned commit skipped the cool-down and trust checks; review it, or undo the changes with Git`
+  if (mismatch.kind === 'other-commit') {
+    return `${mismatch.reference} is pinned to ${pinned}, not to the checked ${checked}: it moved after Actions Up checked it, so the pinned commit skipped the cool-down and trust checks; review it, or undo the changes with Git`
+  }
+  let kept = `${mismatch.reference} stays pinned to ${pinned}, which the lockfile pinned before, not to the checked ${checked}`
+  if (root === null) {
+    return kept
+  }
+  let command = formatRelockCommand(mismatch.workflows, root, { relock: true })
+  return `${kept}; this moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:\n     ${command}`
 }
 
 /**

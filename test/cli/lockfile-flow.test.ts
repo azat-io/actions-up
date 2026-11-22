@@ -568,6 +568,141 @@ describe('lockfile flow', () => {
   )
 
   it.skipIf(process.platform === 'win32')(
+    'skips a tag of the latest version that the lockfile would move back to the older commit it pins for the floating tag, without running gh',
+    async () => {
+      let ci = makeWorkflowText(['actions/checkout@v4.2.2'])
+      let lockfile = makeLockfileText({
+        dependencies: {
+          'actions/checkout@v4': RECORDED_CHECKOUT_SHA,
+          'actions/checkout@v4.2.2': CHECKOUT_SHA,
+        },
+        workflows: {
+          [RELEASE_KEY]: ['actions/checkout@v4'],
+          [CI_KEY]: ['actions/checkout@v4.2.2'],
+        },
+      })
+      await writeRepository({
+        [RELEASE_KEY]: makeWorkflowText(['actions/checkout@v4']),
+        [LOCKFILE_KEY]: lockfile,
+        [CI_KEY]: ci,
+      })
+      await arrangeGh({
+        writes: {
+          [LOCKFILE_KEY]: makeLockfileText({
+            workflows: {
+              [RELEASE_KEY]: ['actions/checkout@v4'],
+              [CI_KEY]: ['actions/checkout@v4'],
+            },
+            dependencies: { 'actions/checkout@v4': RECORDED_CHECKOUT_SHA },
+          }),
+        },
+        report: makeReport(['actions/checkout', 'v4', RECORDED_CHECKOUT_SHA]),
+      })
+      vi.mocked(createGitHubClient).mockReturnValue(
+        createMockClient({
+          getBranchTipAt: vi
+            .fn<GitHubClient['getBranchTipAt']>()
+            .mockResolvedValue({
+              sha: 'f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a',
+              since: new Date(ON_BRANCH_SINCE),
+            }),
+          getTagSha: vi.fn<GitHubClient['getTagSha']>(
+            (_owner, _repository, tag) =>
+              Promise.resolve(
+                tag === 'v4' || tag === 'v4.2.2' ? CHECKOUT_SHA : null,
+              ),
+          ),
+          compareCommits: vi
+            .fn<GitHubClient['compareCommits']>()
+            .mockResolvedValue('behind'),
+        }),
+      )
+
+      await runCli('--yes', '--style', 'semver')
+
+      expect(String(await readRepository(CI_KEY))).toBe(ci)
+      expect(String(await readRepository(LOCKFILE_KEY))).toBe(lockfile)
+      await expect(readGhCalls()).resolves.toStrictEqual([])
+      expect(printedLines()).toStrictEqual([
+        '🚀 Actions Up!',
+        '⚠️  Skipped 1 action whose update would move the workflow back: the workflow lockfile pins actions/checkout@v4, the reference it writes, at an older commit for other workflows',
+        '   • actions/checkout@v4.2.2',
+        '   This moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:',
+        `   GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- ${RELEASE_KEY}`,
+        '⚠️  Skipped 1 action pinned by a workflow lockfile to a commit that was not compared with the latest version (gh actions-lock --relock moves such pins forward)',
+        '   • actions/checkout@v4',
+        '✨ Everything is already at the latest version!',
+      ])
+      expect(printedErrors()).toStrictEqual([])
+      expect(process.exitCode).toBeUndefined()
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'writes an upgrade to a floating tag the lockfile pins at an older commit for another workflow, and says how to move that pin forward',
+    async () => {
+      let olderSha = '692973e3d937129bcbf40652eb9f2f61becf3332'
+      let relocked = makeLockfileText({
+        workflows: {
+          [RELEASE_KEY]: ['actions/checkout@v4'],
+          [CI_KEY]: ['actions/checkout@v4'],
+        },
+        dependencies: { 'actions/checkout@v4': olderSha },
+      })
+      await writeRepository({
+        [LOCKFILE_KEY]: makeLockfileText({
+          dependencies: {
+            'actions/checkout@v3': RECORDED_CHECKOUT_SHA,
+            'actions/checkout@v4': olderSha,
+          },
+          workflows: {
+            [RELEASE_KEY]: ['actions/checkout@v4'],
+            [CI_KEY]: ['actions/checkout@v3'],
+          },
+        }),
+        [RELEASE_KEY]: makeWorkflowText(['actions/checkout@v4']),
+        [CI_KEY]: makeWorkflowText(['actions/checkout@v3']),
+      })
+      await arrangeGh({
+        report: makeReport(['actions/checkout', 'v4', olderSha]),
+        writes: { [LOCKFILE_KEY]: relocked },
+      })
+      vi.mocked(createGitHubClient).mockReturnValue(
+        createMockClient({
+          getBranchTipAt: vi
+            .fn<GitHubClient['getBranchTipAt']>()
+            .mockResolvedValue({
+              sha: 'f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a',
+              since: new Date(ON_BRANCH_SINCE),
+            }),
+          compareCommits: vi
+            .fn<GitHubClient['compareCommits']>()
+            .mockResolvedValue('behind'),
+          getTagSha: vi
+            .fn<GitHubClient['getTagSha']>()
+            .mockResolvedValue(CHECKOUT_SHA),
+        }),
+      )
+
+      await runCli('--yes', '--style', 'semver')
+
+      expect(String(await readRepository(CI_KEY))).toBe(
+        makeWorkflowText(['actions/checkout@v4']),
+      )
+      expect(String(await readRepository(LOCKFILE_KEY))).toBe(relocked)
+      expect((await readGhCalls()).map(({ args }) => args)).toStrictEqual([
+        [...RELOCK_ARGUMENTS, CI_KEY],
+      ])
+      expect(printedErrors()).toStrictEqual([
+        `⚠️ gh actions-lock kept earlier pins in ${LOCKFILE_KEY}`,
+        `   • actions/checkout@v4 stays pinned to 692973e, which the lockfile pinned before, not to the checked b4ffde6; this moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:\n     GH_ACTIONS_LOCK_REPO_ROOT="$PWD" GH_ACTIONS_LOCK_WORKFLOWS_DIR=.github/workflows gh actions-lock --no-onboard --no-narrow --relock -- ${CI_KEY}`,
+      ])
+      expect(printedLines().at(-1)).toBe('✓ Updates applied successfully!')
+      expect(process.exitCode).toBeUndefined()
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
     'names a workflow gh-actions-lock rewrote for a repository that moved, which keeps the lockfile regenerated',
     async () => {
       let renamed = makeWorkflowText([`my-org/checkout@${CHECKOUT_SHA}`])
