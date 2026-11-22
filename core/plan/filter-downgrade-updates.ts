@@ -5,6 +5,7 @@ import type { ActionUpdate } from '../../types/action-update'
 import { parseVersionComment } from '../versions/parse-version-comment'
 import { isSameTagFamily } from '../versions/is-same-tag-family'
 import { parseTagFamily } from '../versions/parse-tag-family'
+import { compareSha } from '../versions/compare-sha'
 import { isSha } from '../versions/is-sha'
 
 /**
@@ -55,10 +56,22 @@ export function filterDowngradeUpdates(
  * Check whether an update would downgrade a SHA-pinned action.
  *
  * @param update - Update to inspect.
- * @returns True when the inline comment version is higher than the latest one.
+ * @returns True when the pin runs another commit than the latest version and
+ *   its inline comment names a higher version.
  */
 function isDowngrade(update: ActionUpdate): boolean {
-  if (!isSha(update.currentVersion)) {
+  let { currentVersion, latestSha } = update
+
+  if (!currentVersion || !isSha(currentVersion)) {
+    return false
+  }
+
+  /**
+   * Moving to the commit the pin already runs cannot be a downgrade, whatever
+   * its comment claims. Only the tag style marks such a pin as outdated, to
+   * write the tag of that commit.
+   */
+  if (latestSha && compareSha(currentVersion, latestSha)) {
     return false
   }
 

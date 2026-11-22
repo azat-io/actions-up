@@ -1319,6 +1319,32 @@ describe('createUpdatePlan', () => {
     },
   )
 
+  it('writes the floating tag in the tag style for a SHA pin already at the latest release whose comment names a newer one, rather than blocking it as a downgrade', async () => {
+    routeFetch({
+      ...latestReleaseRoutes({
+        publishedAt: TWO_YEARS_AGO,
+        sha: RELEASE_SHA,
+      }),
+      ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+      [`${REPOSITORY}/git/ref/tags/v4`]: ok(
+        makeReferencePayload('refs/tags/v4', {
+          sha: RELEASE_SHA,
+          type: 'commit',
+        }),
+      ),
+    })
+
+    let result = await plan(
+      [makeAction({ version: RELEASE_SHA, comment: ' v4.3.0' })],
+      { style: 'tag' },
+    )
+
+    expect(result).toMatchObject({
+      updates: [{ targetRefStyle: 'tag', targetRef: 'v4' }],
+      blockedAsDowngrade: [],
+    })
+  })
+
   it('keeps a SHA pin on the latest release in the tag style while the cool-down holds that release, rather than stepping down to an older one', async () => {
     routeFetch({
       ...latestReleaseRoutes({ publishedAt: AN_HOUR_AGO, sha: RELEASE_SHA }),

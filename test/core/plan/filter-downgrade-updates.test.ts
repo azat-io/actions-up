@@ -86,6 +86,21 @@ describe('filterDowngradeUpdates', () => {
     expect(result).toStrictEqual({ blocked: [update], kept: [] })
   })
 
+  it('keeps an update of a pin that already runs the latest commit, whatever its comment claims', () => {
+    /**
+     * The tag style marks such a pin as outdated to write the tag of its
+     * commit, and moving to the commit the pin runs cannot be a downgrade.
+     */
+    let update = withComment(
+      createUpdate({ latestSha: '59b9d7edfcad5b87fbe3f473a9a134a721ad03f8' }),
+      ' v12.3119.0',
+    )
+
+    let result = filterDowngradeUpdates([update])
+
+    expect(result).toStrictEqual({ kept: [update], blocked: [] })
+  })
+
   it('keeps an upgrade of a sha-pinned action', () => {
     let update = withComment(
       createUpdate({ latestVersion: 'v1.3.0' }),

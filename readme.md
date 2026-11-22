@@ -304,7 +304,9 @@ tag is used, falling back to the exact version. SHA-pinned references keep
 updating to the latest resolved SHA and are never converted to tags.
 
 Use `--style tag` to convert SHA-pinned references to these tags as well, even
-those already at the latest version.
+those already at the latest version. This gives up SHA pinning: the cool-down
+and trust checks hold only at the moment the tags are read, and the publisher
+can move a tag afterwards.
 
 ### Workflow Lockfile
 
@@ -623,7 +625,8 @@ date of an immutable release, or the moment the default branch or a protected
 branch got the commit the tag points at now. An update whose age is unknown is
 held back, and so is a commit outside those branches, even with `--min-age 0`;
 such holds are printed even with `--quiet`. Only SHA pins keep the checked
-commit: a tag written by `--style preserve` or `semver` can be moved later.
+commit: a tag written by `--style preserve`, `semver` or `tag` can be moved
+later.
 
 When the latest release is too new, the older releases are checked in turn and
 the newest one that clears the cool-down is offered instead. The walk never
