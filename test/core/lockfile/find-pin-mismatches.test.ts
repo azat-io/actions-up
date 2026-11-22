@@ -26,16 +26,23 @@ const RECORDED_SHA = '11bd71901bbe5b1630ceea73d27597364c9af683'
 const UPLOAD_SHA = 'ea165f8d65b6e75b540449e92b4886f43607fa02'
 
 /**
+ * Fields of an update to replace; the action is merged field by field.
+ */
+interface UpdateOverrides extends Partial<Omit<ActionUpdate, 'action'>> {
+  /**
+   * Fields of the action to replace.
+   */
+  action?: Partial<GitHubAction>
+}
+
+/**
  * Create a written update of a locked action of the CI workflow to `v4`.
  *
  * @param overrides - Fields to replace.
- * @param action - Fields of the action to replace.
  * @returns Update the writer wrote.
  */
-function makeUpdate(
-  overrides: Partial<Omit<ActionUpdate, 'action'>> = {},
-  action: Partial<GitHubAction> = {},
-): ActionUpdate {
+function makeUpdate(overrides: UpdateOverrides = {}): ActionUpdate {
+  let { action, ...update } = overrides
   return {
     action: {
       file: '/repo/.github/workflows/ci.yml',
@@ -54,7 +61,7 @@ function makeUpdate(
     hasUpdate: true,
     targetRef: 'v4',
     status: 'ok',
-    ...overrides,
+    ...update,
   }
 }
 
@@ -154,16 +161,14 @@ describe('findPinMismatches', () => {
     expect(
       findMismatches(
         writtenBy(
-          makeUpdate({}, { name: 'Actions/Checkout' }),
-          makeUpdate(
-            {
-              latestSha: setupNodeSha.toUpperCase(),
-              targetRef: setupNodeSha,
-              targetRefStyle: 'sha',
-            },
-            { name: 'actions/setup-node' },
-          ),
-          makeUpdate({}, { name: 'github/codeql-action/init' }),
+          makeUpdate({ action: { name: 'Actions/Checkout' } }),
+          makeUpdate({
+            action: { name: 'actions/setup-node' },
+            latestSha: setupNodeSha.toUpperCase(),
+            targetRef: setupNodeSha,
+            targetRefStyle: 'sha',
+          }),
+          makeUpdate({ action: { name: 'github/codeql-action/init' } }),
         ),
         {
           pins: [
@@ -269,11 +274,12 @@ describe('findPinMismatches', () => {
     expect(
       findMismatches(
         writtenBy(
-          makeUpdate(
-            { latestSha: renamedSha, targetRef: 'v2' },
-            { name: 'my-org/old-name' },
-          ),
-          makeUpdate({}, { name: 'my-org/moved' }),
+          makeUpdate({
+            action: { name: 'my-org/old-name' },
+            latestSha: renamedSha,
+            targetRef: 'v2',
+          }),
+          makeUpdate({ action: { name: 'my-org/moved' } }),
         ),
         {
           pins: [
@@ -291,17 +297,17 @@ describe('findPinMismatches', () => {
     expect(
       findMismatches(
         writtenBy(
-          makeUpdate(
-            { latestSha: UPLOAD_SHA },
-            { name: 'actions/upload-artifact' },
-          ),
-          makeUpdate(
-            { latestSha: UPLOAD_SHA },
-            {
+          makeUpdate({
+            action: { name: 'actions/upload-artifact' },
+            latestSha: UPLOAD_SHA,
+          }),
+          makeUpdate({
+            action: {
               file: '/repo/.github/workflows/release.yml',
               name: 'actions/upload-artifact',
             },
-          ),
+            latestSha: UPLOAD_SHA,
+          }),
         ),
         {
           pins: [makePin('actions/checkout', 'v4', CHECKED_SHA)],
@@ -319,7 +325,7 @@ describe('findPinMismatches', () => {
       findMismatches(
         writtenBy(
           makeUpdate({ latestSha: null }),
-          makeUpdate({ latestSha: null }, { name: 'actions/cache' }),
+          makeUpdate({ action: { name: 'actions/cache' }, latestSha: null }),
         ),
         {
           pins: [makePin('actions/checkout', 'v4', RECORDED_SHA)],
@@ -336,9 +342,9 @@ describe('findPinMismatches', () => {
     let setup = '/repo/.github/actions/setup/action.yml'
     let updates = [
       makeUpdate(),
-      makeUpdate({}, { file: setup }),
-      makeUpdate({}, { name: 'actions/upload-artifact', file: setup }),
-      makeUpdate({}, { name: 'actions/cache', file: setup }),
+      makeUpdate({ action: { file: setup } }),
+      makeUpdate({ action: { name: 'actions/upload-artifact', file: setup } }),
+      makeUpdate({ action: { name: 'actions/cache', file: setup } }),
     ]
 
     expect(
@@ -399,17 +405,16 @@ describe('findPinMismatches', () => {
       findMismatches(
         writtenBy(
           makeUpdate(),
-          makeUpdate(
-            { latestSha: UPLOAD_SHA },
-            { name: 'actions/upload-artifact' },
-          ),
-          makeUpdate(
-            {},
-            {
+          makeUpdate({
+            action: { name: 'actions/upload-artifact' },
+            latestSha: UPLOAD_SHA,
+          }),
+          makeUpdate({
+            action: {
               file: '/repo/.github/workflows/release.yml',
               name: 'actions/setup-node',
             },
-          ),
+          }),
         ),
         {
           pins: [
@@ -452,7 +457,7 @@ describe('findPinMismatches', () => {
   it('matches a refusal with the reference whatever case the workflow names its repository in', () => {
     expect(
       findMismatches(
-        writtenBy(makeUpdate({}, { name: 'Actions/Checkout' })),
+        writtenBy(makeUpdate({ action: { name: 'Actions/Checkout' } })),
         {
           refusals: [
             makeRefusal('.github/workflows/ci.yml', 'actions/checkout'),
@@ -475,7 +480,7 @@ describe('findPinMismatches', () => {
 
     expect(
       findMismatches(
-        writtenBy(makeUpdate(), makeUpdate({}, { file: release })),
+        writtenBy(makeUpdate(), makeUpdate({ action: { file: release } })),
         {
           refusals: [
             makeRefusal('.github/workflows/ci.yml', 'actions/checkout'),
@@ -510,11 +515,11 @@ describe('findPinMismatches', () => {
           ]),
           updates: [
             makeUpdate(),
-            makeUpdate({}, { file: release }),
-            makeUpdate(
-              { latestSha: UPLOAD_SHA },
-              { name: 'actions/upload-artifact', file: setup },
-            ),
+            makeUpdate({ action: { file: release } }),
+            makeUpdate({
+              action: { name: 'actions/upload-artifact', file: setup },
+              latestSha: UPLOAD_SHA,
+            }),
           ],
         },
         {
@@ -570,11 +575,12 @@ describe('findPinMismatches', () => {
       refusals: [],
     }
     let target = writtenBy(
-      makeUpdate(
-        { latestSha: renamedSha, targetRef: 'v2' },
-        { name: 'my-org/old-name' },
-      ),
-      makeUpdate({}, { name: 'my-org/old-tool' }),
+      makeUpdate({
+        action: { name: 'my-org/old-name' },
+        latestSha: renamedSha,
+        targetRef: 'v2',
+      }),
+      makeUpdate({ action: { name: 'my-org/old-tool' } }),
     )
 
     expect(
@@ -609,8 +615,11 @@ describe('findPinMismatches', () => {
       findPinMismatches(
         writtenBy(
           makeUpdate(),
-          makeUpdate({}, { file: release }),
-          makeUpdate({ latestSha: UPLOAD_SHA }, { name: 'actions/cache' }),
+          makeUpdate({ action: { file: release } }),
+          makeUpdate({
+            action: { name: 'actions/cache' },
+            latestSha: UPLOAD_SHA,
+          }),
         ),
         {
           refusals: [
@@ -643,7 +652,7 @@ describe('findPinMismatches', () => {
       findMismatches(
         writtenBy(
           makeUpdate({ targetRef: null, latestSha: null }),
-          makeUpdate({}, { name: 'checkout' }),
+          makeUpdate({ action: { name: 'checkout' } }),
         ),
         { refusals: [], pins: [] },
         new Map(),

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { stat } from 'node:fs/promises'
 
+import type { FakeFileSystem } from '../../helpers/create-fake-file-system'
+
 import { createFakeFileSystem } from '../../helpers/create-fake-file-system'
 import { findLockTool } from '../../../core/lockfile/find-lock-tool'
 import { makeGhResult } from '../../helpers/make-gh-result'
@@ -10,6 +12,12 @@ vi.mock(import('node:fs/promises'), () => ({
   stat: vi.fn(),
 }))
 vi.mock(import('../../../core/lockfile/run-gh'))
+
+/**
+ * `stat` narrowed to the kind question the lookup asks of the working
+ * directory.
+ */
+let mockedStat = vi.mocked<FakeFileSystem['stat']>(stat)
 
 /**
  * Line of another extension in the list of installed extensions.
@@ -57,7 +65,7 @@ describe('findLockTool', () => {
   })
 
   it('reports the GitHub CLI missing when no gh is found', async () => {
-    vi.mocked(stat).mockImplementation(
+    mockedStat.mockImplementation(
       createFakeFileSystem({ '/repo': { kind: 'directory' } }).stat,
     )
     vi.mocked(runGh).mockResolvedValue(
@@ -68,7 +76,7 @@ describe('findLockTool', () => {
   })
 
   it('does not ask to install gh when the working directory is gone', async () => {
-    vi.mocked(stat).mockImplementation(createFakeFileSystem({}).stat)
+    mockedStat.mockImplementation(createFakeFileSystem({}).stat)
     vi.mocked(runGh).mockResolvedValue(
       makeGhResult({ startError: 'ENOENT', exitCode: null, started: false }),
     )
@@ -83,7 +91,7 @@ describe('findLockTool', () => {
   ])(
     'does not ask to install a gh that could not be started %s',
     async (_description, startError) => {
-      vi.mocked(stat).mockImplementation(
+      mockedStat.mockImplementation(
         createFakeFileSystem({ '/repo': { kind: 'directory' } }).stat,
       )
       vi.mocked(runGh).mockResolvedValue(

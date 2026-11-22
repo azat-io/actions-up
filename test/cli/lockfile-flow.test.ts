@@ -91,6 +91,13 @@ const ON_BRANCH_SINCE = '2026-07-15T00:00:00.000Z'
  */
 const RELEASED_LONG_AGO = '2026-08-01T00:00:00.000Z'
 
+/**
+ * Milliseconds to wait for the CLI to drop its signal listeners. It holds them
+ * for a second after the first signal, as long as `vi.waitFor` waits by
+ * default, so on a busy machine the default wait could run out first.
+ */
+const LISTENERS_TIMEOUT = 5000
+
 const CHECKOUT_SHA = 'b4ffde65f46336ab88eb53be808477a3936bae11'
 
 const SETUP_NODE_SHA = '49933ea5288caeca8642d1e84afbd3f7d6820020'
@@ -905,9 +912,12 @@ describe('lockfile flow', () => {
         'Waiting for gh actions-lock to finish...',
       )
       expect(process.exitCode).toBe(130)
-      await vi.waitFor(() => {
-        expect(process.listeners('SIGINT')).toStrictEqual(listeners)
-      })
+      await vi.waitFor(
+        () => {
+          expect(process.listeners('SIGINT')).toStrictEqual(listeners)
+        },
+        { timeout: LISTENERS_TIMEOUT },
+      )
     },
     20_000,
   )
@@ -940,9 +950,12 @@ describe('lockfile flow', () => {
       expect(printedLines().at(-1)).toBe('✓ 1 of 1 entry applied')
       expect(printedErrors()).toStrictEqual([`⚠️ Interrupted by ${signal}`])
       expect(process.exitCode).toBe(code)
-      await vi.waitFor(() => {
-        expect(process.listeners(signal)).toStrictEqual(listeners)
-      })
+      await vi.waitFor(
+        () => {
+          expect(process.listeners(signal)).toStrictEqual(listeners)
+        },
+        { timeout: LISTENERS_TIMEOUT },
+      )
     },
     20_000,
   )
