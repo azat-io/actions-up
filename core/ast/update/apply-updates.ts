@@ -5,6 +5,8 @@ import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
 
+import { isSameTagFamily } from '../../versions/is-same-tag-family'
+import { parseTagFamily } from '../../versions/parse-tag-family'
 import { getLineNumberForKey } from '../utils/get-line-number'
 
 /**
@@ -242,9 +244,9 @@ function planUsesEdits(file: UpdatedFile, update: ActionUpdate): Edit[] | null {
  * Plan the rewrite of the comment that follows a `uses` value.
  *
  * A SHA target gets the version it pins as its comment, unless more of the step
- * follows on the line. A tag target keeps a comment that is not a version, and
- * drops one that is. A block scalar carries its comment on the line of its
- * indicator.
+ * follows on the line. A tag target drops a comment that records only a version
+ * of the family it writes, and keeps any other. A block scalar carries its
+ * comment on the line of its indicator.
  *
  * @param content - File content.
  * @param node - Value being replaced.
@@ -274,7 +276,7 @@ function planCommentEdit(
     comment = skipComment ? '' : `${spacer}# ${target.latestVersion}`
   } else if (
     existingComment &&
-    !looksLikeInlineVersionComment(existingComment)
+    !looksLikeInlineVersionComment(existingComment, target.latestVersion)
   ) {
     comment = existingComment
   }
@@ -499,8 +501,25 @@ function applyEdits(content: string, edits: Edit[]): string {
   return result
 }
 
-function looksLikeInlineVersionComment(comment: string): boolean {
-  return /^#\s*[Vv]?\d+(?:\.\d+){0,2}(?:[+-][\w\-.]+)?\s*$/u.test(
-    comment.trim(),
+/**
+ * Check whether a comment records nothing but a version of the reference: a
+ * single tag of the family the update writes, such as `v4.2.1` or
+ * `actions-v1.2.3`. A note is kept, even one that starts with a version or is a
+ * single word holding digits, such as a ticket (`JIRA-1234`).
+ *
+ * @param comment - Comment, starting with its `#`.
+ * @param latestVersion - Version the update writes.
+ * @returns True when the comment holds only a version of that family.
+ */
+function looksLikeInlineVersionComment(
+  comment: string,
+  latestVersion: string | null,
+): boolean {
+  let text = comment.replace(/^#+/u, '').trim()
+
+  return (
+    !/\s/u.test(text) &&
+    parseTagFamily(text) !== null &&
+    isSameTagFamily(text, latestVersion)
   )
 }

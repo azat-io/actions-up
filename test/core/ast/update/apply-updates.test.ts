@@ -469,6 +469,16 @@ describe('applyUpdates', () => {
       '      - uses: actions/checkout@v3 # 3rd-party',
       '      - uses: actions/checkout@v4.2.2 # 3rd-party',
     ],
+    [
+      'a ticket reference',
+      '      - uses: actions/checkout@v3 # JIRA-1234',
+      '      - uses: actions/checkout@v4.2.2 # JIRA-1234',
+    ],
+    [
+      'a version of another tag family',
+      '      - uses: actions/checkout@v3 # node20',
+      '      - uses: actions/checkout@v4.2.2 # node20',
+    ],
   ])(
     'keeps %s after a tag target',
     async (_description, step, expectedStep) => {
@@ -539,6 +549,45 @@ describe('applyUpdates', () => {
 
       expect(fileSystem.contentOf(workflowPath)).toBe(
         workflowWithStep(expectedStep),
+      )
+    },
+  )
+
+  it.each([
+    { latestVersion: 'v4.2.2', comment: '# v4.2.2', targetRef: 'v4' },
+    {
+      latestVersion: 'actions-v2.0.0',
+      comment: '# actions-v1.2.3',
+      targetRef: 'actions-v2',
+    },
+    {
+      latestVersion: '@scope/pkg@2.0.0',
+      targetRef: '@scope/pkg@2.0.0',
+      comment: '# @scope/pkg@1.2.3',
+    },
+  ])(
+    'turns a SHA pin into the resolved tag and drops its version comment $comment',
+    async ({ latestVersion, targetRef, comment }) => {
+      let fileSystem = installFiles({
+        [workflowPath]: workflowWithStep(
+          `      - uses: actions/checkout@${checkoutSha} ${comment}`,
+        ),
+      })
+
+      await applyUpdates([
+        createUpdate({
+          action: { version: checkoutSha },
+          currentVersion: checkoutSha,
+          currentRefType: 'sha',
+          targetRefStyle: 'tag',
+          isBreaking: false,
+          latestVersion,
+          targetRef,
+        }),
+      ])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithStep(`      - uses: actions/checkout@${targetRef}`),
       )
     },
   )
