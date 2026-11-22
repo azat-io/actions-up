@@ -1705,16 +1705,32 @@ describe('checkUpdates', () => {
         pinned: 'e6a3f534941270958cbe9af190dca480acf82422',
         scenario: 'the same commit is up to date',
         hasUpdate: false,
+        options: {},
+      },
+      {
+        scenario: 'the same commit is up to date in the semver style',
+        latestSha: 'e6a3f534941270958cbe9af190dca480acf82422',
+        pinned: 'e6a3f534941270958cbe9af190dca480acf82422',
+        options: { style: 'semver' } as const,
+        hasUpdate: false,
+      },
+      {
+        scenario: 'the same commit is rewritten to a tag in the tag style',
+        latestSha: 'e6a3f534941270958cbe9af190dca480acf82422',
+        pinned: 'e6a3f534941270958cbe9af190dca480acf82422',
+        options: { style: 'tag' } as const,
+        hasUpdate: true,
       },
       {
         latestSha: 'e6a3f534941270958cbe9af190dca480acf82422',
         pinned: '4e9a3448c1b2946987d6dca7f4672e2db482a2be',
         scenario: 'another commit needs an update',
         hasUpdate: true,
+        options: {},
       },
     ])(
       'compares a SHA pin with the commit of the latest release: $scenario',
-      async ({ hasUpdate, latestSha, pinned }) => {
+      async ({ hasUpdate, latestSha, options, pinned }) => {
         let release = makeRelease({ version: 'v2.0.0' })
         let client = makeClient({
           tagShas: { 'v2.0.0': latestSha },
@@ -1722,7 +1738,7 @@ describe('checkUpdates', () => {
         })
         let action = makeAction({ version: pinned })
 
-        let result = await check(client, [action])
+        let result = await check(client, [action], options)
 
         expect(result).toEqual([
           expectedUpdate(action, {
@@ -1798,6 +1814,13 @@ describe('checkUpdates', () => {
         commit: 'b55d322140c858c13f460f44f4d1a034740953cb',
         options: { style: 'semver' } as const,
         styleName: 'the semver style',
+        outcome: 'an update',
+        hasUpdate: true,
+      },
+      {
+        commit: 'b55d322140c858c13f460f44f4d1a034740953cb',
+        options: { style: 'tag' } as const,
+        styleName: 'the tag style',
         outcome: 'an update',
         hasUpdate: true,
       },

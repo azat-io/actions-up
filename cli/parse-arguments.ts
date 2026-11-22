@@ -16,7 +16,7 @@ Options:
   --min-age-exclude <regex>  Exempt actions matching regex from --min-age (repeatable)
   --mode <mode>              Update mode: major, minor, or patch (default: major)
   --prefer-tags              Also check tags when a release exists; use the higher version
-  --style <style>            Update style: sha, preserve or semver (default: sha)
+  --style <style>            Update style: sha, preserve, semver or tag (default: sha)
   -r, --recursive            Recursively scan directories for YAML files
   -y, --yes                  Skip all confirmations
   -q, --quiet                Suppress skipped/blocked warnings
@@ -93,7 +93,7 @@ export interface CLIOptions {
   dryRun: boolean
 
   /**
-   * Update style (sha, preserve or semver).
+   * Update style (sha, preserve, semver or tag).
    */
   style?: string
 

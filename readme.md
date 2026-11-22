@@ -303,6 +303,9 @@ the publisher does not provide the preferred floating tag, the closest existing
 tag is used, falling back to the exact version. SHA-pinned references keep
 updating to the latest resolved SHA and are never converted to tags.
 
+Use `--style tag` to convert SHA-pinned references to these tags as well, even
+those already at the latest version.
+
 ### Workflow Lockfile
 
 Actions Up skips updates pinned by a

@@ -648,7 +648,14 @@ function createUpdate(
 
   if (status !== 'skipped') {
     if (currentVersion && isSha(currentVersion)) {
-      hasUpdate = latestSha !== null && !compareSha(currentVersion, latestSha)
+      /**
+       * The tag style rewrites a SHA pin even when it already runs the latest
+       * commit, the way every style but preserve rewrites a tag already at the
+       * latest version below.
+       */
+      hasUpdate =
+        latestSha !== null &&
+        (style === 'tag' || !compareSha(currentVersion, latestSha))
     } else if (currentVersion && normalized) {
       let currentSemver = semver.valid(currentVersion)
       let latestSemver = semver.valid(normalized)
@@ -664,13 +671,14 @@ function createUpdate(
         /**
          * If versions are equal but current ref is an unpinned tag and latest
          * SHA is known, suggest pinning to SHA (or normalizing to the canonical
-         * floating tag in semver style). A semver-style no-op is dropped later
-         * when the resolved target matches the current reference.
+         * floating tag in the semver and tag styles). A no-op of those styles
+         * is dropped later when the resolved target matches the current
+         * reference.
          */
         if (
           !hasUpdate &&
           latestSha &&
-          (style === 'sha' || style === 'semver') &&
+          style !== 'preserve' &&
           semver.eq(currentSemver, latestSemver) &&
           !isSha(action.version)
         ) {
