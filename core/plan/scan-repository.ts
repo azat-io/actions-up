@@ -167,9 +167,15 @@ export async function scanRepository(
  * The lockfile has to record the action under each workflow that runs it: a
  * workflow that runs it only through `./` would still check the remote actions
  * it runs against what the lockfile pinned before, once the others are
- * relocked. And none of those workflows may run remote actions through `./`
- * alone: a relock of it drops the pins of references it no longer runs itself,
- * which such an action may still run.
+ * relocked. And none of those workflows may run remote actions the lockfile
+ * does not record for it, as through `./` alone or through a composite action
+ * whose kind is not written in lower case, whose steps gh-actions-lock does not
+ * read: a relock of it drops the pins of references it no longer runs itself,
+ * which such an action may still run. Nor may any of them run, through a `./`
+ * or `../` reference, an action that runs remote actions, even one it also
+ * reaches through `$/`: gh-actions-lock records nothing for such a reference,
+ * and refuses to relock the workflow when the reference is written in it or in
+ * an action of the repository it reads.
  *
  * Which actions the workflows run has to be known for that, so a lockfile that
  * cannot be read, or whose workflows cannot all be traced, has its own
@@ -180,15 +186,16 @@ export async function scanRepository(
  * @param names - Names the file goes by, ending with its real path.
  * @returns The keys, as the lockfile names them, or null when there are none,
  *   when a workflow runs the file without the lockfile recording what it runs,
- *   when one of the workflows runs remote actions through `./` alone, or when
- *   the lockfile or what its workflows run cannot be read.
+ *   when one of the workflows runs remote actions the lockfile does not record
+ *   for it, or any through `./`, or when the lockfile or what its workflows run
+ *   cannot be read.
  */
 function findKeys(
   lockfile: WorkflowLockfile,
   names: string[],
 ): string[] | null {
-  let { reached, keys } = lockfile
-  if (reached === null || keys === null) {
+  let { unfollowed, reached, keys } = lockfile
+  if (reached === null || unfollowed === null || keys === null) {
     return null
   }
   let runs = names.flatMap(name => [...(reached.get(name) ?? [])])
@@ -196,13 +203,15 @@ function findKeys(
     return null
   }
   let recording = new Set([...names, ...runs.map(([workflow]) => workflow)])
-  let local = reached
-    .values()
-    .some(definition =>
-      definition
-        .entries()
-        .some(([workflow, recorded]) => !recorded && recording.has(workflow)),
-    )
+  let local =
+    !recording.isDisjointFrom(unfollowed) ||
+    reached
+      .values()
+      .some(definition =>
+        definition
+          .entries()
+          .some(([workflow, recorded]) => !recorded && recording.has(workflow)),
+      )
   if (local) {
     return null
   }

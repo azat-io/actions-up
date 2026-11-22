@@ -104,7 +104,7 @@ describe('traceLocalActions', () => {
       [LINT_ACTION]: makeActionText('actions/cache@v4'),
     })
 
-    let { reached } = await traceLocalActions(
+    let { unfollowed, reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, DOCS_WORKFLOW, CI_WORKFLOW]),
     )
@@ -121,6 +121,7 @@ describe('traceLocalActions', () => {
         [SETUP_ACTION, new Map([[CI_WORKFLOW, true]])],
       ]),
     )
+    expect(unfollowed).toStrictEqual(new Set([RELEASE_WORKFLOW]))
     expect(readFile).toHaveBeenCalledTimes(5)
   })
 
@@ -133,7 +134,7 @@ describe('traceLocalActions', () => {
       [LINT_ACTION]: makeActionText('actions/cache@v4'),
     })
 
-    let { reached } = await traceLocalActions(
+    let { unfollowed, reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, DOCS_WORKFLOW, CI_WORKFLOW]),
     )
@@ -151,6 +152,34 @@ describe('traceLocalActions', () => {
         [SETUP_ACTION, new Map([[CI_WORKFLOW, true]])],
       ]),
     )
+    expect(unfollowed).toStrictEqual(new Set([RELEASE_WORKFLOW, CI_WORKFLOW]))
+  })
+
+  it('lists a workflow that runs an action through ./ from an action it runs through $/, though it also runs that action through $/ itself', async () => {
+    installFileSystem({
+      [CI_WORKFLOW]: makeWorkflowText(
+        '$/.github/actions/build',
+        '$/.github/actions/setup',
+      ),
+      '/repo/.github/actions/build/action.yml': makeActionText(
+        './.github/actions/setup',
+      ),
+      [SETUP_ACTION]: makeActionText('actions/setup-node@v4'),
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({
+      reached: new Map([
+        [
+          '/repo/.github/actions/build/action.yml',
+          new Map([[CI_WORKFLOW, true]]),
+        ],
+        [SETUP_ACTION, new Map([[CI_WORKFLOW, true]])],
+      ]),
+      unfollowed: new Set([CI_WORKFLOW]),
+      unreadable: null,
+    })
   })
 
   it('does not record what an action runs for a workflow that reaches it through $/ from an action it runs through ./', async () => {
@@ -246,9 +275,13 @@ describe('traceLocalActions', () => {
         [SETUP_ACTION]: definition.join('\n'),
       })
 
-      let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-      expect(reached).toStrictEqual(new Map())
+      expect(traced).toStrictEqual({
+        unfollowed: new Set(),
+        reached: new Map(),
+        unreadable: null,
+      })
     },
   )
 
@@ -284,14 +317,16 @@ describe('traceLocalActions', () => {
       [LINT_ACTION]: makeActionText('actions/setup-node@v4'),
     })
 
-    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toStrictEqual(
-      new Map([
+    expect(traced).toStrictEqual({
+      reached: new Map([
         [SETUP_ACTION, new Map([[CI_WORKFLOW, false]])],
         [LINT_ACTION, new Map([[CI_WORKFLOW, false]])],
       ]),
-    )
+      unfollowed: new Set(),
+      unreadable: null,
+    })
   })
 
   it('reads the steps of a composite action whose kind is written in another case, as the runner runs them', async () => {
@@ -306,11 +341,35 @@ describe('traceLocalActions', () => {
       [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
     })
 
-    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toStrictEqual(
-      new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, false]])]]),
-    )
+    expect(traced).toStrictEqual({
+      reached: new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+      unfollowed: new Set([CI_WORKFLOW]),
+      unreadable: null,
+    })
+  })
+
+  it('lists a workflow that runs an action through ./ from a composite action whose kind is written in another case, whose steps the runner runs', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: Composite',
+        '  steps:',
+        '    - uses: ./tools/lint',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+      [LINT_ACTION]: makeActionText('actions/cache@v4'),
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({
+      reached: new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+      unfollowed: new Set([CI_WORKFLOW]),
+      unreadable: null,
+    })
   })
 
   it('lists a workflow that runs through ./ an action the repository does not hold', async () => {
@@ -329,7 +388,10 @@ describe('traceLocalActions', () => {
       '/repo/tools/container/Dockerfile': 'FROM alpine:3\n',
     })
 
-    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { unfollowed, reached } = await traceLocalActions(
+      '/repo',
+      new Set([CI_WORKFLOW]),
+    )
 
     expect(reached).toStrictEqual(
       new Map([
@@ -337,7 +399,43 @@ describe('traceLocalActions', () => {
         ['/repo/tools/empty/action.yml', new Map([[CI_WORKFLOW, false]])],
       ]),
     )
+    expect(unfollowed).toStrictEqual(new Set([CI_WORKFLOW]))
   })
+
+  it.each([
+    {
+      reference: 'a ./ reference of the workflow',
+      workflow: './../outside',
+      reached: new Map(),
+    },
+    {
+      reference: 'a ../ reference of the workflow',
+      workflow: '../outside',
+      reached: new Map(),
+    },
+    {
+      reached: new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, true]])]]),
+      reference: 'a ../ reference of an action it runs through $/',
+      workflow: '$/.github/actions/setup',
+    },
+  ])(
+    'lists a workflow when $reference names an action outside the repository, which may run any, without reading it',
+    async ({ workflow, reached }) => {
+      installFileSystem({
+        '/outside/action.yml': makeActionText('docker://alpine:3'),
+        [SETUP_ACTION]: makeActionText('../outside'),
+        [CI_WORKFLOW]: makeWorkflowText(workflow),
+      })
+
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+      expect(traced).toStrictEqual({
+        unfollowed: new Set([CI_WORKFLOW]),
+        unreadable: null,
+        reached,
+      })
+    },
+  )
 
   it('records an action for a workflow that reaches it through $/ after reaching it through ./', async () => {
     installFileSystem({
@@ -373,18 +471,20 @@ describe('traceLocalActions', () => {
     ['$/ first', ['$/tools/lint', './tools/lint']],
     ['./ first', ['./tools/lint', '$/tools/lint']],
   ])(
-    'records an action that one list of references reaches both ways, %s',
+    'records an action that one list of references reaches both ways, %s, and lists the workflow for its ./ reference',
     async (_order, references) => {
       installFileSystem({
-        [LINT_ACTION]: makeActionText('actions/cache@v4'),
+        [LINT_ACTION]: makeActionText('actions/setup-node@v4'),
         [CI_WORKFLOW]: makeWorkflowText(...references),
       })
 
-      let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-      expect(reached).toStrictEqual(
-        new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, true]])]]),
-      )
+      expect(traced).toStrictEqual({
+        reached: new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, true]])]]),
+        unfollowed: new Set([CI_WORKFLOW]),
+        unreadable: null,
+      })
     },
   )
 
@@ -392,7 +492,7 @@ describe('traceLocalActions', () => {
     ['$/ first', ['$/.github/actions/setup', './tools/other']],
     ['./ first', ['./tools/other', '$/.github/actions/setup']],
   ])(
-    'records an action two actions run, one reached through $/ and one through ./, with %s',
+    'records an action two actions run, one reached through $/ and one through ./, with %s, and does not list the workflow, whose ./ action runs remote actions only through $/',
     async (_order, references) => {
       installFileSystem({
         '/repo/tools/other/action.yml': makeActionText('$/tools/lint'),
@@ -401,11 +501,15 @@ describe('traceLocalActions', () => {
         [SETUP_ACTION]: makeActionText('$/tools/lint'),
       })
 
-      let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let { unfollowed, reached } = await traceLocalActions(
+        '/repo',
+        new Set([CI_WORKFLOW]),
+      )
 
       expect(reached?.get(LINT_ACTION)).toStrictEqual(
         new Map([[CI_WORKFLOW, true]]),
       )
+      expect(unfollowed).toStrictEqual(new Set())
     },
   )
 
@@ -497,9 +601,13 @@ describe('traceLocalActions', () => {
       '/outside/action.yml': makeActionText('actions/cache@v4'),
     })
 
-    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toStrictEqual(new Map())
+    expect(traced).toStrictEqual({
+      unfollowed: new Set(),
+      reached: new Map(),
+      unreadable: null,
+    })
   })
 
   it('ignores a tracked workflow that no longer exists', async () => {
@@ -541,7 +649,11 @@ describe('traceLocalActions', () => {
         new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
       )
 
-      expect(traced).toStrictEqual({ unreadable: CI_WORKFLOW, reached: null })
+      expect(traced).toStrictEqual({
+        unreadable: CI_WORKFLOW,
+        unfollowed: null,
+        reached: null,
+      })
     },
   )
 
@@ -558,6 +670,7 @@ describe('traceLocalActions', () => {
 
     expect(traced).toStrictEqual({
       unreadable: RELEASE_WORKFLOW,
+      unfollowed: null,
       reached: null,
     })
   })
@@ -574,7 +687,11 @@ describe('traceLocalActions', () => {
 
     let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(traced).toStrictEqual({ unreadable: SETUP_ACTION, reached: null })
+    expect(traced).toStrictEqual({
+      unreadable: SETUP_ACTION,
+      unfollowed: null,
+      reached: null,
+    })
   })
 
   it('lets any action be reached when the definition of a reached one cannot be looked for', async () => {
@@ -596,7 +713,11 @@ describe('traceLocalActions', () => {
 
     let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(traced).toStrictEqual({ unreadable: SETUP_ACTION, reached: null })
+    expect(traced).toStrictEqual({
+      unreadable: SETUP_ACTION,
+      unfollowed: null,
+      reached: null,
+    })
   })
 
   it.each([
@@ -625,7 +746,11 @@ describe('traceLocalActions', () => {
 
       let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-      expect(traced).toStrictEqual({ unreadable: SETUP_ACTION, reached: null })
+      expect(traced).toStrictEqual({
+        unreadable: SETUP_ACTION,
+        unfollowed: null,
+        reached: null,
+      })
     },
   )
 })

@@ -9,8 +9,10 @@ export interface LockedFile {
    * file runs, as it names them: the file itself when the lockfile tracks it as
    * a workflow, and the workflows that run it, each through `$/` references
    * alone, when it defines an action of the repository. Null when there are
-   * none, when a workflow runs the action only through `./`, when one of the
-   * workflows runs remote actions through `./` alone, or when the lockfile, the
+   * none, when a workflow runs the action without the lockfile recording what
+   * it runs, as only through `./`, when one of the workflows runs remote
+   * actions the lockfile does not record for it, or any through `./`, even
+   * through an action it also runs through `$/`, or when the lockfile, the
    * workflows or the actions of the repository they run cannot be read, so that
    * none of its workflows is relocked.
    */

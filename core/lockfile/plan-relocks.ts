@@ -70,13 +70,14 @@ export function planRelocks(
  * and one whose workflows or actions cannot all be read does not say which of
  * them run an action of the repository. One that does not record what the file
  * runs under every workflow that runs it, as for an action a workflow runs only
- * through `./`, would stay stale for that workflow after a relock, and a relock
- * of a workflow that runs remote actions through `./` alone may drop the pins
- * those actions run. And a file that the lockfiles of more than one repository
- * root pin, as an action of a nested repository may be, could only be put back
- * for one of them by leaving the other stale. The locked entries of such a file
- * stay skipped; the others can be updated once gh-actions-lock is there to
- * regenerate their lockfiles.
+ * through `./`, would stay stale for that workflow after a relock, and a
+ * workflow that runs remote actions through `./` cannot be relocked either:
+ * gh-actions-lock refuses to, or the relock drops the pins those actions run.
+ * And a file that the lockfiles of more than one repository root pin, as an
+ * action of a nested repository may be, could only be put back for one of them
+ * by leaving the other stale. The locked entries of such a file stay skipped;
+ * the others can be updated once gh-actions-lock is there to regenerate their
+ * lockfiles.
  *
  * @param lockedFiles - Scanned files whose actions lockfiles pin, with the
  *   lockfiles that pin them.

@@ -84,6 +84,7 @@ export async function readWorkflowLockfile(
   return {
     ...contents,
     path: join(await toRealPath(workflowsDirectory), LOCKFILE_NAME),
+    unfollowed: traced ? traced.unfollowed : null,
     unreadable: traced ? traced.unreadable : null,
     reached: traced ? traced.reached : null,
     workflows,

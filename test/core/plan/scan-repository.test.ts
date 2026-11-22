@@ -1,15 +1,23 @@
 import type { PathLike } from 'node:fs'
 
+import { realpath, readlink, readFile, stat } from 'node:fs/promises'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { realpath, readlink } from 'node:fs/promises'
 
+import type { FakeFileSystem } from '../../helpers/create-fake-file-system'
+import type { WorkflowLockfile } from '../../../types/workflow-lockfile'
+import type { ActionUpdate } from '../../../types/action-update'
 import type { GitHubAction } from '../../../types/github-action'
 import type { ScanResult } from '../../../types/scan-result'
 
+import {
+  findRelockBlockers,
+  planRelocks,
+} from '../../../core/lockfile/plan-relocks'
 import { readEnclosingLockfiles } from '../../../core/lockfile/read-enclosing-lockfiles'
+import { traceLocalActions } from '../../../core/lockfile/trace-local-actions'
+import { createFakeFileSystem } from '../../helpers/create-fake-file-system'
 import { makeWorkflowLockfile } from '../../helpers/make-workflow-lockfile'
 import { findRepositoryRoot } from '../../../core/fs/find-repository-root'
-import { findRelockBlockers } from '../../../core/lockfile/plan-relocks'
 import { scanGitHubActions } from '../../../core/scan-github-actions'
 import { scanRepository } from '../../../core/plan/scan-repository'
 import { scanRecursive } from '../../../core/scan-recursive'
@@ -17,6 +25,8 @@ import { scanRecursive } from '../../../core/scan-recursive'
 vi.mock(import('node:fs/promises'), () => ({
   realpath: vi.fn(),
   readlink: vi.fn(),
+  readFile: vi.fn(),
+  stat: vi.fn(),
 }))
 vi.mock(import('../../../core/lockfile/read-enclosing-lockfiles'))
 vi.mock(import('../../../core/fs/find-repository-root'))
@@ -112,6 +122,63 @@ function arrangeLinks(links: Record<string, string> = {}): void {
           )
     },
   )
+}
+
+/**
+ * Create the update the writer would write for a scanned action.
+ *
+ * @param action - Scanned action.
+ * @returns Update to a newer version of the action.
+ */
+function makeUpdate(action: GitHubAction): ActionUpdate {
+  return {
+    latestSha: '11d5960a326750d5838078e36cf38b85af677262',
+    latestVersion: 'v4.3.1',
+    currentVersion: 'v4',
+    targetRef: 'v4.3.1',
+    publishedAt: null,
+    isBreaking: false,
+    hasUpdate: true,
+    status: 'ok',
+    action,
+  }
+}
+
+/**
+ * Text of a workflow whose job checks the repository out, then runs one step
+ * per reference.
+ *
+ * @param references - References of the steps after the checkout.
+ * @returns Workflow YAML text.
+ */
+function makeWorkflowText(...references: string[]): string {
+  return [
+    'on: push',
+    'jobs:',
+    '  build:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - uses: actions/checkout@v4',
+    ...references.map(reference => `      - uses: ${reference}`),
+    '',
+  ].join('\n')
+}
+
+/**
+ * Text of an action of the repository with one step per reference.
+ *
+ * @param using - Kind of the action, as its definition writes it.
+ * @param references - References of the steps.
+ * @returns Action YAML text.
+ */
+function makeActionText(using: string, ...references: string[]): string {
+  return [
+    'runs:',
+    `  using: ${using}`,
+    '  steps:',
+    ...references.map(reference => `    - uses: ${reference}`),
+    '',
+  ].join('\n')
 }
 
 describe('scanRepository', () => {
@@ -236,6 +303,143 @@ describe('scanRepository', () => {
         [SETUP_ACTION, 'unreadable'],
         [CI_WORKFLOW, 'unreadable'],
       ]),
+    )
+  })
+
+  describe('with a lockfile traced from the files of the repository', () => {
+    /**
+     * Setup action of the repository, which runs a remote action.
+     */
+    let setup = makeActionText('composite', 'actions/setup-node@v4')
+
+    /**
+     * Trace the CI workflow through the given files, and let the scan find the
+     * checkout of the CI workflow and the remote action of the setup action,
+     * next to the lockfile the trace makes.
+     *
+     * @param files - Absolute paths of the files of the repository mapped to
+     *   their text.
+     * @returns The lockfile.
+     */
+    async function arrangeRepository(
+      files: Record<string, string>,
+    ): Promise<WorkflowLockfile> {
+      let fileSystem = createFakeFileSystem(files)
+      vi.mocked(readFile).mockImplementation((path, options) =>
+        fileSystem.readFile(path as PathLike, options),
+      )
+      vi.mocked<FakeFileSystem['stat']>(stat).mockImplementation(
+        fileSystem.stat,
+      )
+      let lockfile = makeWorkflowLockfile(
+        await traceLocalActions('/repo', new Set([CI_WORKFLOW])),
+      )
+      let actions: GitHubAction[] = [
+        { name: 'actions/checkout', file: CI_WORKFLOW, type: 'external' },
+        { name: 'actions/setup-node', file: SETUP_ACTION, type: 'external' },
+      ]
+      vi.mocked(scanGitHubActions).mockResolvedValue({
+        workflows: new Map([['.github/workflows/ci.yml', actions.slice(0, 1)]]),
+        compositeActions: new Map(),
+        actions,
+      })
+      vi.mocked(readEnclosingLockfiles).mockResolvedValue([lockfile])
+      return lockfile
+    }
+
+    it('relocks the workflow for itself and for the action it runs through $/ alone', async () => {
+      let lockfile = await arrangeRepository({
+        [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+        [SETUP_ACTION]: setup,
+      })
+
+      let { lockedFiles, scanResult } = await scanRepository({ cwd: '/repo' })
+      let updates = scanResult.actions.map(action => makeUpdate(action))
+
+      expect(findRelockBlockers(lockedFiles)).toStrictEqual(new Map())
+      expect(planRelocks(lockedFiles, updates)).toStrictEqual([
+        {
+          files: new Map([
+            [SETUP_ACTION, ['.github/workflows/ci.yml']],
+            [CI_WORKFLOW, ['.github/workflows/ci.yml']],
+          ]),
+          workflows: ['.github/workflows/ci.yml'],
+          lockfile,
+          updates,
+        },
+      ])
+    })
+
+    it.each<{ files: Record<string, string>; layout: string }>([
+      {
+        files: {
+          [CI_WORKFLOW]: makeWorkflowText(
+            './.github/actions/setup',
+            '$/.github/actions/setup',
+          ),
+        },
+        layout: 'runs the setup action through ./ as well as through $/',
+      },
+      {
+        files: {
+          '/repo/.github/actions/build/action.yml': makeActionText(
+            'composite',
+            './.github/actions/setup',
+          ),
+          [CI_WORKFLOW]: makeWorkflowText(
+            '$/.github/actions/build',
+            '$/.github/actions/setup',
+          ),
+        },
+        layout:
+          'runs the setup action through $/, along with a build action that runs it through ./',
+      },
+      {
+        files: {
+          [CI_WORKFLOW]: makeWorkflowText(
+            './../outside',
+            '$/.github/actions/setup',
+          ),
+        },
+        layout: 'runs through ./ an action outside the repository',
+      },
+      {
+        files: {
+          [CI_WORKFLOW]: makeWorkflowText(
+            '../outside',
+            '$/.github/actions/setup',
+          ),
+        },
+        layout: 'runs through ../ an action outside the repository',
+      },
+      {
+        files: {
+          [SETUP_ACTION]: makeActionText('Composite', 'actions/setup-node@v4'),
+          [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+        },
+        layout:
+          'runs through $/ a composite action whose kind is not written in lower case',
+      },
+    ])(
+      'skips the locked updates of a workflow that $layout as unrecorded and relocks nothing',
+      async ({ files }) => {
+        await arrangeRepository({ [SETUP_ACTION]: setup, ...files })
+
+        let { lockedFiles, scanResult } = await scanRepository({ cwd: '/repo' })
+
+        expect(findRelockBlockers(lockedFiles)).toStrictEqual(
+          new Map([
+            [SETUP_ACTION, 'unrecorded'],
+            [CI_WORKFLOW, 'unrecorded'],
+          ]),
+        )
+        expect(
+          planRelocks(
+            lockedFiles,
+            scanResult.actions.map(action => makeUpdate(action)),
+          ),
+        ).toStrictEqual([])
+      },
     )
   })
 

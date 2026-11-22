@@ -41,6 +41,17 @@ export interface WorkflowLockfile {
   keys: Map<string, string> | null
 
   /**
+   * Absolute real paths of the tracked workflows that run, through a `./` or
+   * `../` reference, an action that runs remote actions, or one the repository
+   * does not hold, which may run any, as one outside the repository. The
+   * reference may be written in the workflow or in any action of the repository
+   * it reaches, and the workflow may reach the same action through `$/` as
+   * well: gh-actions-lock never follows such a reference, so the lockfile
+   * cannot record what it runs. Null when `reached` is.
+   */
+  unfollowed: Set<string> | null
+
+  /**
    * Absolute real paths of the workflows treated as tracked: the ones the
    * lockfile names, or every workflow of `.github/workflows` when it cannot be
    * read; null when even those cannot be listed, so that any workflow next to

@@ -84,26 +84,53 @@ const DOCKER_PREFIX = 'docker://'
  * the kind in, as the runner reads it. A workflow or a definition that cannot
  * be read may run any action, and a workflow that no longer exists runs none.
  *
+ * Each `./` or `../` reference counts on its own too, even when the workflow
+ * reaches the same action through `$/` as well: gh-actions-lock refuses to
+ * relock a workflow that runs remote actions through such a reference, written
+ * in the workflow or in an action of the repository it reads, since the
+ * lockfile cannot record what the reference runs. So a workflow is listed apart
+ * when such a reference, written in the workflow or in any action of the
+ * repository it reaches, names an action that runs remote actions, or one the
+ * repository does not hold, as one outside the repository.
+ *
  * @param root - Root of the repository.
  * @param workflows - Absolute real paths of the tracked workflows.
  * @returns Real paths of the definitions the workflows reach, each with the
  *   workflows that reach it and whether the lockfile records what it runs under
- *   each of them, or null when a workflow or a definition could not be read,
- *   with the path of the first that could not be, in the order of the
+ *   each of them, along with the real paths of the workflows that run, through
+ *   a `./` or `../` reference, an action that runs remote actions or that the
+ *   repository does not hold; or null when a workflow or a definition could not
+ *   be read, with the path of the first that could not be, in the order of the
  *   workflows. A definition that runs no remote action is listed only for the
  *   workflows that reach it through `$/` references alone, and an action the
  *   repository does not hold only for those that reach it through `./`, by the
- *   path its definition would have.
+ *   path its definition would have, unless it is outside the repository.
  */
 export async function traceLocalActions(
   root: string,
   workflows: Set<string>,
 ): Promise<
-  | { reached: Map<string, Map<string, boolean>>; unreadable: null }
-  | { unreadable: string; reached: null }
+  | {
+      reached: Map<string, Map<string, boolean>>
+      unfollowed: Set<string>
+      unreadable: null
+    }
+  | { unreadable: string; unfollowed: null; reached: null }
 > {
   let manifests = new Map<string, Promise<Manifest | null>>()
   let reached = new Map<string, Map<string, boolean>>()
+  let unfollowed = new Set<string>()
+
+  /**
+   * Tell whether a directory belongs to the repository.
+   *
+   * @param directory - Absolute path of a directory a local reference names.
+   * @returns True when it is the root of the repository or inside it.
+   */
+  function isInRepository(directory: string): boolean {
+    let path = relative(root, directory)
+    return !path.startsWith('..') && !isAbsolute(path)
+  }
 
   /**
    * Directories of the actions of the repository the given references run, each
@@ -123,8 +150,7 @@ export async function traceLocalActions(
     for (let reference of references) {
       if (LOCAL_PREFIXES.some(prefix => reference.startsWith(prefix))) {
         let directory = resolve(root, reference.replace(/^\$\//u, ''))
-        let path = relative(root, directory)
-        if (!path.startsWith('..') && !isAbsolute(path)) {
+        if (isInRepository(directory)) {
           let followed = recorded && reference.startsWith(SELF_PREFIX)
           steps.set(directory, steps.get(directory) === true || followed)
         }
@@ -212,6 +238,47 @@ export async function traceLocalActions(
     return unreadable ?? (await follow(workflow, next, visited))
   }
 
+  /**
+   * Tell whether a workflow runs, through a `./` or `../` reference, an action
+   * whose remote actions the lockfile cannot record, wherever the reference is
+   * written: in the workflow or in any action of the repository it reaches.
+   *
+   * Gh-actions-lock never follows such a reference, so it counts even when the
+   * workflow reaches the same action through `$/` as well. It does when the
+   * action runs remote actions, or when the repository does not hold it, as for
+   * one outside the repository, since it may then run any.
+   *
+   * @param references - References of the workflow.
+   * @param directories - Directories of the actions of the repository the
+   *   workflow reaches, each of whose definitions could be read.
+   * @returns True when such a reference is written in the workflow or in one of
+   *   the actions.
+   */
+  async function runsUnfollowed(
+    references: string[],
+    directories: Iterable<string>,
+  ): Promise<boolean> {
+    let definitions = await Promise.all([...directories].map(readManifest))
+    let targets = [
+      references,
+      ...definitions.map(definition => definition?.references ?? []),
+    ]
+      .flat()
+      .filter(
+        reference =>
+          !reference.startsWith(SELF_PREFIX) &&
+          LOCAL_PREFIXES.some(prefix => reference.startsWith(prefix)),
+      )
+      .map(reference => resolve(root, reference))
+    if (!targets.every(isInRepository)) {
+      return true
+    }
+    let found = await Promise.all(targets.map(readManifest))
+    return found.some(
+      manifest => manifest !== null && runsRemoteActions(manifest),
+    )
+  }
+
   let traced = await Promise.all(
     [...workflows].map(async (workflow): Promise<string | null> => {
       let references: string[] | null
@@ -220,16 +287,30 @@ export async function traceLocalActions(
       } catch (error) {
         return isMissingFileError(error) ? null : workflow
       }
-      return references === null ? workflow : (
-          follow(workflow, localSteps(references, true), new Map())
-        )
+      if (references === null) {
+        return workflow
+      }
+
+      let visited = new Map<string, boolean>()
+      let unreadable = await follow(
+        workflow,
+        localSteps(references, true),
+        visited,
+      )
+      if (
+        unreadable === null &&
+        (await runsUnfollowed(references, visited.keys()))
+      ) {
+        unfollowed.add(workflow)
+      }
+      return unreadable
     }),
   )
 
   let unreadable = traced.find(path => path !== null)
   return unreadable === undefined ?
-      { unreadable: null, reached }
-    : { reached: null, unreadable }
+      { unreadable: null, unfollowed, reached }
+    : { unfollowed: null, reached: null, unreadable }
 }
 
 /**

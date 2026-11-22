@@ -34,6 +34,12 @@ const REACHED = new Map([
   ],
 ])
 
+/**
+ * Workflows the tests let run remote actions through `./`: the release
+ * workflow.
+ */
+const UNFOLLOWED = new Set(['/repo/.github/workflows/release.yaml'])
+
 const LOCKFILE_PATH = '/repo/.github/workflows/actions.lock'
 
 /**
@@ -57,6 +63,7 @@ describe('readWorkflowLockfile', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(traceLocalActions).mockResolvedValue({
+      unfollowed: UNFOLLOWED,
       unreadable: null,
       reached: REACHED,
     })
@@ -91,6 +98,7 @@ describe('readWorkflowLockfile', () => {
         ['.github/workflows/release.yaml', []],
         ['.github/workflows/ci.yml', []],
       ]),
+      unfollowed: UNFOLLOWED,
       path: LOCKFILE_PATH,
       commits: new Map(),
       version: 'v0.0.3',
@@ -170,6 +178,7 @@ describe('readWorkflowLockfile', () => {
         '/repo/.github/workflows/ci.yml',
       ]),
       error: 'unsupported schema version v0.0.4',
+      unfollowed: UNFOLLOWED,
       path: LOCKFILE_PATH,
       version: 'v0.0.4',
       reached: REACHED,
@@ -191,6 +200,7 @@ describe('readWorkflowLockfile', () => {
 
     expect(lockfile).toStrictEqual({
       workflows: new Set(['/repo/.github/workflows/ci.yml']),
+      unfollowed: UNFOLLOWED,
       error: 'invalid YAML',
       path: LOCKFILE_PATH,
       reached: REACHED,
@@ -219,6 +229,7 @@ describe('readWorkflowLockfile', () => {
       expect(lockfile).toStrictEqual({
         workflows: new Set(['/repo/.github/workflows/ci.yml']),
         error: 'unreadable file',
+        unfollowed: UNFOLLOWED,
         path: LOCKFILE_PATH,
         reached: REACHED,
         unreadable: null,
@@ -243,6 +254,7 @@ describe('readWorkflowLockfile', () => {
       error: 'unreadable file',
       path: LOCKFILE_PATH,
       unreadable: null,
+      unfollowed: null,
       workflows: null,
       commits: null,
       version: null,
@@ -263,6 +275,7 @@ describe('readWorkflowLockfile', () => {
     })
     vi.mocked(traceLocalActions).mockResolvedValue({
       unreadable: '/repo/.github/workflows/ci.yml',
+      unfollowed: null,
       reached: null,
     })
 
@@ -270,6 +283,7 @@ describe('readWorkflowLockfile', () => {
 
     expect(lockfile).toMatchObject({
       unreadable: '/repo/.github/workflows/ci.yml',
+      unfollowed: null,
       reached: null,
     })
   })

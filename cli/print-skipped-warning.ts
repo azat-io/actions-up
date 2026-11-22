@@ -67,7 +67,7 @@ const LOCKFILE_SKIP_REASONS: [blocker: RelockBlocker, reason: string][] = [
   ],
   [
     'unrecorded',
-    'in workflows that run actions through ./, or in the actions they run, which gh actions-lock does not lock (for an action of the repository change ./ to $/, which gh actions-lock --migrate-local-actions does in workflows, not in action files; an action that is checked out while the workflow runs cannot be locked)',
+    'in workflows that run actions through ./ or composite actions whose runs.using is not in lower case, or in the actions they run, which gh actions-lock does not lock (for an action of the repository change ./ to $/, which gh actions-lock --migrate-local-actions does in workflows, not in action files; write runs.using: composite in lower case; an action that is checked out while the workflow runs cannot be locked)',
   ],
   [
     'shared',
