@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.1.0
+
+[compare changes](https://github.com/azat-io/actions-up/compare/v2.0.0...v2.1.0)
+
+### 🚀 Features
+
+- Update locked actions and regenerate the workflow lockfile
+  ([4fff4f9](https://github.com/azat-io/actions-up/commit/4fff4f9))
+- Add tag style that converts sha pins to tags
+  ([c0dae24](https://github.com/azat-io/actions-up/commit/c0dae24))
+
+### 🐞 Bug Fixes
+
+- Drop version comments of any tag family when writing a tag
+  ([6f0c2ba](https://github.com/azat-io/actions-up/commit/6f0c2ba))
+
+### ❤️ Contributors
+
+- Azat S. ([@azat-io](https://github.com/azat-io))
+
 ## v2.0.0
 
 [compare changes](https://github.com/azat-io/actions-up/compare/v1.21.0...v2.0.0)
