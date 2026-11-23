@@ -7,8 +7,7 @@ import type { ActionUpdate } from '../../../types/action-update'
 import type { WrittenFile } from '../../../types/written-file'
 
 import { getLineNumberForKey } from '../utils/get-line-number-for-key'
-import { isSameTagFamily } from '../../versions/is-same-tag-family'
-import { parseTagFamily } from '../../versions/parse-tag-family'
+import { getFamilyPrefix } from '../../versions/get-family-prefix'
 
 /**
  * A `uses` or `runs-on` value written in a file.
@@ -279,6 +278,7 @@ function planUsesEdits(file: UpdatedFile, update: ActionUpdate): Edit[] | null {
       planCommentEdit(file.content, occurrence.node, {
         latestVersion: update.latestVersion,
         sha: targetReferenceStyle === 'sha',
+        reference: targetReference,
         hasVersion: version !== '',
       }),
     )
@@ -292,7 +292,7 @@ function planUsesEdits(file: UpdatedFile, update: ActionUpdate): Edit[] | null {
  *
  * A SHA target gets the version it pins as its comment, unless more of the step
  * follows on the line. A tag target drops a comment that records only a version
- * of the family it writes, and keeps any other. A block scalar carries its
+ * of its own tag family, and keeps any other. A block scalar carries its
  * comment on the line of its indicator.
  *
  * @param content - File content.
@@ -300,13 +300,19 @@ function planUsesEdits(file: UpdatedFile, update: ActionUpdate): Edit[] | null {
  * @param target - Reference being written.
  * @param target.latestVersion - Version the SHA target pins, for its comment.
  * @param target.hasVersion - Whether the current reference names a version.
+ * @param target.reference - Reference written in place of the value.
  * @param target.sha - Whether the target is a SHA.
  * @returns Edit of the text between the value and the end of its line.
  */
 function planCommentEdit(
   content: string,
   node: Scalar,
-  target: { latestVersion: string | null; hasVersion: boolean; sha: boolean },
+  target: {
+    latestVersion: string | null
+    hasVersion: boolean
+    reference: string
+    sha: boolean
+  },
 ): Edit {
   let start = commentAnchor(content, node)
   let lineBreak = content.indexOf('\n', start)
@@ -323,7 +329,7 @@ function planCommentEdit(
     comment = skipComment ? '' : `${spacer}# ${target.latestVersion}`
   } else if (
     existingComment &&
-    !looksLikeInlineVersionComment(existingComment, target.latestVersion)
+    !looksLikeInlineVersionComment(existingComment, target.reference)
   ) {
     comment = existingComment
   }
@@ -530,6 +536,29 @@ function commentAnchor(content: string, node: Scalar): number {
 }
 
 /**
+ * Check whether a comment records nothing but a version of the reference: a
+ * single tag of the family of the tag being written, such as `v4.2.1` or
+ * `actions-v1.2.3`. A note is kept, even one that starts with a version or is a
+ * single word holding digits, such as a ticket (`JIRA-1234`), and so is any
+ * comment after a tag whose family is unknown.
+ *
+ * @param comment - Comment, starting with its `#`.
+ * @param targetReference - Tag being written.
+ * @returns True when the comment holds only a version of that family.
+ */
+function looksLikeInlineVersionComment(
+  comment: string,
+  targetReference: string,
+): boolean {
+  let family = getFamilyPrefix(targetReference)
+  let text = comment.replace(/^#+/u, '').trim()
+
+  return (
+    family !== null && !/\s/u.test(text) && getFamilyPrefix(text) === family
+  )
+}
+
+/**
  * Splice the edits into the content from the last one to the first, so that
  * every offset still refers to the text it was computed on.
  *
@@ -546,29 +575,6 @@ function applyEdits(content: string, edits: Edit[]): string {
   }
 
   return result
-}
-
-/**
- * Check whether a comment records nothing but a version of the reference: a
- * single tag of the family the update writes, such as `v4.2.1` or
- * `actions-v1.2.3`. A note is kept, even one that starts with a version or is a
- * single word holding digits, such as a ticket (`JIRA-1234`).
- *
- * @param comment - Comment, starting with its `#`.
- * @param latestVersion - Version the update writes.
- * @returns True when the comment holds only a version of that family.
- */
-function looksLikeInlineVersionComment(
-  comment: string,
-  latestVersion: string | null,
-): boolean {
-  let text = comment.replace(/^#+/u, '').trim()
-
-  return (
-    !/\s/u.test(text) &&
-    parseTagFamily(text) !== null &&
-    isSameTagFamily(text, latestVersion)
-  )
 }
 
 /**

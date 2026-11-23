@@ -367,8 +367,8 @@ describe('planUpdates', () => {
       message: 'Invalid mode "breaking".',
     },
     {
-      options: { style: 'tag' as 'sha' },
-      message: 'Invalid style "tag".',
+      options: { style: 'floating' as 'sha' },
+      message: 'Invalid style "floating".',
     },
   ])('rejects $options before scanning', async ({ options, message }) => {
     await expect(planUpdates(options)).rejects.toThrow(message)

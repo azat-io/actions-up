@@ -23,6 +23,7 @@ import { parseTagFamily } from '../versions/parse-tag-family'
 import { getUpdateLevel } from '../versions/get-update-level'
 import { assessCandidate } from '../trust/assess-candidate'
 import { shouldIgnore } from '../ignore/should-ignore'
+import { compareSha } from '../versions/compare-sha'
 import { checkUpdates } from '../api/check-updates'
 import { isSha } from '../versions/is-sha'
 
@@ -262,16 +263,7 @@ export async function createUpdatePlan(
 
   let decisions = await Promise.all(
     outdated.map(async (update): Promise<Decision> => {
-      /**
-       * A commit SHA names no version, so a SHA pin is measured from its
-       * version comment. Without one the update level is unknown and the minor
-       * and patch modes hold the pin back, rather than reading a version out of
-       * the digits of the hash.
-       */
-      let effectiveCurrentVersion =
-        isSha(update.currentVersion) ?
-          parseVersionComment(update.action.comment)
-        : update.currentVersion
+      let effectiveCurrentVersion = resolveCurrentVersion(update)
 
       let level = getUpdateLevel(effectiveCurrentVersion, update.latestVersion)
       let allowedByMode =
@@ -761,6 +753,35 @@ async function dropIgnoredUpdates(
     }),
   )
   return checked.filter(({ ignored }) => !ignored).map(({ update }) => update)
+}
+
+/**
+ * Read the version an update starts from, which the update mode measures it by
+ * and the step-down walk stays above.
+ *
+ * A commit SHA names no version, so a SHA pin is measured from its version
+ * comment. Without one the update level is unknown and the minor and patch
+ * modes hold the pin back, rather than reading a version out of the digits of
+ * the hash. A pin that already runs the commit of the latest version, which
+ * only the tag style rewrites, is at that version whatever its comment says: a
+ * floating `# v4` would otherwise let the walk step down to an older release
+ * when the latest one is held back.
+ *
+ * @param update - Outdated entry.
+ * @returns Version the update starts from, null when it is unknown.
+ */
+function resolveCurrentVersion(update: ActionUpdate): string | null {
+  let { currentVersion, latestSha } = update
+
+  if (!currentVersion || !isSha(currentVersion)) {
+    return currentVersion
+  }
+
+  if (latestSha && compareSha(currentVersion, latestSha)) {
+    return update.latestVersion
+  }
+
+  return parseVersionComment(update.action.comment)
 }
 
 /**

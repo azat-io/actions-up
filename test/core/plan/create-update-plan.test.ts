@@ -1280,6 +1280,145 @@ describe('createUpdatePlan', () => {
     })
   })
 
+  it.each([
+    { outcome: 'keeps it pinned', style: 'semver', updates: [] },
+    {
+      updates: [{ targetRefStyle: 'tag', targetRef: 'v4' }],
+      outcome: 'writes its floating tag instead',
+      style: 'tag',
+    },
+  ] as const)(
+    'in the $style style $outcome for a SHA pin already at the latest release',
+    async ({ updates, style }) => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+        [`${REPOSITORY}/git/ref/tags/v4`]: ok(
+          makeReferencePayload('refs/tags/v4', {
+            sha: RELEASE_SHA,
+            type: 'commit',
+          }),
+        ),
+      })
+
+      let result = await plan(
+        [makeAction({ version: RELEASE_SHA, comment: ' v4.2.2' })],
+        { style },
+      )
+
+      expect(result).toMatchObject({
+        blockedByTrust: [],
+        blockedByMode: [],
+        blockedByAge: [],
+        skipped: [],
+        updates,
+      })
+    },
+  )
+
+  it('writes the floating tag in the tag style for a SHA pin already at the latest release whose comment names a newer one, rather than blocking it as a downgrade', async () => {
+    routeFetch({
+      ...latestReleaseRoutes({
+        publishedAt: TWO_YEARS_AGO,
+        sha: RELEASE_SHA,
+      }),
+      ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+      [`${REPOSITORY}/git/ref/tags/v4`]: ok(
+        makeReferencePayload('refs/tags/v4', {
+          sha: RELEASE_SHA,
+          type: 'commit',
+        }),
+      ),
+    })
+
+    let result = await plan(
+      [makeAction({ version: RELEASE_SHA, comment: ' v4.3.0' })],
+      { style: 'tag' },
+    )
+
+    expect(result).toMatchObject({
+      updates: [{ targetRefStyle: 'tag', targetRef: 'v4' }],
+      blockedAsDowngrade: [],
+    })
+  })
+
+  it('keeps a SHA pin on the latest release in the tag style while the cool-down holds that release, rather than stepping down to an older one', async () => {
+    routeFetch({
+      ...latestReleaseRoutes({ publishedAt: AN_HOUR_AGO, sha: RELEASE_SHA }),
+      ...mainHistoryRoutes({
+        [RELEASE_SHA]: { atCutoff: ahead(), now: behind() },
+        [OLDER_SHA]: { atCutoff: behind() },
+      }),
+      ...walkListing([
+        ['v4.2.2', RELEASE_SHA],
+        ['v4.2.1', OLDER_SHA],
+      ]),
+      [`${REPOSITORY}/git/ref/tags/v4`]: ok(
+        makeReferencePayload('refs/tags/v4', {
+          sha: RELEASE_SHA,
+          type: 'commit',
+        }),
+      ),
+      [`${REPOSITORY}/releases/tags/v4.2.1`]: ok(
+        makeTagRelease('v4.2.1', TWO_YEARS_AGO),
+      ),
+    })
+
+    let result = await plan(
+      [makeAction({ version: RELEASE_SHA, comment: ' v4' })],
+      { style: 'tag' },
+    )
+
+    expect(result).toMatchObject({
+      blockedByAge: [{ holdReason: 'cool-down', latestVersion: 'v4.2.2' }],
+      updates: [],
+    })
+  })
+
+  it.each([
+    { pin: 'without a version comment', overrides: {} },
+    {
+      pin: 'whose comment names an older release',
+      overrides: { comment: ' v4.1.0' },
+    },
+  ])(
+    'writes the floating tag of a SHA pin $pin already at the latest release in the tag style, whatever the mode',
+    async ({ overrides }) => {
+      routeFetch({
+        ...latestReleaseRoutes({
+          publishedAt: TWO_YEARS_AGO,
+          sha: RELEASE_SHA,
+        }),
+        ...mainHistoryRoutes({ [RELEASE_SHA]: { atCutoff: behind() } }),
+        [`${REPOSITORY}/git/ref/tags/v4.2`]: ok(
+          makeReferencePayload('refs/tags/v4.2', {
+            sha: RELEASE_SHA,
+            type: 'commit',
+          }),
+        ),
+        [`${REPOSITORY}/git/ref/tags/v4`]: ok(
+          makeReferencePayload('refs/tags/v4', {
+            sha: RELEASE_SHA,
+            type: 'commit',
+          }),
+        ),
+      })
+
+      let result = await plan(
+        [makeAction({ version: RELEASE_SHA, ...overrides })],
+        { mode: 'patch', style: 'tag' },
+      )
+
+      expect(result).toMatchObject({
+        updates: [{ targetRefStyle: 'tag', targetRef: 'v4.2' }],
+        blockedByMode: [],
+      })
+    },
+  )
+
   it('reports a step-down that changes nothing as held back for the tag that failed', async () => {
     routeFetch({
       ...latestReleaseRoutes({

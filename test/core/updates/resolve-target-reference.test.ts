@@ -326,7 +326,94 @@ describe('resolveTargetReference', () => {
     })
   })
 
-  it.each(['preserve', 'semver'] as const)(
+  describe('in tag style', () => {
+    it.each([
+      { pin: 'an outdated SHA reference', currentVersion: CURRENT_SHA },
+      {
+        pin: 'a SHA reference already on the latest commit',
+        currentVersion: LATEST_SHA,
+      },
+    ])(
+      'rewrites $pin to the floating tag of the latest version',
+      async ({ currentVersion }) => {
+        let update = makeUpdate({ currentRefType: 'sha', currentVersion })
+
+        let result = await resolveTargetReference(update, {
+          client: clientWithFloatingTags('v5'),
+          style: 'tag',
+        })
+
+        expect(result).toStrictEqual({
+          ...update,
+          targetRefRateLimited: false,
+          targetRefStyle: 'tag',
+          targetRef: 'v5',
+        })
+      },
+    )
+
+    it('rewrites a SHA reference to the minor floating tag in patch mode', async () => {
+      let update = makeUpdate({
+        currentVersion: CURRENT_SHA,
+        latestVersion: 'v4.2.3',
+        currentRefType: 'sha',
+      })
+
+      let result = await resolveTargetReference(update, {
+        client: clientWithFloatingTags('v4.2', 'v4'),
+        mode: 'patch',
+        style: 'tag',
+      })
+
+      expect(result).toStrictEqual({
+        ...update,
+        targetRefRateLimited: false,
+        targetRefStyle: 'tag',
+        targetRef: 'v4.2',
+      })
+    })
+
+    it('falls back to the exact latest version for a SHA reference when no floating tag points at its commit', async () => {
+      let update = makeUpdate({
+        currentVersion: CURRENT_SHA,
+        latestVersion: 'v8.3.2',
+        currentRefType: 'sha',
+      })
+
+      let result = await resolveTargetReference(update, {
+        client: clientWithFloatingTags(),
+        style: 'tag',
+      })
+
+      expect(result).toStrictEqual({
+        ...update,
+        targetRefRateLimited: false,
+        targetRefStyle: 'tag',
+        targetRef: 'v8.3.2',
+      })
+    })
+
+    it('writes nothing for a SHA reference without a latest version', async () => {
+      let update = makeUpdate({
+        currentVersion: CURRENT_SHA,
+        currentRefType: 'sha',
+        latestVersion: null,
+      })
+
+      let result = await resolveTargetReference(update, {
+        client: clientWithFloatingTags('v5'),
+        style: 'tag',
+      })
+
+      expect(result).toStrictEqual({
+        ...update,
+        targetRefStyle: null,
+        targetRef: null,
+      })
+    })
+  })
+
+  it.each(['preserve', 'semver', 'tag'] as const)(
     'falls back to the exact latest version in %s style when no floating tag exists',
     async style => {
       let update = makeUpdate({ latestVersion: 'v8.3.2', currentVersion: 'v7' })
@@ -345,7 +432,7 @@ describe('resolveTargetReference', () => {
     },
   )
 
-  it.each(['preserve', 'semver'] as const)(
+  it.each(['preserve', 'semver', 'tag'] as const)(
     'marks the fallback in %s style as rate limited when the tag lookups are rate limited',
     async style => {
       let update = makeUpdate({ latestVersion: 'v8.3.2', currentVersion: 'v7' })
@@ -364,7 +451,7 @@ describe('resolveTargetReference', () => {
     },
   )
 
-  it.each(['preserve', 'semver'] as const)(
+  it.each(['preserve', 'semver', 'tag'] as const)(
     'falls back to the exact latest version in %s style when the latest SHA is unknown',
     async style => {
       let update = makeUpdate({

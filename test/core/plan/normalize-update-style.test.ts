@@ -15,6 +15,8 @@ describe('normalizeUpdateStyle', () => {
     { expected: 'semver', input: 'semver' },
     { expected: 'sha', input: 'sha' },
     { expected: 'sha', input: 'SHA' },
+    { expected: 'tag', input: 'tag' },
+    { expected: 'tag', input: 'Tag' },
   ])('accepts $input as $expected', ({ expected, input }) => {
     let result = normalizeUpdateStyle(input)
 
@@ -22,8 +24,8 @@ describe('normalizeUpdateStyle', () => {
   })
 
   it('rejects an unknown style, echoing the value as given', () => {
-    expect(() => normalizeUpdateStyle('Tag')).toThrow(
-      'Invalid style "Tag". Expected "sha", "preserve" or "semver".',
+    expect(() => normalizeUpdateStyle('Floating')).toThrow(
+      'Invalid style "Floating". Expected "sha", "preserve", "semver" or "tag".',
     )
   })
 })

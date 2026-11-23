@@ -30,7 +30,8 @@ interface ResolveTargetReferenceOptions {
  *
  * Tag references are validated against the action repository, so a derived tag
  * is only written when it actually exists; otherwise the closest existing
- * floating tag or the exact latest version is used.
+ * floating tag or the exact latest version is used. The tag style writes SHA
+ * pins as such tags too.
  *
  * The plan checked the commit the latest version pointed at when its tag was
  * read. A SHA keeps that commit. A tag is resolved again on every workflow run
@@ -52,7 +53,11 @@ export async function resolveTargetReference(
     return { ...update, targetRefStyle: null, targetRef: null }
   }
 
-  if (style === 'sha') {
+  /**
+   * The sha style pins every reference. The preserve and semver styles keep a
+   * SHA pin on the latest SHA; only the tag style turns it into a tag.
+   */
+  if (style === 'sha' || (style !== 'tag' && update.currentRefType === 'sha')) {
     if (!update.latestSha) {
       return { ...update, targetRefStyle: null, targetRef: null }
     }
@@ -64,27 +69,19 @@ export async function resolveTargetReference(
     }
   }
 
-  if (update.currentRefType === 'sha') {
-    if (!update.latestSha) {
-      return { ...update, targetRefStyle: null, targetRef: null }
-    }
-
-    return {
-      ...update,
-      targetRef: update.latestSha,
-      targetRefStyle: 'sha',
-    }
-  }
-
-  if (update.currentRefType !== 'tag' || !update.latestVersion) {
+  if (
+    (update.currentRefType !== 'tag' && update.currentRefType !== 'sha') ||
+    !update.latestVersion
+  ) {
     return { ...update, targetRefStyle: null, targetRef: null }
   }
 
-  if (style === 'semver') {
+  if (style === 'semver' || style === 'tag') {
     /**
      * Rewrite the reference to the canonical floating tag for the selected
      * mode, falling back to the exact latest version when the canonical tag
-     * does not exist.
+     * does not exist. A SHA pin has no granularity of its own to keep, so the
+     * mode decides for it as well.
      */
     let { rateLimited, reference } = await selectExistingTagReference(client, {
       candidates: buildSemverTagCandidates(update.latestVersion, mode),

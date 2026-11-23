@@ -500,6 +500,36 @@ describe('applyUpdates', () => {
   )
 
   it.each([
+    {
+      update: { latestVersion: null, targetRef: 'v4' },
+      reason: 'the update carries no latest version',
+      comment: '# JIRA-1234',
+    },
+    {
+      reason: 'the tag it writes carries no version',
+      update: { targetRef: 'nightly' },
+      comment: '# v3.1.2',
+    },
+  ])(
+    'keeps the comment $comment after a tag target when $reason',
+    async ({ comment, update }) => {
+      let fileSystem = installFiles({
+        [workflowPath]: workflowWithStep(
+          `      - uses: actions/checkout@v3 ${comment}`,
+        ),
+      })
+
+      await applyUpdates([createUpdate({ targetRefStyle: 'tag', ...update })])
+
+      expect(fileSystem.contentOf(workflowPath)).toBe(
+        workflowWithStep(
+          `      - uses: actions/checkout@${update.targetRef} ${comment}`,
+        ),
+      )
+    },
+  )
+
+  it.each([
     '# v3.1.2',
     '#v3',
     '# 3.1.2',
