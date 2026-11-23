@@ -4,6 +4,7 @@ import { parseAllDocuments, isScalar, visit } from 'yaml'
 import { writeFile, readFile } from 'node:fs/promises'
 
 import type { ActionUpdate } from '../../../types/action-update'
+import type { WrittenFile } from '../../../types/written-file'
 
 import { getLineNumberForKey } from '../utils/get-line-number-for-key'
 import { isSameTagFamily } from '../../versions/is-same-tag-family'
@@ -84,24 +85,30 @@ const RUNNER_LABEL_VALUE = /^[a-z]+-\d+(?:\.\d+)?$/u
 const AFTER_VALUE = /^(?<after>[\t ,\]{}]*)(?<comment>#[^\n\r]*)?/u
 
 /**
- * Apply updates using the already-resolved target refs.
+ * Decoder that rejects bytes that are not UTF-8, instead of replacing them, and
+ * keeps a byte order mark as a character, so that the text encodes back to the
+ * bytes it was read from.
+ */
+const UTF8 = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true })
+
+/**
+ * Apply updates the way `applyUpdates` does, and tell which files changed.
  *
- * Each file is parsed again when it is written. An update rewrites the `uses`
- * or `runs-on` value whose key sits on the line the scan recorded and whose
- * value is still the one the scan found, so a file edited since the scan never
- * gets a value rewritten that the update was not about. Only the value itself
- * and its trailing comment change; quotes, anchors, tags and the rest of the
- * file stay as written.
+ * The text of each rewritten file before and after the change lets the caller
+ * put a file back later, but only while it still holds what was written. A file
+ * is read as UTF-8, the way GitHub reads a workflow; one that is not valid
+ * UTF-8 is left as it is, with its updates unwritten, since writing its text
+ * back would replace the bytes that are not with others.
  *
  * @param updates - Array of updates to apply.
- * @returns Updates that were meant to be written but were not, in the given
- *   order: the reference was no longer found where the scan reported it, or the
- *   update named no file or no valid target. Skipped and held-back entries are
- *   never written and never reported.
+ * @returns Updates that were meant to be written but were not, as
+ *   `applyUpdates` reports them, and the files rewritten, in the order of their
+ *   first update.
  */
-export async function applyUpdates(
-  updates: ActionUpdate[],
-): Promise<ActionUpdate[]> {
+export async function writeUpdates(updates: ActionUpdate[]): Promise<{
+  unwritten: ActionUpdate[]
+  files: WrittenFile[]
+}> {
   let updatesByFile = new Map<string, ActionUpdate[]>()
   let unwritten = new Set<ActionUpdate>()
 
@@ -128,28 +135,68 @@ export async function applyUpdates(
     updatesByFile.set(file, fileUpdates)
   }
 
-  await Promise.all(
-    [...updatesByFile].map(async ([filePath, fileUpdates]) => {
-      /**
-       * A file that cannot be read or written leaves every update of its own
-       * unwritten, and the other files are written all the same.
-       */
-      try {
-        let content = await readFile(filePath, 'utf8')
-        let updated = applyFileUpdates(content, fileUpdates, unwritten)
-        if (updated !== content) {
+  let written = await Promise.all(
+    [...updatesByFile].map(
+      async ([filePath, fileUpdates]): Promise<WrittenFile | null> => {
+        /**
+         * A file that cannot be read or written leaves every update of its own
+         * unwritten, and the other files are written all the same.
+         */
+        try {
+          let content = decodeUtf8(await readFile(filePath))
+          if (content === null) {
+            console.error(
+              `${filePath} is not valid UTF-8, so it was left as it is`,
+            )
+            for (let update of fileUpdates) {
+              unwritten.add(update)
+            }
+            return null
+          }
+          let updated = applyFileUpdates(content, fileUpdates, unwritten)
+          if (updated === content) {
+            return null
+          }
           await writeFile(filePath, updated, 'utf8')
+          return { before: content, after: updated, path: filePath }
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : String(error))
+          for (let update of fileUpdates) {
+            unwritten.add(update)
+          }
+          return null
         }
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error))
-        for (let update of fileUpdates) {
-          unwritten.add(update)
-        }
-      }
-    }),
+      },
+    ),
   )
 
-  return updates.filter(update => unwritten.has(update))
+  return {
+    unwritten: updates.filter(update => unwritten.has(update)),
+    files: written.filter(file => file !== null),
+  }
+}
+
+/**
+ * Apply updates using the already-resolved target refs.
+ *
+ * Each file is parsed again when it is written. An update rewrites the `uses`
+ * or `runs-on` value whose key sits on the line the scan recorded and whose
+ * value is still the one the scan found, so a file edited since the scan never
+ * gets a value rewritten that the update was not about. Only the value itself
+ * and its trailing comment change; quotes, anchors, tags and the rest of the
+ * file stay as written.
+ *
+ * @param updates - Array of updates to apply.
+ * @returns Updates that were meant to be written but were not, in the given
+ *   order: the reference was no longer found where the scan reported it, the
+ *   file is not valid UTF-8, or the update named no file or no valid target.
+ *   Skipped and held-back entries are never written and never reported.
+ */
+export async function applyUpdates(
+  updates: ActionUpdate[],
+): Promise<ActionUpdate[]> {
+  let { unwritten } = await writeUpdates(updates)
+  return unwritten
 }
 
 /**
@@ -522,4 +569,18 @@ function looksLikeInlineVersionComment(
     parseTagFamily(text) !== null &&
     isSameTagFamily(text, latestVersion)
   )
+}
+
+/**
+ * Read bytes as UTF-8 text.
+ *
+ * @param bytes - Bytes of a file.
+ * @returns The text, or null when the bytes are not valid UTF-8.
+ */
+function decodeUtf8(bytes: Buffer): string | null {
+  try {
+    return UTF8.decode(bytes)
+  } catch {
+    return null
+  }
 }

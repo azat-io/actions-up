@@ -307,8 +307,8 @@ updating to the latest resolved SHA and are never converted to tags.
 
 Actions Up skips updates pinned by a
 [workflow lockfile](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles),
-since it does not regenerate it. Update them with
-[gh actions-lock](https://github.com/github/gh-actions-lock).
+unless it can regenerate the lockfile with
+[gh actions-lock](https://github.com/github/gh-actions-lock) v0.5.0 or later.
 
 ### Prefer Tags
 
@@ -364,7 +364,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install actions-up
         run: npm install -g actions-up

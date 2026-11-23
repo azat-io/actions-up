@@ -3,6 +3,7 @@ import { parseDocument } from 'yaml'
 import type { LockfileParseResult } from '../../types/lockfile-parse-result'
 
 import { SUPPORTED_LOCKFILE_VERSIONS } from '../constants'
+import { isRecord } from '../parsing/is-record'
 
 /**
  * Keys the top level of a lockfile may hold. Every supported version rejects
@@ -11,18 +12,22 @@ import { SUPPORTED_LOCKFILE_VERSIONS } from '../constants'
 const FILE_KEYS = new Set(['dependencies', 'workflows', 'version'])
 
 /**
- * Read which workflows a workflow lockfile tracks.
+ * Read which workflows a workflow lockfile tracks, which references each of
+ * them pins, and which commit it pins each reference to.
  *
- * Only the keys of `workflows` are read; the rest of the file is checked for
- * its shape alone, so a field a newer release of gh-actions-lock adds to a pin
- * does not make the file unreadable. The format is still before 1.0 and may
- * change, so a file in a version this release does not know, with a key at the
- * top it does not know, or with sections that are not mappings, is reported as
- * unreadable rather than guessed at. A document whose aliases expand beyond
- * reason is unreadable too.
+ * Only the workflows with the keys of their pins and the commits of
+ * `dependencies`, by the key of each pin, `owner/repo@ref`, are read; the
+ * repository in a key is read in lower case, the way GitHub matches it. The
+ * rest of the file is checked for its shape alone, so a field a newer release
+ * of gh-actions-lock adds to a pin does not make the file unreadable. The
+ * format is still before 1.0 and may change, so a file in a version this
+ * release does not know, with a key at the top it does not know, or with
+ * sections that are not mappings, is reported as unreadable rather than guessed
+ * at. A document whose aliases expand beyond reason is unreadable too.
  *
  * @param text - Content of `.github/workflows/actions.lock`.
- * @returns The tracked workflows, or why the file cannot be read.
+ * @returns The tracked workflows with the keys of their pins and the pinned
+ *   commits, or why the file cannot be read.
  */
 export function parseLockfile(text: string): LockfileParseResult {
   let document = parseDocument(text)
@@ -66,10 +71,7 @@ export function parseLockfile(text: string): LockfileParseResult {
 
   let { dependencies, workflows } = content
 
-  if (
-    !isSection(workflows) ||
-    Object.values(workflows ?? {}).some(pins => !Array.isArray(pins))
-  ) {
+  if (!isWorkflowSection(workflows)) {
     return { reason: 'malformed workflows', kind: 'unsupported', version }
   }
 
@@ -77,7 +79,55 @@ export function parseLockfile(text: string): LockfileParseResult {
     return { reason: 'malformed dependencies', kind: 'unsupported', version }
   }
 
-  return { workflows: Object.keys(workflows ?? {}), kind: 'parsed', version }
+  return {
+    commits: new Map(
+      Object.entries(dependencies ?? {}).flatMap(
+        ([key, pin]): [string, string][] => {
+          let normalized = normalizeKey(key)
+          return (
+              normalized !== null &&
+                isRecord(pin) &&
+                typeof pin['commit'] === 'string'
+            ) ?
+              [
+                [
+                  normalized,
+                  pin['commit'].replace(/^sha(?:1|256)-/u, '').toLowerCase(),
+                ],
+              ]
+            : []
+        },
+      ),
+    ),
+    pins: new Map(
+      Object.entries(workflows ?? {}).map(([workflow, entries]) => [
+        workflow,
+        entries.flatMap(entry => {
+          let key = typeof entry === 'string' ? normalizeKey(entry) : null
+          return key === null ? [] : [key]
+        }),
+      ]),
+    ),
+    workflows: Object.keys(workflows ?? {}),
+    kind: 'parsed',
+    version,
+  }
+}
+
+/**
+ * Tell a `workflows` section that maps each workflow to a list of pins, or is
+ * left empty, apart from one shaped otherwise.
+ *
+ * @param value - What the key of the section holds in the document.
+ * @returns True when the section is empty or maps each workflow to a list.
+ */
+function isWorkflowSection(
+  value: unknown,
+): value is Record<string, unknown[]> | undefined | null {
+  return (
+    isSection(value) &&
+    Object.values(value ?? {}).every(pins => Array.isArray(pins))
+  )
 }
 
 /**
@@ -94,11 +144,13 @@ function isSection(
 }
 
 /**
- * Tell a YAML mapping apart from the other values a document can hold.
+ * Read the key of a pin the way GitHub matches it.
  *
- * @param value - Value read from the document.
- * @returns True when the value is a mapping.
+ * @param key - Key as the lockfile writes it, `owner/repo@ref`.
+ * @returns The key with the repository in lower case, or null when it names no
+ *   reference.
  */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function normalizeKey(key: string): string | null {
+  let at = key.indexOf('@')
+  return at > 0 ? `${key.slice(0, at).toLowerCase()}${key.slice(at)}` : null
 }

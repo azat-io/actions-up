@@ -5,6 +5,7 @@ import { emitKeypressEvents } from 'node:readline'
 import type { MultiselectEntry } from '../../../types/multiselect-entry'
 
 import { createMultiselectState } from './create-multiselect-state'
+import { SIGNAL_EXIT_CODES, STOP_SIGNALS } from '../../constants'
 import { reduceMultiselectKey } from './reduce-multiselect-key'
 import { getSelectedValues } from './get-selected-values'
 import { renderMultiselect } from './render-multiselect'
@@ -35,15 +36,6 @@ const DEFAULT_COLUMNS = 80
  * Height assumed when the terminal does not report one.
  */
 const DEFAULT_ROWS = 25
-
-/**
- * Signals that end the process while the prompt is open, with the exit codes a
- * shell reports for them.
- */
-const SIGNAL_EXIT_CODES: [signal: NodeJS.Signals, code: number][] = [
-  ['SIGINT', 130],
-  ['SIGTERM', 143],
-]
 
 /**
  * What to show in a multiselect prompt.
@@ -207,7 +199,7 @@ export function runMultiselect<Value>(
       resolve(state.status === 'submitted' ? getSelectedValues(state) : null)
     }
 
-    for (let [signal, code] of SIGNAL_EXIT_CODES) {
+    for (let signal of STOP_SIGNALS) {
       let listener: () => void
       /**
        * The listener is written right in the call: unicorn/no-process-exit
@@ -217,7 +209,7 @@ export function runMultiselect<Value>(
         signal,
         (listener = () => {
           showCursor()
-          process.exit(code)
+          process.exit(SIGNAL_EXIT_CODES[signal])
         }),
       )
       processListeners.push([signal, listener])

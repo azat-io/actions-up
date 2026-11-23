@@ -1,7 +1,8 @@
 import { basename, dirname, resolve, join } from 'node:path'
-import { realpath, readlink } from 'node:fs/promises'
+import { readlink } from 'node:fs/promises'
 
 import type { WorkflowLockfile } from '../../types/workflow-lockfile'
+import type { LockedFile } from '../../types/locked-file'
 import type { ScanResult } from '../../types/scan-result'
 
 import { readEnclosingLockfiles } from '../lockfile/read-enclosing-lockfiles'
@@ -12,11 +13,18 @@ import { findRepositoryRoot } from '../fs/find-repository-root'
 import { scanGitHubActions } from '../scan-github-actions'
 import { mergeScanResults } from './merge-scan-results'
 import { scanRecursive } from '../scan-recursive'
+import { toRealPath } from '../fs/to-real-path'
 
 /**
  * Everything a repository scan found.
  */
 interface RepositoryScan {
+  /**
+   * Scanned files whose actions a workflow lockfile pins, as the scan names
+   * them, each with the lockfiles that pin them.
+   */
+  lockedFiles: Map<string, LockedFile[]>
+
   /**
    * Workflow lockfiles that may pin what the scanned files run, ordered by
    * path.
@@ -68,10 +76,13 @@ interface ScanRepositoryOptions {
  *
  * Every reference whose commit a workflow lockfile pins is marked as locked,
  * whichever repository its file belongs to, since writing it would leave that
- * lockfile stale.
+ * lockfile stale. Its file is listed with the lockfiles that pin it and the
+ * workflows under which each records what it runs, so that the lockfiles can be
+ * regenerated for it.
  *
  * @param options - Where to look.
- * @returns The scanned directories, what they hold and the lockfiles found.
+ * @returns The scanned directories, what they hold, the lockfiles found and the
+ *   files they pin.
  */
 export async function scanRepository(
   options: ScanRepositoryOptions,
@@ -114,26 +125,102 @@ export async function scanRepository(
 
   /**
    * Entries are changed in place, so the workflow map of the scan result, which
-   * holds the same entries as its action list, shows the changes too.
+   * holds the same entries as its action list, shows the changes too. Every
+   * locked action of a file is pinned by the same lockfiles, so the first one
+   * lists the file.
    */
+  let lockedFiles = new Map<string, LockedFile[]>()
   for (let action of scanResult.actions) {
     if (action.file !== undefined) {
       let paths = names.get(action.file)!
-      if (
-        lockfiles.some(lockfile =>
-          paths.some(file => isLockedReference(lockfile, { ...action, file })),
-        )
-      ) {
+      let pinning = lockfiles.filter(lockfile =>
+        paths.some(file => isLockedReference(lockfile, { ...action, file })),
+      )
+      if (pinning.length > 0) {
         action.locked = true
+        if (!lockedFiles.has(action.file)) {
+          lockedFiles.set(
+            action.file,
+            pinning.map(lockfile => ({
+              workflows: findKeys(lockfile, paths),
+              lockfile,
+            })),
+          )
+        }
       }
     }
   }
 
   return {
     directories: directories.map(({ root, dir }) => resolve(root, dir)),
+    lockedFiles,
     scanResult,
     lockfiles,
   }
+}
+
+/**
+ * Find the keys of the tracked workflows under which a lockfile records what a
+ * scanned file runs: the file itself when the lockfile tracks it as a workflow,
+ * and the workflows that run it when it defines an action of the repository.
+ *
+ * The lockfile has to record the action under each workflow that runs it: a
+ * workflow that runs it only through `./` would still check the remote actions
+ * it runs against what the lockfile pinned before, once the others are
+ * relocked. And none of those workflows may run remote actions the lockfile
+ * does not record for it, as through `./` alone or through a composite action
+ * whose kind is not written in lower case, whose steps gh-actions-lock does not
+ * read: a relock of it drops the pins of references it no longer runs itself,
+ * which such an action may still run. Nor may any of them run, through a `./`
+ * or `../` reference, an action that runs remote actions, even one it also
+ * reaches through `$/`: gh-actions-lock records nothing for such a reference,
+ * and refuses to relock the workflow when the reference is written in it or in
+ * an action of the repository it reads.
+ *
+ * Which actions the workflows run has to be known for that, so a lockfile that
+ * cannot be read, or whose workflows cannot all be traced, has its own
+ * workflows relocked for nothing either: one of them may run remote actions
+ * through `./`.
+ *
+ * @param lockfile - Lockfile that pins what the file runs.
+ * @param names - Names the file goes by, ending with its real path.
+ * @returns The keys, as the lockfile names them, or null when there are none,
+ *   when a workflow runs the file without the lockfile recording what it runs,
+ *   when one of the workflows runs remote actions the lockfile does not record
+ *   for it, or any through `./`, or when the lockfile or what its workflows run
+ *   cannot be read.
+ */
+function findKeys(
+  lockfile: WorkflowLockfile,
+  names: string[],
+): string[] | null {
+  let { unfollowed, reached, keys } = lockfile
+  if (reached === null || unfollowed === null || keys === null) {
+    return null
+  }
+  let runs = names.flatMap(name => [...(reached.get(name) ?? [])])
+  if (runs.some(([, recorded]) => !recorded)) {
+    return null
+  }
+  let recording = new Set([...names, ...runs.map(([workflow]) => workflow)])
+  let local =
+    !recording.isDisjointFrom(unfollowed) ||
+    reached
+      .values()
+      .some(definition =>
+        definition
+          .entries()
+          .some(([workflow, recorded]) => !recorded && recording.has(workflow)),
+      )
+  if (local) {
+    return null
+  }
+  let found = keys
+    .entries()
+    .filter(([, path]) => recording.has(path))
+    .map(([key]) => key)
+    .toArray()
+  return found.length > 0 ? found : null
 }
 
 /**
@@ -142,14 +229,18 @@ export async function scanRepository(
  * A file found through symbolic links is written through them, so it is matched
  * under each name on the way: where it was found, every link it leads through
  * and the file it is in the end. Each name is taken in the real path of its
- * directory, the way a lockfile names the files it pins.
+ * directory, the way a lockfile names the files it pins. A link names its
+ * target from the directory the link is in, so a relative target is resolved
+ * against the real path of that directory, not against the path the link was
+ * found through, which may lead through links of its own.
  *
  * @param file - Absolute path of a scanned file, or of a link it leads through.
  * @param links - Links followed so far.
  * @returns The names, in the order the links are followed.
  */
 async function findNames(file: string, links = 0): Promise<string[]> {
-  let name = join(await toRealPath(dirname(file)), basename(file))
+  let directory = await toRealPath(dirname(file))
+  let name = join(directory, basename(file))
   let target: string
 
   try {
@@ -159,20 +250,6 @@ async function findNames(file: string, links = 0): Promise<string[]> {
   }
 
   return links < MAX_SYMBOLIC_LINKS ?
-      [name, ...(await findNames(resolve(dirname(file), target), links + 1))]
+      [name, ...(await findNames(resolve(directory, target), links + 1))]
     : [name]
-}
-
-/**
- * Resolve the symbolic links of a path.
- *
- * @param path - Absolute path.
- * @returns Real path, or the path as given when it cannot be resolved.
- */
-async function toRealPath(path: string): Promise<string> {
-  try {
-    return await realpath(path)
-  } catch {
-    return path
-  }
 }

@@ -1,3 +1,4 @@
+import { SIGNAL_EXIT_CODES, STOP_SIGNALS } from '../core/constants'
 import { isInteractiveTerminal } from './is-interactive-terminal'
 import { isUnicodeSupported } from './is-unicode-supported'
 import { countTerminalRows } from './count-terminal-rows'
@@ -49,15 +50,6 @@ const ERASE_LINE = '\u{1B}[2K\u{1B}[1G'
 const MOVE_UP = '\u{1B}[1A'
 
 /**
- * Signals that end the process while the spinner runs, with the exit codes a
- * shell reports for them.
- */
-const SIGNAL_EXIT_CODES: [signal: NodeJS.Signals, code: number][] = [
-  ['SIGINT', 130],
-  ['SIGTERM', 143],
-]
-
-/**
  * Progress indicator shown while the CLI scans files and checks for updates.
  */
 export interface Spinner {
@@ -89,12 +81,25 @@ export interface Spinner {
  * In an interactive terminal the spinner redraws its row every 50 ms with the
  * cursor hidden. Elsewhere it prints its text once when it starts and the final
  * line when it stops. While it runs, SIGINT and SIGTERM erase it and show the
- * cursor before the process exits.
+ * cursor before the process exits. A spinner over work that must finish its own
+ * way, such as a child process that writes files, can leave the exit to the
+ * caller instead: the signal then only erases it, or replaces it with a line
+ * that says what the run waits for.
  *
  * @param text - Message next to the animation.
+ * @param options - How the spinner behaves.
+ * @param options.exitOnSignal - Whether SIGINT and SIGTERM end the process.
+ *   Defaults to true.
+ * @param options.waitText - Line printed in place of the frame when a signal
+ *   arrives and the process goes on; nothing is printed when it is omitted.
  * @returns Controls of the spinner.
  */
-export function createSpinner(text: string): Spinner {
+export function createSpinner(
+  text: string,
+  options: { exitOnSignal?: boolean; waitText?: string } = {},
+): Spinner {
+  let exitOnSignal = options.exitOnSignal ?? true
+  let { waitText } = options
   let stream = process.stderr
   let isInteractive = isInteractiveTerminal()
   let isUnicode = isUnicodeSupported()
@@ -151,7 +156,7 @@ export function createSpinner(text: string): Spinner {
 
   let spinner: Spinner = {
     start() {
-      for (let [signal, code] of SIGNAL_EXIT_CODES) {
+      for (let signal of STOP_SIGNALS) {
         let listener: () => void
         /**
          * The listener is written right in the call: unicorn/no-process-exit
@@ -160,8 +165,14 @@ export function createSpinner(text: string): Spinner {
         process.on(
           signal,
           (listener = () => {
-            stop('')
-            process.exit(code)
+            stop(
+              exitOnSignal || waitText === undefined ?
+                ''
+              : `${colors.gray(waitText)}\n`,
+            )
+            if (exitOnSignal) {
+              process.exit(SIGNAL_EXIT_CODES[signal])
+            }
           }),
         )
         signalListeners.push([signal, listener])

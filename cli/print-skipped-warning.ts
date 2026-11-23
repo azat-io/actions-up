@@ -1,25 +1,115 @@
+import { relative } from 'node:path'
+
+import type { WorkflowLockfile } from '../types/workflow-lockfile'
+import type { RelockBlocker } from '../types/relock-blocker'
 import type { ActionUpdate } from '../types/action-update'
 import type { UpdateStyle } from '../types/update-style'
+import type { LockTool } from '../types/lock-tool'
 
+import { formatRelockCommand } from '../core/lockfile/relock-workflows'
+import { MIN_LOCK_TOOL_VERSION } from '../core/constants'
 import { groupByIdentifier } from './group-by-identifier'
 import { colors } from '../core/interactive/colors'
+
+/**
+ * Skipped entry, as the CLI hands it to the printer.
+ */
+interface SkippedEntry {
+  /**
+   * The reference as the scan found it.
+   */
+  action: {
+    version?: string | null
+    file?: string
+    uses?: string
+    name: string
+  }
+
+  /**
+   * Why the entry was skipped.
+   */
+  skipReason?: ActionUpdate['skipReason']
+
+  /**
+   * Version the entry is at.
+   */
+  currentVersion: string | null
+
+  /**
+   * Reference the update would have written.
+   */
+  targetRef?: string | null
+}
+
+/**
+ * What to do so that gh-actions-lock can regenerate the lockfiles that pin the
+ * skipped actions, or why it was not looked for, by why it cannot be run.
+ */
+const LOCK_TOOL_HINTS: Record<Exclude<LockTool, 'available'>, string> = {
+  'no-gh':
+    'install the GitHub CLI from https://cli.github.com and run gh extension install github/gh-actions-lock to update them',
+  outdated: `run gh extension upgrade gh-actions-lock --force to update them; v${MIN_LOCK_TOOL_VERSION} or later is needed`,
+  unauthenticated:
+    'run gh auth login or set GH_TOKEN, so that gh can run gh-actions-lock, to update them',
+  unlisted:
+    'gh could not list its extensions, so gh-actions-lock was not looked for',
+  missing: 'run gh extension install github/gh-actions-lock to update them',
+}
+
+/**
+ * Why the lockfiles that pin an action cannot be regenerated for it, as the
+ * warning puts it, in the order the warning lists them.
+ */
+const LOCKFILE_SKIP_REASONS: [blocker: RelockBlocker, reason: string][] = [
+  [
+    'unreadable',
+    'pinned by a workflow lockfile that cannot be regenerated for them, since it, a workflow it tracks or an action of the repository cannot be read',
+  ],
+  [
+    'unrecorded',
+    'in workflows that run actions through ./ or composite actions whose runs.using is not in lower case, or in the actions they run, which gh actions-lock does not lock (for an action of the repository change ./ to $/, which gh actions-lock --migrate-local-actions does in workflows, not in action files; write runs.using: composite in lower case; an action that is checked out while the workflow runs cannot be locked)',
+  ],
+  [
+    'shared',
+    'pinned by the workflow lockfiles of more than one repository root, which Actions Up does not regenerate together',
+  ],
+]
 
 /**
  * Prints a warning message for actions that were skipped during scanning.
  *
  * @param skipped - Array of skipped actions with their current versions.
- * @param includeBranches - Whether branch-pinned actions are being checked.
- * @param style - Effective update style for the current run.
+ * @param options - What the run checked and how.
+ * @param options.includeBranches - Whether branch-pinned actions are being
+ *   checked.
+ * @param options.style - Effective update style for the current run.
+ * @param options.lockTool - Whether gh-actions-lock can regenerate workflow
+ *   lockfiles, and why not, when the run looked for it. A tool that cannot be
+ *   run is why the updates the lockfiles pin were skipped, unless they cannot
+ *   be regenerated anyway.
+ * @param options.relockBlockers - Scanned files whose lockfiles cannot all be
+ *   regenerated for them, each with why.
+ * @param options.lockfiles - Lockfile that can be regenerated for each scanned
+ *   file it pins, by the file, as the scan names it; it holds the file of each
+ *   entry skipped because writing it could move its workflow back.
  */
 export function printSkippedWarning(
-  skipped: {
-    action: { version?: string | null; uses?: string; name: string }
-    skipReason?: ActionUpdate['skipReason']
-    currentVersion: string | null
-  }[],
-  includeBranches: boolean,
-  style: UpdateStyle,
+  skipped: SkippedEntry[],
+  options: {
+    relockBlockers?: Map<string, RelockBlocker>
+    lockfiles?: Map<string, WorkflowLockfile>
+    lockTool?: LockTool | null
+    includeBranches: boolean
+    style: UpdateStyle
+  },
 ): void {
+  let {
+    relockBlockers = new Map<string, RelockBlocker>(),
+    lockfiles = new Map<string, WorkflowLockfile>(),
+    includeBranches,
+    lockTool,
+    style,
+  } = options
   let branchSkipped = skipped.filter(
     update => update.skipReason === 'branch' || update.skipReason === undefined,
   )
@@ -53,6 +143,9 @@ export function printSkippedWarning(
   let lockfileSkipped = skipped.filter(
     update => update.skipReason === 'lockfile',
   )
+  let lockfileKeptSkipped = skipped.filter(
+    update => update.skipReason === 'lockfile-kept',
+  )
   let lockfileUncheckedSkipped = skipped.filter(
     update => update.skipReason === 'lockfile-unchecked',
   )
@@ -70,6 +163,7 @@ export function printSkippedWarning(
     'unsupported-style',
     'not-comparable',
     'sha-unresolved',
+    'lockfile-kept',
     'check-failed',
     'tag-family',
     'not-found',
@@ -154,12 +248,27 @@ export function printSkippedWarning(
     )
   }
 
-  if (lockfileSkipped.length > 0) {
+  let blockedSkipped = Map.groupBy(
+    lockfileSkipped,
+    update => relockBlockers.get(update.action.file ?? '') ?? null,
+  )
+  let toolSkipped = blockedSkipped.get(null) ?? []
+  if (toolSkipped.length > 0) {
     printSkippedGroup(
-      lockfileSkipped,
-      'pinned by a workflow lockfile (update them and regenerate .github/workflows/actions.lock with gh actions-lock)',
+      toolSkipped,
+      lockTool && lockTool !== 'available' ?
+        `pinned by a workflow lockfile (${LOCK_TOOL_HINTS[lockTool]})`
+      : 'pinned by a workflow lockfile',
     )
   }
+  for (let [blocker, reason] of LOCKFILE_SKIP_REASONS) {
+    let group = blockedSkipped.get(blocker) ?? []
+    if (group.length > 0) {
+      printSkippedGroup(group, reason)
+    }
+  }
+
+  printKeptPinGroups(lockfileKeptSkipped, lockfiles)
 
   if (lockfileUncheckedSkipped.length > 0) {
     printSkippedGroup(
@@ -170,6 +279,91 @@ export function printSkippedWarning(
 
   if (otherSkipped.length > 0) {
     printSkippedGroup(otherSkipped, 'that could not be checked')
+  }
+}
+
+/**
+ * Print the entries skipped because writing them could move their workflows
+ * back, in a group for each reference they would be written as, with the
+ * command that moves the pin the lockfile has for it forward.
+ *
+ * @param skipped - Entries skipped for that reason.
+ * @param lockfiles - Lockfile that can be regenerated for each scanned file it
+ *   pins, by the file.
+ */
+function printKeptPinGroups(
+  skipped: SkippedEntry[],
+  lockfiles: Map<string, WorkflowLockfile>,
+): void {
+  let groups = new Map<
+    string,
+    { updates: SkippedEntry[]; command: string | null; reference: string }
+  >()
+  for (let update of skipped) {
+    let { reference, command } = describeKeptPin(update, lockfiles)
+    let key = `${reference} ${command}`
+    let group = groups.get(key) ?? { updates: [], reference, command }
+    group.updates.push(update)
+    groups.set(key, group)
+  }
+
+  for (let { reference, updates, command } of groups.values()) {
+    printSkippedGroup(
+      updates,
+      `whose update may move the workflow back: the workflow lockfile pins ${reference}, the reference it writes, for other workflows at a commit not known to be newer than the one the workflow runs`,
+    )
+    if (command !== null) {
+      console.info(
+        colors.gray(
+          '   This moves the pin forward for every workflow that uses it, along with each other reference of these workflows that moved, without the cool-down and trust checks:',
+        ),
+      )
+      console.info(colors.gray(`   ${command}`))
+    }
+  }
+}
+
+/**
+ * Name the reference an entry would have written, had writing it not risked
+ * moving its workflow back, and write the command that moves forward the pin
+ * its lockfile already has for that reference.
+ *
+ * The command relocks the workflows the lockfile pins the reference for, since
+ * the workflow of the entry does not run it yet.
+ *
+ * @param update - Entry skipped for that reason.
+ * @param lockfiles - Lockfile that can be regenerated for each scanned file it
+ *   pins, by the file.
+ * @returns The reference, `owner/repo@ref`, and the command, null when the
+ *   lockfile pins the reference for no workflow.
+ */
+function describeKeptPin(
+  update: SkippedEntry,
+  lockfiles: Map<string, WorkflowLockfile>,
+): { command: string | null; reference: string } {
+  let name = update.action.name.split('/', 2).join('/')
+  let reference = `${name}@${update.targetRef}`
+
+  /**
+   * An entry is skipped this way only once its lockfile was read.
+   */
+  let lockfile = lockfiles.get(update.action.file!)!
+  let key = `${name.toLowerCase()}@${update.targetRef}`
+  let workflows = lockfile
+    .pins!.entries()
+    .filter(([, keys]) => keys.includes(key))
+    .map(([workflow]) => workflow)
+    .toArray()
+    .toSorted()
+
+  return {
+    command:
+      workflows.length > 0 ?
+        formatRelockCommand(workflows, relative(process.cwd(), lockfile.root), {
+          relock: true,
+        })
+      : null,
+    reference,
   }
 }
 

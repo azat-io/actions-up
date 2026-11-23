@@ -4,6 +4,7 @@ import type {
 } from '../api/get-compatible-update'
 import type { CandidateAssessment } from '../../types/candidate-assessment'
 import type { UpdatePlanStatus, UpdatePlan } from '../../types/update-plan'
+import type { GitHubClient } from '../../types/github-client'
 import type { ActionUpdate } from '../../types/action-update'
 import type { UpdateStyle } from '../../types/update-style'
 import type { HoldReason } from '../../types/hold-reason'
@@ -29,6 +30,21 @@ import { isSha } from '../versions/is-sha'
  * Policy a plan applies to the scanned entries.
  */
 interface CreateUpdatePlanOptions {
+  /**
+   * Whether the workflow lockfiles that pin a locked action can be regenerated
+   * once its update, with the reference it writes resolved, is written. Such an
+   * update is then planned like any other; by default it is skipped, since
+   * writing it would leave a lockfile stale. `kept` means that they can, but
+   * the relock would keep a commit the lockfile already pins for the reference
+   * the update writes, which could move the workflow back from the commit it
+   * runs, so the update is skipped as well. It gets the client the plan checks
+   * with, to compare commits.
+   */
+  canRelock?(
+    update: ActionUpdate,
+    client: GitHubClient,
+  ): Promise<boolean | 'kept'>
+
   /**
    * Patterns of actions that skip the cool-down but still follow the mode.
    */
@@ -116,6 +132,8 @@ export async function createUpdatePlan(
 ): Promise<UpdatePlan> {
   let { includeBranches, minAgeExcludes, preferTags, excludes, style, mode } =
     options
+  let canRelock =
+    options.canRelock ?? ((): Promise<boolean> => Promise.resolve(false))
 
   /**
    * Runner labels ride along in the scan result but resolve from a local table,
@@ -491,21 +509,33 @@ export async function createUpdatePlan(
   /**
    * An update whose resolved target matches the current reference is a no-op
    * and is dropped, and one whose target the style cannot express is skipped.
-   * So is one to a reference whose commit a workflow lockfile pins: writing it
-   * would leave the lockfile stale, and Actions Up does not regenerate it. A
-   * no-op of such a reference is skipped as well when it names a tag rather
-   * than a commit, because the lockfile may pin an older commit of that tag,
-   * and Actions Up does not read which. An update that stepped down past a
-   * version whose commit failed a trust check is reported as held back for it
-   * instead of the no-op or the skip: the newest version is what the run was
-   * asked about, and the finding must not vanish with the update.
+   * So is one to a reference whose commit a workflow lockfile pins, unless the
+   * lockfile can be regenerated once it is written: otherwise writing it would
+   * leave the lockfile stale. It is skipped too when the relock would keep a
+   * commit the lockfile pins for the new reference that could move the workflow
+   * back from the commit it runs. A no-op of such a reference is skipped as
+   * well when it names a tag rather than a commit, because the lockfile may pin
+   * an older commit of that tag, and Actions Up does not read which. An update
+   * that stepped down past a version whose commit failed a trust check is
+   * reported as held back for it instead of the no-op or the skip: the newest
+   * version is what the run was asked about, and the finding must not vanish
+   * with the update.
    */
-  outdated = []
-  for (let { heldForTrust, update } of resolvedDecisions) {
-    let changed =
-      Boolean(update.targetRef) && update.targetRef !== update.action.version
+  let relockDecisions = await Promise.all(
+    resolvedDecisions.map(async ({ heldForTrust, update }) => {
+      let changed =
+        Boolean(update.targetRef) && update.targetRef !== update.action.version
+      let relock =
+        changed && update.action.locked ?
+          await canRelock(update, githubClient)
+        : true
+      return { heldForTrust, changed, relock, update }
+    }),
+  )
 
-    if (changed && !update.action.locked) {
+  outdated = []
+  for (let { heldForTrust, changed, relock, update } of relockDecisions) {
+    if (changed && relock === true) {
       outdated.push(update)
     } else if (heldForTrust) {
       blockedByTrust.push(heldForTrust)
@@ -519,7 +549,7 @@ export async function createUpdatePlan(
     } else if (changed) {
       skipped.push({
         ...update,
-        skipReason: 'lockfile',
+        skipReason: relock === 'kept' ? 'lockfile-kept' : 'lockfile',
         status: 'skipped',
         hasUpdate: false,
       })

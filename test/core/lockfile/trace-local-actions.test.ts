@@ -104,14 +104,414 @@ describe('traceLocalActions', () => {
       [LINT_ACTION]: makeActionText('actions/cache@v4'),
     })
 
-    let reached = await traceLocalActions(
+    let { unfollowed, reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, DOCS_WORKFLOW, CI_WORKFLOW]),
     )
 
-    expect(reached).toStrictEqual(new Set([SETUP_ACTION, LINT_ACTION]))
+    expect(reached).toStrictEqual(
+      new Map([
+        [
+          LINT_ACTION,
+          new Map([
+            [RELEASE_WORKFLOW, false],
+            [CI_WORKFLOW, true],
+          ]),
+        ],
+        [SETUP_ACTION, new Map([[CI_WORKFLOW, true]])],
+      ]),
+    )
+    expect(unfollowed).toStrictEqual(new Set([RELEASE_WORKFLOW]))
     expect(readFile).toHaveBeenCalledTimes(5)
   })
+
+  it('records an action only under the workflows that reach it through $/ references alone', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: makeActionText('./tools/lint', '../repo/tools/lint'),
+      [RELEASE_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+      [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+      [DOCS_WORKFLOW]: makeWorkflowText('$/tools/lint'),
+      [LINT_ACTION]: makeActionText('actions/cache@v4'),
+    })
+
+    let { unfollowed, reached } = await traceLocalActions(
+      '/repo',
+      new Set([RELEASE_WORKFLOW, DOCS_WORKFLOW, CI_WORKFLOW]),
+    )
+
+    expect(reached).toStrictEqual(
+      new Map([
+        [
+          LINT_ACTION,
+          new Map([
+            [RELEASE_WORKFLOW, false],
+            [DOCS_WORKFLOW, true],
+            [CI_WORKFLOW, false],
+          ]),
+        ],
+        [SETUP_ACTION, new Map([[CI_WORKFLOW, true]])],
+      ]),
+    )
+    expect(unfollowed).toStrictEqual(new Set([RELEASE_WORKFLOW, CI_WORKFLOW]))
+  })
+
+  it('lists a workflow that runs an action through ./ from an action it runs through $/, though it also runs that action through $/ itself', async () => {
+    installFileSystem({
+      [CI_WORKFLOW]: makeWorkflowText(
+        '$/.github/actions/build',
+        '$/.github/actions/setup',
+      ),
+      '/repo/.github/actions/build/action.yml': makeActionText(
+        './.github/actions/setup',
+      ),
+      [SETUP_ACTION]: makeActionText('actions/setup-node@v4'),
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({
+      reached: new Map([
+        [
+          '/repo/.github/actions/build/action.yml',
+          new Map([[CI_WORKFLOW, true]]),
+        ],
+        [SETUP_ACTION, new Map([[CI_WORKFLOW, true]])],
+      ]),
+      unfollowed: new Set([CI_WORKFLOW]),
+      unreadable: null,
+    })
+  })
+
+  it('does not record what an action runs for a workflow that reaches it through $/ from an action it runs through ./', async () => {
+    installFileSystem({
+      [RELEASE_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+      [LINT_ACTION]: makeActionText('actions/cache@v4'),
+      [SETUP_ACTION]: makeActionText('$/tools/lint'),
+    })
+
+    let { reached } = await traceLocalActions(
+      '/repo',
+      new Set([RELEASE_WORKFLOW]),
+    )
+
+    expect(reached).toStrictEqual(
+      new Map([[LINT_ACTION, new Map([[RELEASE_WORKFLOW, false]])]]),
+    )
+  })
+
+  it('lists a workflow that runs an action only through ./ when the action runs remote actions alone', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: makeActionText('docker://alpine:3', './tools/lint'),
+      [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+      [LINT_ACTION]: makeActionText('actions/cache@v4'),
+    })
+
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(reached).toStrictEqual(
+      new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+    )
+  })
+
+  it.each([
+    {
+      definition: [
+        'runs:',
+        '  using: node20',
+        '  main: index.js',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ],
+      action: 'a node action, whatever steps it holds',
+    },
+    {
+      definition: [
+        'runs:',
+        '  using: composite',
+        '  steps:',
+        '    - uses: docker://alpine:3',
+        '      with:',
+        '        uses: actions/cache@v4',
+        '    - echo',
+        '    - uses: 3',
+        '',
+      ],
+      action: 'a composite action whose remote reference is an input',
+    },
+    {
+      definition: [
+        'runs:',
+        '  using: composite',
+        '  steps:',
+        '    uses: actions/cache@v4',
+        '',
+      ],
+      action: 'a composite action whose steps are no list',
+    },
+    {
+      definition: [
+        'runs:',
+        '  using: 3',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ],
+      action: 'an action whose kind is no text',
+    },
+    {
+      definition: ['name: Setup', 'uses: actions/cache@v4', ''],
+      action: 'an action without runs',
+    },
+    {
+      definition: ['- uses: actions/cache@v4', ''],
+      action: 'a definition that is no mapping',
+    },
+  ])(
+    'does not list a workflow that runs through ./ $action, which runs no remote action',
+    async ({ definition }) => {
+      installFileSystem({
+        [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+        [SETUP_ACTION]: definition.join('\n'),
+      })
+
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+      expect(traced).toStrictEqual({
+        unfollowed: new Set(),
+        reached: new Map(),
+        unreadable: null,
+      })
+    },
+  )
+
+  it('does not record a node action a workflow reaches through $/, whatever steps it holds, since it runs none', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: node24',
+        '  main: index.js',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+    })
+
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(reached).toStrictEqual(new Map())
+  })
+
+  it('does not record what a composite action whose kind is written in another case runs for a workflow that reaches it through $/, since gh-actions-lock does not read its steps', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: Composite',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '    - uses: $/tools/lint',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+      [LINT_ACTION]: makeActionText('actions/setup-node@v4'),
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({
+      reached: new Map([
+        [SETUP_ACTION, new Map([[CI_WORKFLOW, false]])],
+        [LINT_ACTION, new Map([[CI_WORKFLOW, false]])],
+      ]),
+      unfollowed: new Set(),
+      unreadable: null,
+    })
+  })
+
+  it('reads the steps of a composite action whose kind is written in another case, as the runner runs them', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: Composite',
+        '  steps:',
+        '    - uses: actions/cache@v4',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({
+      reached: new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+      unfollowed: new Set([CI_WORKFLOW]),
+      unreadable: null,
+    })
+  })
+
+  it('lists a workflow that runs an action through ./ from a composite action whose kind is written in another case, whose steps the runner runs', async () => {
+    installFileSystem({
+      [SETUP_ACTION]: [
+        'runs:',
+        '  using: Composite',
+        '  steps:',
+        '    - uses: ./tools/lint',
+        '',
+      ].join('\n'),
+      [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+      [LINT_ACTION]: makeActionText('actions/cache@v4'),
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({
+      reached: new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, false]])]]),
+      unfollowed: new Set([CI_WORKFLOW]),
+      unreadable: null,
+    })
+  })
+
+  it('lists a workflow that runs through ./ an action the repository does not hold', async () => {
+    installFileSystem({
+      [CI_WORKFLOW]: makeWorkflowText(
+        './tools/checked-out',
+        './tools/empty',
+        './.github/workflows/reusable.yml',
+        './tools/container',
+        './tools/legacy-container',
+        '$/tools/missing',
+      ),
+      '/repo/tools/empty/readme.md': 'Filled while the workflow runs',
+      '/repo/.github/workflows/reusable.yml': makeWorkflowText('$/'),
+      '/repo/tools/legacy-container/dockerfile': 'FROM alpine:3\n',
+      '/repo/tools/container/Dockerfile': 'FROM alpine:3\n',
+    })
+
+    let { unfollowed, reached } = await traceLocalActions(
+      '/repo',
+      new Set([CI_WORKFLOW]),
+    )
+
+    expect(reached).toStrictEqual(
+      new Map([
+        ['/repo/tools/checked-out/action.yml', new Map([[CI_WORKFLOW, false]])],
+        ['/repo/tools/empty/action.yml', new Map([[CI_WORKFLOW, false]])],
+      ]),
+    )
+    expect(unfollowed).toStrictEqual(new Set([CI_WORKFLOW]))
+  })
+
+  it.each([
+    {
+      reference: 'a ./ reference of the workflow',
+      workflow: './../outside',
+      reached: new Map(),
+    },
+    {
+      reference: 'a ../ reference of the workflow',
+      workflow: '../outside',
+      reached: new Map(),
+    },
+    {
+      reached: new Map([[SETUP_ACTION, new Map([[CI_WORKFLOW, true]])]]),
+      reference: 'a ../ reference of an action it runs through $/',
+      workflow: '$/.github/actions/setup',
+    },
+  ])(
+    'lists a workflow when $reference names an action outside the repository, which may run any, without reading it',
+    async ({ workflow, reached }) => {
+      installFileSystem({
+        '/outside/action.yml': makeActionText('docker://alpine:3'),
+        [SETUP_ACTION]: makeActionText('../outside'),
+        [CI_WORKFLOW]: makeWorkflowText(workflow),
+      })
+
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+      expect(traced).toStrictEqual({
+        unfollowed: new Set([CI_WORKFLOW]),
+        unreadable: null,
+        reached,
+      })
+    },
+  )
+
+  it('records an action for a workflow that reaches it through $/ after reaching it through ./', async () => {
+    installFileSystem({
+      [RELEASE_WORKFLOW]: makeWorkflowText(
+        './tools/lint',
+        '$/.github/actions/setup',
+      ),
+      [LINT_ACTION]: makeActionText('actions/cache@v4'),
+      [CI_WORKFLOW]: makeWorkflowText('$/tools/lint'),
+      [SETUP_ACTION]: makeActionText('$/tools/lint'),
+    })
+
+    let { reached } = await traceLocalActions(
+      '/repo',
+      new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
+    )
+
+    expect(reached).toStrictEqual(
+      new Map([
+        [
+          LINT_ACTION,
+          new Map([
+            [RELEASE_WORKFLOW, true],
+            [CI_WORKFLOW, true],
+          ]),
+        ],
+        [SETUP_ACTION, new Map([[RELEASE_WORKFLOW, true]])],
+      ]),
+    )
+  })
+
+  it.each([
+    ['$/ first', ['$/tools/lint', './tools/lint']],
+    ['./ first', ['./tools/lint', '$/tools/lint']],
+  ])(
+    'records an action that one list of references reaches both ways, %s, and lists the workflow for its ./ reference',
+    async (_order, references) => {
+      installFileSystem({
+        [LINT_ACTION]: makeActionText('actions/setup-node@v4'),
+        [CI_WORKFLOW]: makeWorkflowText(...references),
+      })
+
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+      expect(traced).toStrictEqual({
+        reached: new Map([[LINT_ACTION, new Map([[CI_WORKFLOW, true]])]]),
+        unfollowed: new Set([CI_WORKFLOW]),
+        unreadable: null,
+      })
+    },
+  )
+
+  it.each([
+    ['$/ first', ['$/.github/actions/setup', './tools/other']],
+    ['./ first', ['./tools/other', '$/.github/actions/setup']],
+  ])(
+    'records an action two actions run, one reached through $/ and one through ./, with %s, and does not list the workflow, whose ./ action runs remote actions only through $/',
+    async (_order, references) => {
+      installFileSystem({
+        '/repo/tools/other/action.yml': makeActionText('$/tools/lint'),
+        [LINT_ACTION]: makeActionText('actions/cache@v4'),
+        [CI_WORKFLOW]: makeWorkflowText(...references),
+        [SETUP_ACTION]: makeActionText('$/tools/lint'),
+      })
+
+      let { unfollowed, reached } = await traceLocalActions(
+        '/repo',
+        new Set([CI_WORKFLOW]),
+      )
+
+      expect(reached?.get(LINT_ACTION)).toStrictEqual(
+        new Map([[CI_WORKFLOW, true]]),
+      )
+      expect(unfollowed).toStrictEqual(new Set())
+    },
+  )
 
   it('follows a local reference back to the action at the root of the repository', async () => {
     installFileSystem({
@@ -120,9 +520,14 @@ describe('traceLocalActions', () => {
       [SETUP_ACTION]: makeActionText('$/'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toStrictEqual(new Set(['/repo/action.yml', SETUP_ACTION]))
+    expect(reached).toStrictEqual(
+      new Map([
+        ['/repo/action.yml', new Map([[CI_WORKFLOW, true]])],
+        [SETUP_ACTION, new Map([[CI_WORKFLOW, true]])],
+      ]),
+    )
   })
 
   it('names an action by the real path of its definition', async () => {
@@ -132,9 +537,13 @@ describe('traceLocalActions', () => {
       [CI_WORKFLOW]: makeWorkflowText('./.github/actions/setup'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toStrictEqual(new Set(['/repo/shared/setup/action.yml']))
+    expect(reached).toStrictEqual(
+      new Map([
+        ['/repo/shared/setup/action.yml', new Map([[CI_WORKFLOW, false]])],
+      ]),
+    )
   })
 
   it.each([
@@ -150,6 +559,7 @@ describe('traceLocalActions', () => {
         '      - uses: *setup',
         '',
       ].join('\n'),
+      recording: new Map([[CI_WORKFLOW, false]]),
       reference: 'written through a YAML alias',
     },
     {
@@ -165,16 +575,17 @@ describe('traceLocalActions', () => {
         '',
       ].join('\n'),
       reference: 'in a parallel group of steps',
+      recording: new Map([[CI_WORKFLOW, true]]),
     },
-  ])('follows a reference $reference', async ({ text }) => {
+  ])('follows a reference $reference', async ({ recording, text }) => {
     installFileSystem({
       [SETUP_ACTION]: makeActionText('actions/cache@v4'),
       [CI_WORKFLOW]: text,
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let { reached } = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toStrictEqual(new Set([SETUP_ACTION]))
+    expect(reached).toStrictEqual(new Map([[SETUP_ACTION, recording]]))
   })
 
   it('reaches no action through a reference that leaves the repository or holds no definition', async () => {
@@ -190,9 +601,13 @@ describe('traceLocalActions', () => {
       '/outside/action.yml': makeActionText('actions/cache@v4'),
     })
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toStrictEqual(new Set())
+    expect(traced).toStrictEqual({
+      unfollowed: new Set(),
+      reached: new Map(),
+      unreadable: null,
+    })
   })
 
   it('ignores a tracked workflow that no longer exists', async () => {
@@ -200,12 +615,12 @@ describe('traceLocalActions', () => {
       [RELEASE_WORKFLOW]: makeWorkflowText('actions/checkout@v4'),
     })
 
-    let reached = await traceLocalActions(
+    let { reached } = await traceLocalActions(
       '/repo',
       new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
     )
 
-    expect(reached).toStrictEqual(new Set())
+    expect(reached).toStrictEqual(new Map())
   })
 
   it.each([
@@ -222,15 +637,62 @@ describe('traceLocalActions', () => {
       workflow: 'expands its aliases beyond reason',
     },
   ])(
-    'lets any action be reached when a tracked workflow $workflow',
+    'lets any action be reached when a tracked workflow $workflow, though another one can be read',
     async ({ entry }) => {
-      installFileSystem({ [CI_WORKFLOW]: entry })
+      installFileSystem({
+        [RELEASE_WORKFLOW]: makeWorkflowText('actions/checkout@v4'),
+        [CI_WORKFLOW]: entry,
+      })
 
-      let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let traced = await traceLocalActions(
+        '/repo',
+        new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
+      )
 
-      expect(reached).toBeNull()
+      expect(traced).toStrictEqual({
+        unreadable: CI_WORKFLOW,
+        unfollowed: null,
+        reached: null,
+      })
     },
   )
+
+  it('names the first workflow that cannot be read, in the order of the workflows', async () => {
+    installFileSystem({
+      [RELEASE_WORKFLOW]: 'jobs: [\n',
+      [CI_WORKFLOW]: 'jobs: [\n',
+    })
+
+    let traced = await traceLocalActions(
+      '/repo',
+      new Set([RELEASE_WORKFLOW, CI_WORKFLOW]),
+    )
+
+    expect(traced).toStrictEqual({
+      unreadable: RELEASE_WORKFLOW,
+      unfollowed: null,
+      reached: null,
+    })
+  })
+
+  it('names the first definition that cannot be read, in the order of the references', async () => {
+    installFileSystem({
+      [CI_WORKFLOW]: makeWorkflowText(
+        '$/.github/actions/setup',
+        '$/tools/lint',
+      ),
+      [SETUP_ACTION]: 'runs: [\n',
+      [LINT_ACTION]: 'runs: [\n',
+    })
+
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+
+    expect(traced).toStrictEqual({
+      unreadable: SETUP_ACTION,
+      unfollowed: null,
+      reached: null,
+    })
+  })
 
   it('lets any action be reached when the definition of a reached one cannot be looked for', async () => {
     installFileSystem({
@@ -249,25 +711,46 @@ describe('traceLocalActions', () => {
       : lookUp(path),
     )
 
-    let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+    let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-    expect(reached).toBeNull()
+    expect(traced).toStrictEqual({
+      unreadable: SETUP_ACTION,
+      unfollowed: null,
+      reached: null,
+    })
   })
 
   it.each([
-    { definition: 'cannot be read', entry: fakeUnreadableFile() },
-    { definition: 'is not valid YAML', entry: 'runs: [\n' },
+    {
+      reference: '$/.github/actions/setup',
+      definition: 'cannot be read',
+      entry: fakeUnreadableFile(),
+    },
+    {
+      reference: '$/.github/actions/setup',
+      definition: 'is not valid YAML',
+      entry: 'runs: [\n',
+    },
+    {
+      definition: 'reached through ./ is not valid YAML',
+      reference: './.github/actions/setup',
+      entry: 'runs: [\n',
+    },
   ])(
     'lets any action be reached when the definition of a reached one $definition',
-    async ({ entry }) => {
+    async ({ reference, entry }) => {
       installFileSystem({
-        [CI_WORKFLOW]: makeWorkflowText('$/.github/actions/setup'),
+        [CI_WORKFLOW]: makeWorkflowText(reference),
         [SETUP_ACTION]: entry,
       })
 
-      let reached = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
+      let traced = await traceLocalActions('/repo', new Set([CI_WORKFLOW]))
 
-      expect(reached).toBeNull()
+      expect(traced).toStrictEqual({
+        unreadable: SETUP_ACTION,
+        unfollowed: null,
+        reached: null,
+      })
     },
   )
 })
